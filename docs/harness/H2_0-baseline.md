@@ -40,8 +40,8 @@ Records (stories, reviews, decisions, audits, ledger rows, OPEN.md, handoffs) st
 | main-source guard | `.github/workflows/guard-main-source.yml` (only `staging`/`promote/*` into `main`) | **retired** — nothing enforces it now |
 | Deploys | `deploy-staging.yml`, `deploy-tapestry.yml`, `deploy-tags.yml`, `deploy-magic-carpet.yml` | **retired** — no automated deploy path |
 | Ledger | `ledger/*.md` rows (Opened/Done), OPEN.md roll-up, `/whats-open`, meta escalation | live |
-| Branch flow | feature → `staging` → `main` (promotion PR); `feat/tags` long-lived (`scripts/long-lived-branches.txt`) | convention only on ngit (open question 5) |
-| L0 enforcement | GitHub rulesets + `.github/CODEOWNERS` | **no longer applies** (see §4) |
+| Branch flow | feature → `staging` → `main` (promotion PR); `feat/tags` long-lived (`scripts/long-lived-branches.txt`) | carries over (Lead ruling, below); Tapestry Lead alone merges to `main` |
+| L0 enforcement | GitHub rulesets + `.github/CODEOWNERS` | **no longer applies**; replaced by the merge rule below (David, 2026-10-21 12:01 AM ET (relayed in chat by Chief of Staff (P0), not signed)) |
 
 ## 4. Move from GitHub to ngit
 - **Where the repo lives:** ngit (nostr), URL in §1, served from relay.ngit.dev and gitnostr.com.
@@ -56,7 +56,7 @@ Records (stories, reviews, decisions, audits, ledger rows, OPEN.md, handoffs) st
 - **CODEOWNERS and branch protection:** `.github/CODEOWNERS` and rulesets were enforced by GitHub
   only. On ngit, anyone with a maintainer key can push any branch, including `main`.
   **GitHub-based L0 enforcement (rulesets, CODEOWNERS) no longer applies.** Until open question 2
-  is answered, L0/L1 holds are enforced by agent discipline and review only.
+  was answered, L0/L1 holds had no enforcement. Now decided: see "Merging and L0/L1 holds".
 - **Writes** follow the infinite harness' `docs/guardrails.md` (rate caps, backoff, halt on
   suspension, log every write).
 
@@ -95,29 +95,68 @@ Six separate scores; **no composite**. Source: infinite-harness `docs/examples/t
 - Record David verbatim, with time (ET), channel, "signed" or "relayed, not signed", and the hold
   level or "no hold level stated".
 
+## Merging and L0/L1 holds (David's ruling)
+(David, 2026-10-21 12:01 AM ET (relayed in chat by Chief of Staff (P0), not signed)): "Same as Physics: Lead's key merges, Nous backup, L0/L1 need my OK". A ruling; no hold level stated.
+- Grawk Tapestry Lead alone merges to `main`, signing with its own key:
+  `npub1z5ff8zypsx2tz60py59jnh2r8fsyqagdt65xck2ylk2yrmfzdmdqsv2qyy`.
+- Nous (repo owner, `npub1zhma4lzxyjc7dvq2klux8hs62wm3je6jspcwclgcxlr6grquwfcq28ccgm`) is the
+  backup merger. No extra break-glass key (as physics).
+- Any change to an L0 or L1 item needs David's OK in chat **before** it is merged, recorded verbatim
+  with time (ET), channel and "signed" / "relayed, not signed".
+- Everyone else pushes only `pr/<agent>-…` branches (ngit proposals), signed with their own key
+  (`git -c nostr.signer=<npub> push`). Never print keys. Keys are attribution only: agents share one box.
+- This replaces CODEOWNERS and rulesets as the L0/L1 control. It is enforced by the Lead's merge
+  discipline, not by the host; the diff-audit (§5) checks it after the fact.
+
+## How the remaining questions are classified
+- **Follows from David's ruling**: a direct consequence of the 12:01 AM ruling; no new decision.
+- **Lead ruling**: operational, below L1, reversible, and does not change who decides or what an
+  L0/L1 item says. Marked "Lead ruling (Tapestry Lead, 2026-10-21)". David may overrule any of them.
+- **Open for David**: touches authority, signing, keys/maintainers, hold levels, the gate that
+  stands in for an L1 control, or what ships to production. Each carries a one-line recommendation.
+
 ## Open questions for David
-1. **P2 authority key.** Your straycat npub is recorded as authority for every project. Confirm it
-   for P2, and say whether P2 rulings must be signed (nostr) to count for L0/L1.
-2. **L0/L1 enforcement on ngit.** With no CODEOWNERS or rulesets, how are L0/L1 files (e.g.
-   README.md, BIBLE.md, CLAUDE.md, the harness-def paths) protected? Options: maintainer-only
-   push plus signed sign-off recorded in CHANGELOG; a pre-push/lint check; or ngit PR-only merges.
-3. **Replacement for the stack-free CI gate.** `ngit ci`, a local `npm test` gate run by the
-   merger and recorded in the PR, or something else? Who runs it and where is the result kept?
-4. **Maintainers and keys.** Who may push and merge on the ngit repo? Today the announcement lists
-   Nous (lead) and Ark (co-maintainer). Do the Tapestry Lead and other agents get their own keys
-   (as physics did), and is Ark (and the ark-clawds4 identity) staying?
-5. **Branch flow.** Does feature → `staging` → `main`, and `feat/tags` as a long-lived branch, carry
-   over to ngit? Who promotes, and does the "only `staging`/`promote/*` into `main`" guard survive
-   as a rule without the GitHub workflow?
-6. **GitHub-dependent metrics.** Scores 1 and 3 (and the hotfix half of score 4, which counted PR
-   head branches) relied on GitHub CI runs and PRs. Keep them with a new data source (question 3),
-   redefine them, or drop them?
-7. **Deploys.** The four deploy workflows are retired too. How do staging and production deploys
-   happen now, and are they part of the harness?
-8. **Lost GitHub-only work.** Open PRs that never reached ngit (e.g. router-hardening #787) and
-   PR review history live only on GitHub. Re-raise them as ngit PRs, or drop them?
-9. **Hotfix rise.** Score 4 went from 0 to 7 `hotfix/*` merges into `main` since 2026-09-27
-   (auth/route hardening). Count security hotfixes as change-fail, or track them separately?
-10. **Retired workflows.** Keep `.github/workflows` in the tree as retired (physics' choice), or
-    remove them?
-11. **Hold level of H^2_0.** All of it at L1 (as H^0_0), or per-file ratings from the start?
+1. **P2 authority and signing.** Confirm straycat (`npub1u5njm6g5h5cpw4wy8xugu62e5s7f6fnysv0sj0z3a8rengt2zqhsxrldq3`)
+   as P2 authority, and whether L0/L1 OKs must be signed. *Recommendation:* confirm straycat;
+   accept relayed OKs for now (as physics), with a signed note for any L0 change.
+3. **What replaces the stack-free CI gate.** It stood in for an L1 control (a required check), so the
+   choice is David's. *Recommendation:* the Lead runs `npm test` (link-check suites skipped) on the
+   merge result before every merge to `staging`/`main` and records the summary line in the merge
+   commit; evaluate `ngit ci` later as a rung-1 change with a prediction.
+4. **Agent keys and maintainers.** *Lead recommendation, pending David:* agents get their own nostr
+   keys on the physics model (Chief of Staff creates them; attribution only); the Tapestry Lead is
+   added as maintainer; **Ark is retired as a maintainer unless David says otherwise.**
+8. **GitHub-only work** (open PRs such as router hardening #787, PR review history).
+   *Recommendation:* re-raise #787 as an ngit proposal (it is a security fix); treat GitHub PR
+   history as lost records, not harness, and do not try to recover it from GitHub.
+11. **Hold level of H^2_0.** *Recommendation:* all of H^2_0 at L1, as H^0_0, with L0 items staying
+    L0; a per-file rating table can follow from a P2 rung 1 under proposal 0001 Option B.
+12. **Production deploys.** Whether anything may deploy to production without a per-deploy OK.
+    *Recommendation:* production deploys stay manual and need David's OK until a deploy path is
+    agreed; staging mechanics are a Lead matter (below).
+
+## Answered / settled
+2. **L0/L1 enforcement on ngit.** Follows from David's ruling (David, 2026-10-21 12:01 AM ET (relayed in chat by Chief of Staff (P0), not signed)): Lead's key merges,
+   Nous backup, L0/L1 need David's OK. See "Merging and L0/L1 holds".
+5. **Branch flow.** Follows from David's ruling (only the Lead merges to `main`), plus a Lead ruling
+   (Tapestry Lead, 2026-10-21) that the rest carries over: feature → `staging` → `main` by promotion;
+   `feat/tags` stays long-lived with its owners; "only `staging`/`promote/*` into `main`" stays a rule,
+   enforced by the Lead at merge time instead of the retired workflow.
+6. **GitHub-dependent metrics.** Lead ruling (Tapestry Lead, 2026-10-21): keep all six scores,
+   measured locally. Score 1 = test failures on the Lead's pre-merge `npm test` of a promotion,
+   per promotion; score 3 = failed pre-merge runs ÷ runs, from the merge-commit summary lines;
+   score 4 = reverts plus merges of `hotfix/*` branches, from `git log --first-parent main`.
+   GitHub-era baselines stay as recorded and are not compared across the change. Scores 1 and 3
+   have no data until question 3 is answered.
+7. **Deploy mechanics.** Lead ruling (Tapestry Lead, 2026-10-21): with the deploy workflows retired,
+   staging deploys are run by hand by the Lead from a merged `staging` commit, and the commit is
+   recorded. Production is open question 12.
+9. **Security hotfixes in score 4.** Lead ruling (Tapestry Lead, 2026-10-21): count them in score 4
+   and also report the security share separately; nothing is excluded from the score.
+10. **Retired workflows.** Lead ruling (Tapestry Lead, 2026-10-21), following the physics ruling
+    (David, 2026-10-20 9:23 PM ET, relayed, not signed, for physics): keep `.github/workflows` in the
+    tree, retired, in case of a return to GitHub. Listed in `harness-def-paths.txt`.
+13. **GitHub link-check suites.** Lead ruling (Tapestry Lead, 2026-10-21): local test runs skip the
+    `llms-txt` and `information-for-agents` link checks, which fetch github.com URLs. GitHub is off
+    limits; their failures are expected and are not test failures. Repointing those links to ngit is
+    a later change.
