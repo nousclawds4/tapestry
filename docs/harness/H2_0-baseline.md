@@ -1,6 +1,12 @@
-# H^2_0 — Tapestry pinned baseline harness (P2), draft v0
+# H^2_0 — Tapestry pinned baseline harness (P2), v0 — APPROVED
 
-**DRAFT on branch `harness/h2_0-baseline`. Do not merge until David approves.**
+**APPROVED** (David, 2026-10-21 12:05 AM ET (relayed in chat by Chief of Staff (P0), not signed)). Q: "Approve Tapestry's baseline with these recommendations?" A: "Approve".
+Held at **L1** (L0 items stay L0). Branch `harness/h2_0-baseline`.
+
+**Pending steps** (in order):
+1. Nous adds the Grawk Tapestry Lead key as a maintainer and retires Ark (David's step).
+2. The Tapestry Lead merges this branch to `main` with `--no-ff`.
+3. H^2_0 is pinned at that merge commit (§1).
 Requested by David, 2026-10-20 11:37 PM ET (relayed in chat by Chief of Staff (P0), not signed,
 no hold level stated): "let's pin its baseline". Modelled on physics' H^1_0 (physics `main`
 `ce14e11`: AGENTS.md, docs/harness/*, harness-def-paths.txt, docs/harness/CHANGELOG.md) and the
@@ -15,15 +21,16 @@ L11 line budget (102).
 ## 1. Pin
 | Item | Value |
 |---|---|
-| Baseline commit | `b764663d56034cc8b5cfb8ce1b2b72b79ff55349` (`main`, 2026-10-13 23:35 PDT; "Merge pull request #865 … promote/failing-tests-feature-branch") |
+| H^2_0 pin (merge commit) | *to be filled at merge* |
+| Base commit | `b764663d56034cc8b5cfb8ce1b2b72b79ff55349` (`main`, 2026-10-13 23:35 PDT; "Merge pull request #865 … promote/failing-tests-feature-branch") |
 | Source | ngit: `nostr://npub1zhma4lzxyjc7dvq2klux8hs62wm3je6jspcwclgcxlr6grquwfcq28ccgm/relay.ngit.dev/Tapestry`, cloned 2026-10-20 ~11:45 PM ET |
 | `staging` at pin | `a191de3f6` (an ancestor of `main`; 0 commits ahead) |
 | Harness-defining paths | `scripts/harness-def-paths.txt` at this branch's commit (the single definition; not restated here) |
-| Owner of repo | Nous (lead maintainer); Ark co-maintainer (from the ngit repo announcement, 2026-10-20) |
-| Project authority | David (straycat, `npub1u5njm6g5h5cpw4wy8xugu62e5s7f6fnysv0sj0z3a8rengt2zqhsxrldq3`), as recorded in the infinite harness for all projects; P2 confirmation is open question 1 |
+| Owner of repo | Nous (lead maintainer); Ark co-maintainer at pin time (announcement, 2026-10-20). Approved change: Tapestry Lead added as maintainer, Ark retired (pending step 1) |
+| Project authority | David (straycat, `npub1u5njm6g5h5cpw4wy8xugu62e5s7f6fnysv0sj0z3a8rengt2zqhsxrldq3`), confirmed for P2 (David, 2026-10-21 12:05 AM ET (relayed in chat by Chief of Staff (P0), not signed)) |
 
 ## 2. Harness-defining paths
-`scripts/harness-def-paths.txt` is unchanged in meaning; this draft adds:
+`scripts/harness-def-paths.txt` is unchanged in meaning; this baseline adds:
 - `.github/workflows` — **retired with GitHub** (see §4). Listed so any edit is L10-visible.
 - `docs/harness` — this baseline and its notes.
 Records (stories, reviews, decisions, audits, ledger rows, OPEN.md, handoffs) stay out, as before.
@@ -36,7 +43,7 @@ Records (stories, reviews, decisions, audits, ledger rows, OPEN.md, handoffs) st
 | harness-lint | `scripts/harness-lint.sh` L1–L13 at session start (`.claude/settings.json` hook → `scripts/session-start.sh`); waivers in `scripts/harness-lint-waivers.txt`; budgets in `scripts/harness-budgets.txt` (L11) | live (local only; nothing runs it server-side) |
 | Touch-rule | a diff touching a harness-def path also touches `engineering-team/CHANGELOG.md` (L10) | live |
 | Test suite | `npm test` (`node test/test.js`) | live locally |
-| Stack-free CI | `.github/workflows/test.yml` (`npm ci && npm test`) required on PRs | **retired** — GitHub suspended; no replacement yet (open question 3) |
+| Stack-free CI | `.github/workflows/test.yml` (`npm ci && npm test`) required on PRs | **retired**; replaced by the Lead's manual pre-merge `npm test` (Q3) |
 | main-source guard | `.github/workflows/guard-main-source.yml` (only `staging`/`promote/*` into `main`) | **retired** — nothing enforces it now |
 | Deploys | `deploy-staging.yml`, `deploy-tapestry.yml`, `deploy-tags.yml`, `deploy-magic-carpet.yml` | **retired** — no automated deploy path |
 | Ledger | `ledger/*.md` rows (Opened/Done), OPEN.md roll-up, `/whats-open`, meta escalation | live |
@@ -52,10 +59,10 @@ Records (stories, reviews, decisions, audits, ledger rows, OPEN.md, handoffs) st
   reviewers or status checks. Review verdicts in `engineering-team/reviews/**` remain the record.
 - **CI:** no workflow runs. `.github/workflows/*` are kept in the tree, retired, in case GitHub
   returns (physics precedent: David, 2026-10-20 9:23 PM ET, relayed, for physics only). `ngit ci`
-  exists but nothing is configured; whether to adopt it is open question 3.
+  exists but nothing is configured; the gate is the Lead's manual pre-merge `npm test` (Q3).
 - **CODEOWNERS and branch protection:** `.github/CODEOWNERS` and rulesets were enforced by GitHub
   only. On ngit, anyone with a maintainer key can push any branch, including `main`.
-  **GitHub-based L0 enforcement (rulesets, CODEOWNERS) no longer applies.** Until open question 2
+  **GitHub-based L0 enforcement (rulesets, CODEOWNERS) no longer applies.** Until question 2
   was answered, L0/L1 holds had no enforcement. Now decided: see "Merging and L0/L1 holds".
 - **Writes** follow the infinite harness' `docs/guardrails.md` (rate caps, backoff, halt on
   suspension, log every write).
@@ -66,7 +73,7 @@ Six separate scores; **no composite**. Source: infinite-harness `docs/examples/t
 
 | # | Score | Better | 2026-09-27 baseline | Re-measured at pin | Status |
 |---|---|---|---|---|---|
-| 1 | Escaped failures: red stack-free runs on `staging → main` promotions, per promotion | lower | 3 / 61 | not measurable (CI run history was on GitHub) | **unverified**; depends on GitHub (open question 6) |
+| 1 | Escaped failures: red stack-free runs on `staging → main` promotions, per promotion | lower | 3 / 61 | not measurable (CI run history was on GitHub) | **unverified**; GitHub-era baseline; now measured locally (Q6) |
 | 2 | Honest kick-back rate: CHANGES_REQUESTED rounds ÷ decided reviews | lower | 48 / 244 with kick-back history | 77 / 301 with kick-back history (~26%); headline still "0%"; rounds not yet counted | re-measured (`harness-stats.sh`) |
 | 3 | CI red rate: failed `test.yml` runs ÷ decided runs | lower | 8 / 216 | not measurable | **unverified**; depends on GitHub |
 | 4 | Change-fail: reverts + `hotfix/*` merges into `main`, per promotion | lower | 0 reverts, 0 hotfix | 0 reverts; **7 `hotfix/*` merges** into `main` since 2026-09-27 (#830, #837, #839–#841, #844, #847) over 25 promotion merges | re-measured (`git log --first-parent main`) |
@@ -108,7 +115,7 @@ Six separate scores; **no composite**. Source: infinite-harness `docs/examples/t
 - This replaces CODEOWNERS and rulesets as the L0/L1 control. It is enforced by the Lead's merge
   discipline, not by the host; the diff-audit (§5) checks it after the fact.
 
-## How the remaining questions are classified
+## How the questions were classified
 - **Follows from David's ruling**: a direct consequence of the 12:01 AM ruling; no new decision.
 - **Lead ruling**: operational, below L1, reversible, and does not change who decides or what an
   L0/L1 item says. Marked "Lead ruling (Tapestry Lead, 2026-10-21)". David may overrule any of them.
@@ -116,24 +123,25 @@ Six separate scores; **no composite**. Source: infinite-harness `docs/examples/t
   stands in for an L1 control, or what ships to production. Each carries a one-line recommendation.
 
 ## Open questions for David
-1. **P2 authority and signing.** Confirm straycat (`npub1u5njm6g5h5cpw4wy8xugu62e5s7f6fnysv0sj0z3a8rengt2zqhsxrldq3`)
-   as P2 authority, and whether L0/L1 OKs must be signed. *Recommendation:* confirm straycat;
-   accept relayed OKs for now (as physics), with a signed note for any L0 change.
-3. **What replaces the stack-free CI gate.** It stood in for an L1 control (a required check), so the
-   choice is David's. *Recommendation:* the Lead runs `npm test` (link-check suites skipped) on the
-   merge result before every merge to `staging`/`main` and records the summary line in the merge
-   commit; evaluate `ngit ci` later as a rung-1 change with a prediction.
-4. **Agent keys and maintainers.** *Lead recommendation, pending David:* agents get their own nostr
-   keys on the physics model (Chief of Staff creates them; attribution only); the Tapestry Lead is
-   added as maintainer; **Ark is retired as a maintainer unless David says otherwise.**
-8. **GitHub-only work** (open PRs such as router hardening #787, PR review history).
-   *Recommendation:* re-raise #787 as an ngit proposal (it is a security fix); treat GitHub PR
-   history as lost records, not harness, and do not try to recover it from GitHub.
-11. **Hold level of H^2_0.** *Recommendation:* all of H^2_0 at L1, as H^0_0, with L0 items staying
-    L0; a per-file rating table can follow from a P2 rung 1 under proposal 0001 Option B.
-12. **Production deploys.** Whether anything may deploy to production without a per-deploy OK.
-    *Recommendation:* production deploys stay manual and need David's OK until a deploy path is
-    agreed; staging mechanics are a Lead matter (below).
+None open.
+
+## Approved by David
+All: (David, 2026-10-21 12:05 AM ET (relayed in chat by Chief of Staff (P0), not signed)). Q: "Approve Tapestry's baseline with these recommendations?" A: "Approve".
+The recommendations below became David rulings exactly as written.
+1. **P2 authority and signing.** straycat (`npub1u5njm6g5h5cpw4wy8xugu62e5s7f6fnysv0sj0z3a8rengt2zqhsxrldq3`)
+   is the P2 authority. Relayed OKs count for now; any L0 change needs a signed note.
+3. **CI gate replacement.** Before every merge to `staging` or `main`, the Lead runs `npm test` by hand
+   on the merge result (link-check suites skipped, Q13) and records the result line in the merge commit.
+4. **Keys and maintainers.** Each agent gets its own nostr key (physics model; attribution only).
+   The Tapestry Lead key becomes a maintainer; Ark is retired as a maintainer.
+8. **GitHub-only work.** Router hardening #787 is re-raised as an ngit proposal; GitHub PR history
+   is treated as lost.
+11. **Hold level.** H^2_0 is held at L1; L0 items stay L0.
+12. **Production deploys.** Manual, each with David's OK.
+
+## Follow-up items
+- Re-raise router hardening (GitHub #787) as an ngit proposal against `staging` (Q8). Not done yet.
+- Nous: add the Tapestry Lead key as maintainer and retire Ark (Q4; pending step 1).
 
 ## Answered / settled
 2. **L0/L1 enforcement on ngit.** Follows from David's ruling (David, 2026-10-21 12:01 AM ET (relayed in chat by Chief of Staff (P0), not signed)): Lead's key merges,
@@ -150,7 +158,7 @@ Six separate scores; **no composite**. Source: infinite-harness `docs/examples/t
    have no data until question 3 is answered.
 7. **Deploy mechanics.** Lead ruling (Tapestry Lead, 2026-10-21): with the deploy workflows retired,
    staging deploys are run by hand by the Lead from a merged `staging` commit, and the commit is
-   recorded. Production is open question 12.
+   recorded. Production: Q12 (manual, David's OK each time).
 9. **Security hotfixes in score 4.** Lead ruling (Tapestry Lead, 2026-10-21): count them in score 4
    and also report the security share separately; nothing is excluded from the score.
 10. **Retired workflows.** Lead ruling (Tapestry Lead, 2026-10-21), following the physics ruling
