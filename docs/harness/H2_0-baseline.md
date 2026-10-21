@@ -21,7 +21,7 @@ L11 line budget (102).
 ## 1. Pin
 | Item | Value |
 |---|---|
-| H^2_0 pin (merge commit) | *to be filled at merge* |
+| H^2_0 pin (merge commit) | `d5fe12c95ebd47c7a218e422f456e36e557f680b` on `main` (annotated tag `H2_0`) |
 | Base commit | `b764663d56034cc8b5cfb8ce1b2b72b79ff55349` (`main`, 2026-10-13 23:35 PDT; "Merge pull request #865 … promote/failing-tests-feature-branch") |
 | Source | ngit: `nostr://npub1zhma4lzxyjc7dvq2klux8hs62wm3je6jspcwclgcxlr6grquwfcq28ccgm/relay.ngit.dev/Tapestry`, cloned 2026-10-20 ~11:45 PM ET |
 | `staging` at pin | `a191de3f6` (an ancestor of `main`; 0 commits ahead) |
