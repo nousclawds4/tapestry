@@ -4,7 +4,7 @@
 Held at **L1** (L0 items stay L0). Branch `harness/h2_0-baseline`.
 
 **Pending steps** (in order):
-1. Done 2026-10-21: Nous invited the Grawk Tapestry Lead key and it accepted (now a co-maintainer). Ark retirement: pending David (Ark kept on for now).
+1. Done 2026-10-21: Nous invited the Grawk Tapestry Lead key and it accepted (now a co-maintainer). Ark is kept on as David's own backup key, alongside Nous, and the Lead stays the only routine merger (David, 2026-10-21 12:38 AM ET (relayed in chat by Chief of Staff (P0), not signed): "I'll keep Ark on for now. I control Ark, from my MacBook Air.").
 2. The Tapestry Lead merges this branch to `main` with `--no-ff`.
 3. H^2_0 is pinned at that merge commit (§1).
 Requested by David, 2026-10-20 11:37 PM ET (relayed in chat by Chief of Staff (P0), not signed,
@@ -26,7 +26,7 @@ L11 line budget (102).
 | Source | ngit: `nostr://npub1zhma4lzxyjc7dvq2klux8hs62wm3je6jspcwclgcxlr6grquwfcq28ccgm/relay.ngit.dev/Tapestry`, cloned 2026-10-20 ~11:45 PM ET |
 | `staging` at pin | `a191de3f6` (an ancestor of `main`; 0 commits ahead) |
 | Harness-defining paths | `scripts/harness-def-paths.txt` at this branch's commit (the single definition; not restated here) |
-| Owner of repo | Nous (lead maintainer); Ark co-maintainer at pin time (announcement, 2026-10-20). Tapestry Lead key added as co-maintainer 2026-10-21; Ark retirement pending David (Ark kept on for now) |
+| Owner of repo | Nous (lead maintainer); Ark co-maintainer at pin time (announcement, 2026-10-20). Tapestry Lead key added as co-maintainer 2026-10-21; Ark is kept on as David's own backup key, alongside Nous, and the Lead stays the only routine merger (David, 2026-10-21 12:38 AM ET (relayed in chat by Chief of Staff (P0), not signed): "I'll keep Ark on for now. I control Ark, from my MacBook Air.") |
 | Project authority | David (straycat, `npub1u5njm6g5h5cpw4wy8xugu62e5s7f6fnysv0sj0z3a8rengt2zqhsxrldq3`), confirmed for P2 (David, 2026-10-21 12:05 AM ET (relayed in chat by Chief of Staff (P0), not signed)) |
 
 ## 2. Harness-defining paths
@@ -133,16 +133,17 @@ The recommendations below became David rulings exactly as written.
 3. **CI gate replacement.** Before every merge to `staging` or `main`, the Lead runs `npm test` by hand
    on the merge result (link-check suites skipped, Q13) and records the result line in the merge commit.
 4. **Keys and maintainers.** Each agent gets its own nostr key (physics model; attribution only).
-   The Tapestry Lead key becomes a maintainer (done 2026-10-21); Ark retirement is pending David
-   (Ark kept on for now).
-8. **GitHub-only work.** Router hardening #787 is re-raised as an ngit proposal; GitHub PR history
-   is treated as lost.
+   The Tapestry Lead key becomes a maintainer (done 2026-10-21); Ark is kept on as David's own backup key, alongside Nous, and the Lead stays the only routine merger (David, 2026-10-21 12:38 AM ET (relayed in chat by Chief of Staff (P0), not signed): "I'll keep Ark on for now. I control Ark, from my MacBook Air.").
+8. **GitHub-only work.** GitHub PR history is treated as lost. Router hardening #787 needs no
+   re-raise: it is **satisfied** by `ff3d4e6c6` (merge of #787) + `16b60089` (symlink/saved-state
+   re-validation), both already in `main`; no new code. The admin-plugins question is tracked in
+   `engineering-team/follow-ups.md`.
 11. **Hold level.** H^2_0 is held at L1; L0 items stay L0.
 12. **Production deploys.** Manual, each with David's OK.
 
 ## Follow-up items
-- Re-raise router hardening (GitHub #787) as an ngit proposal against `staging` (Q8). Not done yet.
-- Nous: Tapestry Lead key added as maintainer (done 2026-10-21). Ark retirement pending David (Q4).
+- Router hardening (GitHub #787, Q8): satisfied by `ff3d4e6c6` + `16b60089`, already in `main` (2026-10-21).
+- Nous: Tapestry Lead key added as maintainer (done 2026-10-21). Ark is kept on as David's own backup key, alongside Nous, and the Lead stays the only routine merger (David, 2026-10-21 12:38 AM ET (relayed in chat by Chief of Staff (P0), not signed): "I'll keep Ark on for now. I control Ark, from my MacBook Air.") (Q4 settled).
 
 ## Answered / settled
 2. **L0/L1 enforcement on ngit.** Follows from David's ruling (David, 2026-10-21 12:01 AM ET (relayed in chat by Chief of Staff (P0), not signed)): Lead's key merges,

@@ -137,3 +137,15 @@ Story 20 retired `ui/src/pages/PinDetail.jsx`; `/pin/:dTag` now redirects (via `
 **The fix:** re-point `feedReadPath.js` + `userNotesReadPath.js` to import the sourcing primitives from `_shared/relaySource.js` and delete their private copies. Behavior-preserving; guarded by the existing `live-feed-read-path` + `note-surfaces-read-path` suites + a staging re-smoke of `/feed` and `/user/:pubkey/notes`.
 
 **Caveat for whoever does it:** `_shared/relaySource.realQuerySync` is the **verifying** SimplePool (the feed's only verification gate). The **event** path intentionally uses its *own* NO-VERIFY `querySync` (so `buildEvent`'s `verify()` can surface the distinct `INVALID_EVENT` outcome) — do **not** unify those two `querySync` variants, or the feed/user-notes would start returning unverified events.
+
+## Should admins be able to set router plugins?
+
+**Surfaced during:** H^2_0 item #8 close-out (router hardening #787), 2026-10-21.
+
+**Question (open, Tapestry-internal; not a David question):** `isOwner()` also admits admins
+(`src/middleware/auth.js`), so admins can set the `pluginDown`/`pluginUp` program the strfry
+router executes. The plugin-path allowlist (direct child of `PLUGINS_DIR`, realpath-checked) and
+sink escaping close the injection for every tier, and ledger row
+`ledger/2026-09-28-router-plugin-value-hardening.md` chose not to adopt owner-only-for-plugins.
+That ledger row still stands. This entry re-opens it as a policy question: should plugin selection
+be owner-only?
