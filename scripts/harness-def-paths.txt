@@ -11,6 +11,11 @@
 #
 # This file lists itself: adding a new harness surface without registering it
 # here is L10-visible on the next lint run.
+#
+# H^2_0 (draft, harness/h2_0-baseline): pinned baseline in docs/harness/H2_0-baseline.md.
+# RETIRED with GitHub (nous-clawds4 suspended 2026-10-19; repo now on ngit):
+# .github/workflows is listed so any edit stays L10-visible, but no workflow runs.
+# Kept in the tree, not deleted, pending David (H^2_0 open question 10).
 CLAUDE.md
 AGENTS.md
 engineering-team/README.md
@@ -36,3 +41,5 @@ scripts/harness-lint-waivers.txt
 scripts/harness-budgets.txt
 scripts/harness-def-paths.txt
 scripts/long-lived-branches.txt
+docs/harness
+.github/workflows
