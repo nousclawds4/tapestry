@@ -1268,6 +1268,36 @@ code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85em; }
   gap: 6px;
   margin-top: 8px;
 }
+
+/* Assistant Duties tab (assistant-duties-settings #1) */
+.settings-duties-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+}
+.settings-duties-row { padding: 10px 14px; margin-bottom: 8px; }
+.settings-duties-row.is-dragging { opacity: 0.5; }
+.settings-duties-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.settings-duties-handle { cursor: grab; color: var(--text-muted); user-select: none; }
+.settings-duties-key { font-size: 0.95em; }
+.settings-duties-category { color: var(--text-muted); font-size: 0.85em; }
+.settings-duties-relay { font-family: monospace; font-size: 0.85em; flex: 1 1 12em; overflow-wrap: anywhere; }
+.settings-duties-relay.is-instance { font-family: inherit; color: var(--text-muted); }
+.settings-duties-edit,
+.settings-duties-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+.settings-duties-relay-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.settings-duties-relay-input { min-width: 14em; }
 .input-relay {
   flex: 1;
   background: var(--bg-tertiary);
@@ -8912,6 +8942,15 @@ code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85em; }
   z-index: 1;
   color: #a5b4fc;
 }
+/* Done, but shared: the line under a shared card's description (assistant-shared-categories #1). Faded by colour, not
+   opacity, as .bs-assistant-hub-card-text is; its "Move it here →" is a .bs-assistant-hub-inline-link, above the card. */
+.bs-assistant-hub-card-shared {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: rgba(226,232,240,0.6);
+}
+.bs-assistant-hub-card-shared-move { white-space: nowrap; }
 
 /* The placeholder pages */
 .bs-assistant-hub-notes-heading {
@@ -9014,6 +9053,21 @@ code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85em; }
 }
 .bs-idtags-publish:hover:not(:disabled) { background: rgba(99,102,241,0.3); }
 .bs-idtags-publish:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Your Assistant's Treasure Map: up to two buttons side by side (assistant-self-map #2). */
+.bs-selfmap-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+/* Your Assistant's raw Treasure Map: a text toggle and the event, wrapped so the page never scrolls sideways (assistant-self-map #4). */
+.bs-selfmap-raw { margin-top: 0.75rem; }
+.bs-selfmap-raw-toggle {
+  padding: 0; border: none; background: none; font: inherit; font-size: 0.85rem; color: #a5b4fc; cursor: pointer; text-align: left;
+}
+.bs-selfmap-raw-toggle:hover { text-decoration: underline; }
+.bs-selfmap-raw-toggle:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; border-radius: 4px; }
+.bs-selfmap-raw-pre {
+  margin: 0.5rem 0 0; padding: 0.75rem; max-height: 28rem; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.75rem; line-height: 1.5;
+  background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+}
+.bs-selfmap-raw-pre:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
 .bs-idtags-results { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.75rem; }
 .bs-idtags-results:empty { margin-top: 0; }
 .bs-idtags-result { padding: 0.6rem 0.75rem; border-radius: 8px; font-size: 0.85rem; line-height: 1.5; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.03); }
@@ -9074,6 +9128,11 @@ code { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.85em; }
 @media (max-width: 480px) {
   .bs-outbox-relay { align-items: flex-start; }
 }
+/* The Duty Menu page (assistant-duty-menu #1, ADR 0001 sub-decision 6): the cards and notes above, plus its row lines,
+   each one line of inline text — category, key, relay — so it wraps but never splits into columns. */
+.bs-dutymenu-row { font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
+.bs-dutymenu-row-category { font-weight: 600; }
+.bs-dutymenu-row-exception { font-style: italic; opacity: 0.8; }
 .bs-topbar-pill:focus-visible {
   outline: 2px solid #a5b4fc;
   outline-offset: 2px;

@@ -23,6 +23,11 @@
  * suites stay about Identification Tags (and never read a relay U3 says is not read). C2 and C3 already derive the
  * placeholders from CHECKED_ACTIONS; test/assistant-trusted-content.test.js pins the three.
  *
+ * Re-aimed 2026-10-11 by assistant-duty-menu #1 (its story, ADR 0001 and plan): the handler runs a fifth check, the Duty
+ * Menu's, which reads the viewer's Map, two relay lists and outside relays; fakes() stubs it (checkDutyMenu) so U3's and
+ * the other tests' scan and read counts stay about Identification Tags. C2 and C3 derive the placeholders from
+ * CHECKED_ACTIONS, so they need no change; test/assistant-duty-menu-check.test.js pins the Duty Menu.
+ *
  * Classes:
  *   L — the shared library src/lib/identification-tags (pure CommonJS): the list (offered and parked), each
  *       definition's author and address, the d-tag composer, the polarity reader.                                            [AC-1, AC-3]
@@ -42,12 +47,21 @@
  * Everything except R FAILS against the current code: src/lib/identification-tags, src/api/assistant/attention.js,
  * ui/src/utils/assistantAttention.js and ui/src/context/AssistantAttentionContext.jsx do not exist; assistantAttention
  * takes one argument and answers no alertCount; the picker has no assistantPhase; /api/assistant/attention answers 404.
+ *
+ * Re-aimed 2026-10-13 by assistant-self-map #4 (ADR assistant-self-map/0003 Amendment 1): U16 drops
+ * actions['treasure-map'].published.event, the found kind 10040 itself and the one field the answer may carry a pubkey
+ * in, before it checks that the answer carries neither the viewer's nor the assistant's pubkey.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const X = require('./helpers/identificationTagsFixtures');
+const DUTY_MENU_ANSWER = require('./helpers/dutyMenuFixtures').ANSWERS.DONE;
+// Re-aimed by assistant-self-map #1 (ADR 0001 sub-decision 8): the self-Map check joins the answer; stubbed here, as the
+// Duty Menu's is, so this suite's reads stay its own. test/assistant-self-map-check.test.js drives the real one.
+const SELF_MAP_ANSWER = require('./helpers/selfMapFixtures').ANSWERS.DONE;
+const CS = require('./helpers/comingSoonFixtures');
 
 const REPO = path.resolve(__dirname, '..');
 const LIB_DIR = path.join(REPO, 'src/lib/identification-tags');
@@ -236,6 +250,10 @@ function fakes(opts = {}) {
     checkOutboxRelays: async () => ({ finished: true, done: true, pending: false, reason: null, source: 'local', createdAt: 1, outbox: ['wss://fixture.example'], inboxOnlyCount: 0, suggestions: [] }),
     // Scores, Lists and Concepts (assistant-trusted-content-status ADR 0001), stubbed for the same reason.
     checkTrustedContent: async () => ({}),
+    // The duty-menu check (assistant-duty-menu ADR 0001 sub-decision 7), stubbed whether or not it has landed: it reads
+    // the viewer's Map, two relay lists and outside relays, which this suite's scan and read counts must not see.
+    checkDutyMenu: async () => DUTY_MENU_ANSWER,
+    checkSelfMap: async () => SELF_MAP_ANSWER,
   };
   return { deps, calls };
 }
@@ -564,9 +582,13 @@ test('U15: no query parameter changes the answer or the relays asked — the ans
   assert(!asked.includes(OTHER) && !asked.includes('evil'), `a query parameter reached a lookup: ${asked}`);
 });
 
-test('U16: the answer carries no viewer or assistant pubkey (AC-2)', async () => {
+test('U16: the answer carries no viewer or assistant pubkey (AC-2) — the raw Treasure Map, actions[\'treasure-map\'].published.event, aside: the one field that may (assistant-self-map ADR 0003 Amendment 1)', async () => {
   const { body } = await answer({ local: [...allOffered(), ...offeredDefinitions()] });
-  const s = show(body);
+  // The one exception: the found kind 10040 itself, whole, which names its author (ADR 0003 Amendment 1).
+  const rest = JSON.parse(JSON.stringify(body || null));
+  const tm = rest && rest.actions && rest.actions['treasure-map'];
+  if (tm && tm.published && typeof tm.published === 'object') delete tm.published.event;
+  const s = show(rest);
   assert(!s.includes(VIEWER) && !s.includes(ASSISTANT), `the answer must carry neither the viewer\'s nor the assistant\'s pubkey: ${s}`);
 });
 
@@ -616,7 +638,9 @@ test('C3: the two readings — with no answer a checked action is marked but not
   const attention = mod.assistantAttention;
   const summarize = (await uiUtil()).summarizeAttention;
   const user = { pubkey: 'cc'.repeat(32), classification: 'customer', assistantPubkey: 'c1'.repeat(32) };
-  const all = mod.ASSISTANT_ACTIONS.map((a) => a.key);
+  // Re-aimed by assistant-coming-soon #1 (AC-2): the five that say Coming soon are never marked or counted, so `all` is
+  // every other action, and the placeholders below are the ones still counted (Your Assistant's Treasure Map).
+  const all = mod.ASSISTANT_ACTIONS.map((a) => a.key).filter((k) => !CS.KEYS.includes(k));
   const nine = all.filter((k) => k !== ACTION);
   // The placeholders: every action without a check (re-aimed by assistant-profile-checklist #1, which checks the profile).
   // These answers carry no profile action, so the profile is marked and not counted, like any checked action unanswered.
@@ -768,7 +792,8 @@ test('R1: the publisher still composes the d-tag the library and the server look
 
 test('R2: assistantAttention(user) with no answer still marks every action for a viewer with an assistant and none for anyone else (assistant-management #1 D7 holds)', async () => {
   const mod = await actionsModule();
-  const all = mod.ASSISTANT_ACTIONS.map((a) => a.key);
+  // Re-aimed by assistant-coming-soon #1 (AC-2): every action but the five that say Coming soon.
+  const all = mod.ASSISTANT_ACTIONS.map((a) => a.key).filter((k) => !CS.KEYS.includes(k));
   const withOne = mod.assistantAttention({ pubkey: 'cc'.repeat(32), classification: 'customer', assistantPubkey: 'c1'.repeat(32) });
   assert(sameJson({ hasAssistant: withOne.hasAssistant, needsAttention: withOne.needsAttention, count: withOne.count }, { hasAssistant: true, needsAttention: all, count: all.length }), `got ${show(withOne)}`);
   const without = mod.assistantAttention(null);

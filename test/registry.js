@@ -275,13 +275,38 @@ const suites = [
   { file: 'assistant-identification-tags-page.test.js' },
   { file: 'assistant-taggings-publish.test.js' },
   { file: 'negentropy-sync-input.test.js' },
+  { file: 'negentropy-sync-access.test.js' },
+  { file: 'auth-path-case.test.js' },
+  { file: 'task-routes-owner-admin.test.js' },
+  { file: 'auth-head-requests.test.js' },
+  // security-auth-exposure #8 — the admin-action sweep: one total route table, default-deny (ADR 0005). The structural
+  // half (route-walk coverage, AC-6, resolver agreement) and the behavioural half (AC-1/2/3/4/5/7 + the two owner-only
+  // parameter rules) through the real middleware and the conf seam. The named half pins class-A members and the two
+  // closed reads by name, so it ships only in the same commit as the fix (disclosure).
+  { file: 'admin-action-sweep.test.js' },
+  { file: 'admin-action-sweep-access.test.js' },
+  { file: 'admin-action-sweep-named.test.js' },
+  { file: 'shell-input-hardening.test.js' },
   { file: 'assistant-profile-check.test.js' },
   { file: 'assistant-trusted-content.test.js' },
+  { file: 'assistant-shared-categories.test.js' },
+  { file: 'assistant-coming-soon.test.js' },
   { file: 'assistant-profile-checklist-page.test.js' },
   { file: 'assistant-stamped-avatar-for-everyone.test.js' },
   { file: 'assistant-outbox-check.test.js' },
   { file: 'assistant-outbox-relays-page.test.js' },
   { file: 'assistant-relay-list-publish.test.js' },
+  { file: 'assistant-duty-cards.test.js' },
+  { file: 'assistant-duty-menu-check.test.js' },
+  { file: 'assistant-duty-menu-page.test.js' },
+  { file: 'assistant-duty-menu-publish.test.js' },
+  // assistant-self-map #1: the self-Map check and the Your Assistant's Treasure Map page (ADR assistant-self-map/0001).
+  { file: 'assistant-self-map-check.test.js' },
+  { file: 'assistant-self-map-page.test.js' },
+  // assistant-self-map #2: turning the self-Map on and off — the merge, the choice, the press (ADR assistant-self-map/0002).
+  { file: 'assistant-self-map-publish.test.js' },
+  // assistant-duties-settings #1: the Assistant Duties tab and the offer it sets (ADR assistant-duties-settings/0001).
+  { file: 'assistant-duties-settings.test.js' },
   { file: 'my-assistants-page.test.js' },
   { file: 'my-assistants-actions.test.js' },
   { file: 'my-assistants-map.test.js' },
@@ -321,6 +346,10 @@ const suites = [
   { file: 'tagging-pipeline-codes.test.js' },
   { file: 'tagging-pipeline-fetch.test.js' },
   { file: 'tagging-pipeline-panel-source.test.js' },
+  { file: 'about-this-instance.test.js' },
+  { file: 'assistant-scores-route.test.js' },
+  { file: 'assistant-scores-page.test.js' },
+  { file: 'task-queue-jobid-valid.test.js' },
 ];
 
 // Suite files that had never been registered in the runner as of 2026-09-12. Listed so

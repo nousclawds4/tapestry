@@ -2,6 +2,8 @@ const { test, expect } = require('@playwright/test');
 const X = require('../../test/helpers/assistantManagementFixtures');
 const P = require('../../test/helpers/profileChecklistFixtures');
 const TC = require('../../test/helpers/trustedContentFixtures');
+const DM = require('../../test/helpers/dutyMenuFixtures');
+const SM = require('../../test/helpers/selfMapFixtures');
 
 /**
  * assistant-profile-checklist #1: the profile check and the hub's Done mark — the browser class.
@@ -34,10 +36,12 @@ const TC = require('../../test/helpers/trustedContentFixtures');
  */
 
 // Scores, Lists and Concepts (assistant-trusted-content-status #1) are checked too; mock() adds them to every answer as
-// pending (no Map), which marks and counts them as placeholders were, so PLACEHOLDERS still counts them.
+// pending (no Map), which marks and counts them as placeholders were, so PLACEHOLDERS still counts them. Re-aimed by
+// assistant-duty-menu #1: the Duty Menu is checked too, and mock() adds it pending (no menu found) for the same reason.
 const CHECKED = ['profile', 'identification-tags', 'outbox-relays'];
 const OTHERS_DONE = { 'outbox-relays': { finished: true, done: true, pending: false } };
-const PLACEHOLDERS = X.ACTIONS.length - CHECKED.length;
+// Re-aimed by assistant-coming-soon #1 (AC-2): the five that say Coming soon are never marked or counted.
+const PLACEHOLDERS = X.COUNTED.length - CHECKED.length;
 const PROFILE_TITLE = "Your Tapestry Assistant's Profile";
 const ID_TITLE = 'Identification Tags';
 
@@ -69,7 +73,8 @@ async function mock(page, attention) {
   await page.route('**/api/auth/user-classification', (r) => r.fulfill(json({ success: true, ...CUSTOMER_USER })));
   await page.route('**/api/setup/status**', (r) => r.fulfill(json(SETUP_DONE)));
   await page.route('**/api/assistant/status**', (r) => r.fulfill(json(P.statusAnswer())));
-  await page.route('**/api/assistant/attention**', (r) => r.fulfill(json(TC.withTrio({ ...attention, actions: { ...OTHERS_DONE, ...attention.actions } }))));
+  // Re-aimed by assistant-self-map #1: SM.withSelfMap adds the Treasure Map card's answer, pending by default, as the placeholder counted.
+  await page.route('**/api/assistant/attention**', (r) => r.fulfill(json(SM.withSelfMap(DM.withDutyMenu(TC.withTrio({ ...attention, actions: { ...OTHERS_DONE, ...attention.actions } }))))));
 }
 
 async function open(page, address, settleMs = 1500) {

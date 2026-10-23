@@ -14,10 +14,26 @@
  * Publication of Trusted Content cards are Scores, Lists and Concepts, with their rule as alert criteria and a link to
  * the Treasure Map page. Keys, addresses, descriptions and NIP links are unchanged. Their words come from
  * test/helpers/trustedContentFixtures.js.
+ *
+ * Re-aimed 2026-10-11 by assistant-duty-cards #1 (its story § Copy, approved 2026-10-11): Duty Menu and Your
+ * Assistant's Treasure Map close the persona section, after Outbox Relays, as placeholders. Their words come from
+ * test/helpers/dutyCardsFixtures.js.
+ *
+ * Re-aimed 2026-10-11 by assistant-duty-menu #1 (its story AC-4, ADR 0001 sub-decision 6), through
+ * dutyCardsFixtures.js: the Duty Menu card's page is built, so its alert criteria are the ADR's sentence and it has no
+ * planning notes. Its title, address and description are unchanged.
+ *
+ * Re-aimed 2026-10-12 by assistant-coming-soon #1 (its story AC-1, AC-2, approved at Gate A 2026-10-12): Bounties, Pins,
+ * Tags, Notifications and Alerts, and Preferences say Coming soon and are never marked or counted. ACTIONS is still every
+ * card; COUNTED is the cards the hub can mark and count (ACTIONS less those five, test/helpers/comingSoonFixtures.js).
+ * Counts and marks read COUNTED; anything about every card on the page still reads ACTIONS.
  */
 
 const TC = require('./trustedContentFixtures');
 const tc = (key) => TC.CARDS.find((c) => c.key === key);
+const DUTY = require('./dutyCardsFixtures');
+const CS = require('./comingSoonFixtures');
+const dutyCard = ({ section, path, title, text, link, alertCriteria, planningNotes }) => ({ section, path, title, text, link, alertCriteria, planningNotes });
 
 // ─── Addresses (story 1 § Copy; ADR assistant-management/0001) ───────────────────────────────
 const HUB = '/assistant';
@@ -43,7 +59,8 @@ const SECTIONS = [
 const NOT_YET_DEFINED = 'Not yet defined.';
 
 /**
- * The eleven actions, in order (ten from assistant-management #1; Outbox Relays from assistant-outbox-relays #1). `text` is the description as a reader sees it (links as their words); `link` is the
+ * The thirteen actions, in order (ten from assistant-management #1; Outbox Relays from assistant-outbox-relays #1; Duty
+ * Menu and Your Assistant's Treasure Map from assistant-duty-cards #1). `text` is the description as a reader sees it (links as their words); `link` is the
  * one NIP link inside it, or null; `alertCriteria` / `planningNotes` are null where the owner gave none.
  */
 const ACTIONS = [
@@ -76,6 +93,8 @@ const ACTIONS = [
     alertCriteria: "If your Assistant's relay list (kind 10002) names no outbox relay.",
     planningNotes: null,
   },
+  // The twelfth and thirteenth actions, the fourth and fifth persona cards (assistant-duty-cards #1 AC-1 and § Copy).
+  ...DUTY.CARDS.map(dutyCard),
   {
     section: 'trusted-content',
     path: '/assistant/trusted-assertions',
@@ -199,8 +218,13 @@ const COPY = {
   settingsCardButton: '🤖 Edit Assistant Profile',
 };
 
+/** The cards the hub can mark and count: every card but the five that say Coming soon (assistant-coming-soon #1 AC-2). */
+const COUNTED = ACTIONS.filter((a) => !CS.PATHS.includes(a.path));
+
 /** The count line on the hub, and inside the pill (story 1 § Copy; story 2 § Copy). */
 function countText(n) {
+  // Re-aimed by assistant-self-map #1 (story AC-5; the owner's answer to its open question 2): zero has its own words.
+  if (n === 0) return 'Nothing needs attention';
   return n === 1 ? '1 action needs attention' : `${n} actions need attention`;
 }
 
@@ -218,6 +242,6 @@ const ALERT = {
 };
 
 module.exports = {
-  HUB, PROFILE_PAGE, EDITOR, NIP_LINKS, SECTIONS, ACTIONS, FAQ, COPY, NOT_YET_DEFINED, countText,
+  HUB, PROFILE_PAGE, EDITOR, NIP_LINKS, SECTIONS, ACTIONS, COUNTED, FAQ, COPY, NOT_YET_DEFINED, countText,
   EDITOR_PAGE_PHRASE, LEGACY_PANEL_SENTENCE, LEGACY_PANEL_LINK_TEXT, ALERT,
 };

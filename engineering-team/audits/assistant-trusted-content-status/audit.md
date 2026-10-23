@@ -8,7 +8,7 @@
   - `ed58fc80`, which brought in `assistant-outbox-relays` #1–#3, with ten conflicts resolved;
   - `b3f9d615`, which brought in `assistant-profile-checklist` #1–#3, with five conflicts resolved after the PASS.
 - **Staging: deployed.** `staging.brainstorm.world` runs it (deploy run 37993092751, about 97 s; smoke tiers 1–5 pass).
-- **Production: not yet.** It waits for the owner's next `staging` → `main` promotion.
+- **Production: shipped 2026-10-10** (PR #838 merged 2026-10-10 as `94cb6d3e`, deploy run 142, production smoke tiers 1–3 and 5 clean). It went out in the owner's full `staging` → `main` promotion.
 
 **Provenance:** Acceptance-frame. There is no PRD. The owner's ask is quoted verbatim in `book.md`. Two decisions were settled at intake: what "completed" means, and the Standard path. The frame was confirmed at intake on 2026-10-08, and one more answer was settled at story approval (the link to `/treasure-map`).
 **Confidence:** **high** for what the code does, **medium** for the frame as a person will meet it.
@@ -38,7 +38,7 @@
 |---|---|---|---|
 | #1 scores-lists-and-concepts-on-the-hub | The names, the page words and link, the server check, the hub's readings and Done look, the catch-up after a Map save, the shared rule module | Done | `reviews/done/assistant-trusted-content-status/1-scores-lists-and-concepts-on-the-hub.md`: PASS (gate `review-tcs1`), plus a PASS addendum for the merge of `assistant-profile-checklist` (gate `review-merge2`) |
 
-**Epic close-out at this close.** The one story is Done and the work is on the shared line (`staging`). Step 9 applies as written: the epic reads Done, and its story, ADR and review folders sit under `done/`. Production is not a condition of step 9 and is recorded as pending (§6 #1).
+**Epic close-out at this close.** The one story is Done and the work is on the shared line (`staging`). Step 9 applies as written: the epic reads Done, and its story, ADR and review folders sit under `done/`. Production is not a condition of step 9 and was recorded as pending (§6 #1); it shipped 2026-10-10 (PR #838).
 
 ## 3. As-built inventory
 
@@ -105,15 +105,17 @@ Derived from what PR #832 brought into `staging` (`git diff 17243cdf^1 17243cdf`
 
 ## 6. Carry-forward register
 
-- [ ] **1. Production.** It ships with the owner's next `staging` → `main` promotion (the owner batches promotions).
+- [x] **1. Production.** Done 2026-10-10: PR #838 merged 2026-10-10 as `94cb6d3e`, deploy run 142, production smoke clean (the bundle carries the three cards' status; anonymous attention `signedIn:false`). Before that: it ships with the owner's next `staging` → `main` promotion (the owner batches promotions).
 - [ ] **2. The signed-in path on a live instance.** Sign in on staging, open `/assistant`, and check that each card's mark matches your Treasure Map; then save the Map on `/treasure-map` and watch the hub follow. (Header; the same kind of gap as `assistant-outbox-relays` audit §6.)
 - [ ] **3. The three pages beyond placeholders:** show the category's status and reason (the answer already carries both), and perhaps a one-click "give this to my Tapestry Assistant". (§4 #7; story § Out of scope)
 - [ ] **4. One Map relay list.** The browser hook (`useTreasureMap`, concept-graph general-purpose set) and the server (`currentMap.defaultRelays()`) look for a Map in different places. (§4 #2; ADR 0001 Consequences; nearest thread OPEN.md row 249)
-- [ ] **5. Backup-only assignments.** Should a Map that names the person's Tapestry Assistant only as a backup count as Done? A product question. (§4 #3)
+- [x] **5. Backup-only assignments.** Should a Map that names the person's Tapestry Assistant only as a backup count as Done? A product question. (§4 #3) **Answered 2026-10-11 by book `assistant-shared-categories`:** any Assistant the Map gives a category to makes it Done, so a backup-only Map reads **Done, shared (entirely)**: done, not counted, with a line to move it (`stories/done/assistant-shared-categories/1-done-but-shared.md` AC-1).
 - [ ] **6. The worst-case wait** for the attention answer on a local Map miss (§4 #5). The first lever, if it is ever measured to matter, is a memo (ADR 0001 Out of scope).
 - [ ] **7. One vocabulary on the page.** The FAQ and the three descriptions still say Trusted Assertions, Trusted Lists and Decentralized Lists. (§4 #6)
 - [ ] **8. Whether the Assistant actually publishes** Scores, Lists and Concepts events. The check reads only where the Map points. (story § Out of scope)
+  *2026-10-14: partly. For Scores, the page behind the card now shows when the viewer's own Assistant last published, and how many (book `assistant-scores`). The hub's check still reads only where the Map points, and Lists and Concepts are unchanged.*
 - [ ] **9. The remaining placeholders:** Bounties, Pins, Tags, Notifications and Alerts, Preferences. (`assistant-management` audit §6 #1, annotated at this close)
+  *2026-10-12: the five say Coming soon and no longer count (book `assistant-coming-soon`); building them is still open.*
 - [ ] **10. The review's small follow-ups.** (ledger `2026-10-09-trusted-content-review-followups`)
 
 ## 7. Process findings (harness)

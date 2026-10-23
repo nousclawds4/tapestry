@@ -21,4 +21,16 @@ Two frictions from handing judges a live environment, both seen in the treasure-
 Belongs in `roles/director.md` § "The blinded gate-judge protocol", which the Light profile shares, so it ports to
 both flows.
 
+**Recurred 2026-10-11 (`assistant-shared-categories` #1).**
+- The J3 judge found :7799 held by the Implementer's preview, ran its browser pass against it, and showed the served
+  build byte-identical to its own.
+- It also wrote logs into the session's shared scratchpad, where they may have replaced files of the same name.
+- The Gate B Reviewer used this row's fix shape (its own directory and port, the served build named by asset hash),
+  and that worked: it tied the browser pass to the bundle hash staging serves.
+- The story's "How to run" still hard-codes :7799.
+
+**Recurred 2026-10-12 (`assistant-coming-soon` #1, Gate B review, harness friction 2).** The story's Gate A and "How
+to run" hard-coded :7799, which another process held during the review. The fix shape worked again: the reviewer
+built into its own directory, served it on :7831 and :7832, and named each build by its asset hash.
+
 **Pointer:** `engineering-team/audits/treasure-map-card-details/audit.md` §7 finding 2.

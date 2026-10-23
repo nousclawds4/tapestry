@@ -27,6 +27,10 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const O = require('./helpers/outboxRelaysFixtures');
+const DUTY_MENU_ANSWER = require('./helpers/dutyMenuFixtures').ANSWERS.DONE;
+// Re-aimed by assistant-self-map #1 (ADR 0001 sub-decision 8): the self-Map check joins the answer; stubbed here, as the
+// Duty Menu's is, so this suite's reads stay its own. test/assistant-self-map-check.test.js drives the real one.
+const SELF_MAP_ANSWER = require('./helpers/selfMapFixtures').ANSWERS.DONE;
 
 const REPO = path.resolve(__dirname, '..');
 const LIB = path.join(REPO, 'src/lib/relay-list/index.js');
@@ -147,6 +151,10 @@ function fakes(opts = {}) {
     // Scores, Lists and Concepts (assistant-trusted-content-status ADR 0001), stubbed: this suite is about Outbox Relays,
     // and the stub keeps the Treasure Map read out of its scans and relay reads.
     checkTrustedContent: async () => ({}),
+    // Re-aimed by assistant-duty-menu #1: the duty-menu check (its ADR 0001 sub-decision 7), stubbed whether or not it
+    // has landed: it reads the viewer's Map, two relay lists and outside relays, which this suite must not see.
+    checkDutyMenu: async () => DUTY_MENU_ANSWER,
+    checkSelfMap: async () => SELF_MAP_ANSWER,
   };
   if (opts.checkOutboxRelays) deps.checkOutboxRelays = opts.checkOutboxRelays;
   return { deps, calls };
@@ -402,15 +410,17 @@ test('U14: lookupNewestReplaceable answers the three shapes ADR 0001 sub-decisio
 
 /* ───────────────────────── C — the hub's data module ───────────────────────── */
 
-test('C1: the hub has eleven actions — Outbox Relays is the third persona card, right after Identification Tags, with its approved title, address, description, NIP-65 link and alert criteria (AC-1)', async () => {
+// Re-aimed by assistant-duty-cards #1 (AC-1): the hub has thirteen actions, and Duty Menu and Your Assistant's Treasure
+// Map follow Outbox Relays in the persona section; Outbox Relays is still its third card.
+test('C1: the hub has thirteen actions — Outbox Relays is the third persona card, right after Identification Tags, with its approved title, address, description, NIP-65 link and alert criteria (AC-1)', async () => {
   const mod = await actionsModule();
   const actions = mod.ASSISTANT_ACTIONS || [];
-  assert(actions.length === 11, `eleven actions, got ${actions.length}`);
+  assert(actions.length === 13, `thirteen actions, got ${actions.length}`);
   const i = actions.findIndex((a) => a && a.key === O.KEY);
   assert(i >= 0, `no action with key ${show(O.KEY)}`);
   assert(actions[i - 1] && actions[i - 1].key === 'identification-tags', `right after identification-tags, got after ${show(actions[i - 1] && actions[i - 1].key)}`);
   const persona = actions.filter((a) => a.section === 'persona').map((a) => a.key);
-  assert(sameJson(persona, ['profile', 'identification-tags', O.KEY]), `the persona section: ${show(persona)}`);
+  assert(sameJson(persona.slice(0, 3), ['profile', 'identification-tags', O.KEY]), `the persona section's first three: ${show(persona)}`);
   const a = actions[i];
   const text = (a.description || []).map((p) => (typeof p === 'string' ? p : p.text)).join('');
   const links = (a.description || []).filter((p) => p && typeof p === 'object').map((p) => ({ text: p.text, href: p.href }));

@@ -2,7 +2,7 @@
 > **Status:** 📝 pre-NIP
 > **Canonical:** not yet published
 > **Companion to:** [NIP-85: Trusted Assertions](https://nips.nostr.com/85) (kind `10040`). Additive: every NIP-85 entry in use today keeps its meaning.
-> **Sources:** NIP-85; [`trusted-lists.md`](./trusted-lists.md) § Treasure-Map advertisement (`tl-treasure-map` ADR 0001); [`assistant-designation.md`](./assistant-designation.md) (`community-reference` ADR 0031, `dlist-curation` ADR 0002); [`tags.md`](./tags.md); the companion drafts [Content Categories](./content-categories.md), [Spawning](./spawning.md) and [Pins](./pins.md); the Brainstorm Treasure Map mock-up, September 2026.
+> **Sources:** NIP-85; [`trusted-lists.md`](./trusted-lists.md) § Treasure-Map advertisement (`tl-treasure-map` ADR 0001); [`assistant-designation.md`](./assistant-designation.md) (`community-reference` ADR 0031, `dlist-curation` ADR 0002); [`tags.md`](./tags.md); the companion drafts [Content Categories](./content-categories.md), [Spawning](./spawning.md) and [Pins](./pins.md); the Brainstorm Treasure Map mock-up, September 2026; [`duty-menus.md`](./duty-menus.md) and [`docs/DUTY_MENUS_AND_SELF_MAPS_DESIGN_HANDOFF.md`](../../docs/DUTY_MENUS_AND_SELF_MAPS_DESIGN_HANDOFF.md), with `duty-menus-and-self-maps` ADR 0003 and its Amendments A1 and A2 (Self-Maps, § 9.2; the relay hint and the read-time fallback, § 3; a retracted List, § 7), and ADR 0004 (the key grammar: § 4.3's category `39998` and addressable kinds, § 4.4's Profiles category, § 4.5's bare Concept kinds and a Concept kind and a colon, § 4.6's `dlist-header` headers, § 4.7's `d-tag`, and § 6's order of the Concept kinds; and At a glance's second bullet, §§ 3, 5.3, 9.2, 10.1, 10.5, 10.12 and 12 and § 13 questions 2 and 3, which follow them); and ADR 0005 (keeping a self-Map true: § 7's reading of a retracted List, which replaces ADR 0003 A2's, with § 3, § 5.4's Enumerate, and § 9.2's What follows a stop and What the allowance rests on; and the wording of principle 8, §§ 4.3, 5, 7, 9.2, 10, 10.5 and 11, and § 13 question 8; and § 13 question 13, which it opens).
 > **Draft 2:**
 > - **The list kind says how members are referenced; the category slot says which category.** They are independent.
 > - `30397` now means a list of **lists** (members are `z` values), and `30387` a Score about a list.
@@ -36,25 +36,25 @@ This NIP gives those tags one grammar. It extends NIP-85's `<kind>:<metric>` key
 ```
 
 - The **kind** says what the members are (pubkeys, events, addressable events, external things, lists). The **category** says which content category they come from.
-- Cut a key short, or leave a segment empty, and it covers more.
+- Cut a key short, or leave a segment empty, and it covers more, except where § 4.4 makes an empty category the Profiles category, and within a Concept key's `d`, which is one segment and never empty (§ 4.5).
 - The most specific matching key wins.
 - The same key listed more than once: the first is Preferred, the rest are Alternates.
 - A List's `d` tag, and a Score's value tag, are the key minus its kind.
 
 ## 1. Principles
 
-1. **Discovery first.** A Map exists so a client can build a `REQ` filter for an insight: which kind, which author, which relay, which `d` tag or value tag. Every entry MUST translate into a filter without guesswork.
-2. **A to-do list second.** An Assistant reads the Maps of the people it serves. Each entry naming it is a duty: publish and maintain this insight for that person.
+1. **Discovery first.** A Map exists so a client can build a `REQ` filter for an insight: which kind, which author, which relay (§ 3 says where to look when element 3 does not), which `d` tag or value tag. Every entry MUST translate into a filter without guesswork.
+2. **A to-do list second.** An Assistant reads the Maps of the people it serves. Each entry naming it is a duty: publish and maintain this insight for that person, except as § 9 says.
 3. **What and where, never how.** A Map does not record how an insight is computed: no algorithm, data sources, point of view, cutoffs, or any other part of a Trust Determination Method. These stay private by default. Clients learn what an insight is, why they'd want it and how to find it — nothing more. Assistants are assumed to know how to compute what they publish.
 4. **Insights come in kinds; kinds come in families.** Scores (NIP-85 Trusted Assertions, `3038x`), Lists (Trusted Lists, `3039x`) and Concepts (Concept Graph headers, `39998`/`39999`). New insight formats, such as Scorecards, join as new families under the same grammar.
 5. **The kind is about members; the category is about content.** A list's kind tells a client what it will do with each member (fetch a profile, fetch an event, query a list). The category slot tells it where the members come from. The two never stand in for each other.
 6. **Systems are pluggable.** How an insight is determined — today **Tag-based**, **Pin-based** and **DList-based** — appears in a key as one word. A new system adds a word and a layout, not a new grammar.
 7. **Deterministic.** From the Map alone, a client can compute the exact identifier of any insight it wants before contacting a relay. That is why every coordinate inside a key is a *canonical* naddr or nevent (§ 4.1).
-8. **General to specific.** A key reads left to right from broad to narrow. A shorter key covers more. Where several keys match an insight, the most specific one wins.
+8. **General to specific.** A key reads left to right from broad to narrow. A shorter key covers more, except where § 4.4 makes an empty category the Profiles category, and within a Concept key's `d` (§ 4.5). Where several keys match an insight, the most specific one wins.
 
 ## 2. Terms
 
-- **Observer** — the author of the Map. The insights it names are *for* the observer.
+- **Observer** — the author of the Map. The insights it names are *for* the observer; those a self-entry names are for the observer its key serves, where it serves one (§ 9.2).
 - **Assistant** — the pubkey in element 2 of an entry: the key that signs the insight (NIP-85's "service provider").
 - **Insight** — one publishable thing: a Score (a value tag in a NIP-85 assertion event), a List (a Trusted List event) or a Concept (a DList header with its items).
 - **Key** — element 1 of an entry.
@@ -66,6 +66,7 @@ This NIP gives those tags one grammar. It extends NIP-85's `<kind>:<metric>` key
 - **Pin** — a named personal preference from [Pins](./pins.md), such as *Spawns a Trusted List*.
 - **Metric** — the name of a score's value: `rank`, `followers`, `confidence`. It names the output, not the method.
 - **Supported sets** — the observer's effective pinned sets: supported Scores, DLists, Tags, Concepts (§ 8).
+- **Self-entry**, **self-Map** — § 9.2.
 - **⟨Name⟩** — shorthand in this document for the canonical naddr (or nevent) of the named DList header, Tag or Pin.
 
 ## 3. The entry
@@ -74,7 +75,26 @@ This NIP gives those tags one grammar. It extends NIP-85's `<kind>:<metric>` key
 ["<key>", "<assistant pubkey>", "<relay>"]
 ```
 
-NIP-85's shape, unchanged. Element 3 is a relay where the insight can be found. It MAY be the empty string, but the entry keeps three elements.
+NIP-85's shape, unchanged. Element 3 is a relay where the insight can be found: a hint, written when the entry was written (NIP-85 calls it a relay hint). It MAY be the empty string, which says that no relay is known; the entry keeps three elements.
+
+A Map entry names who is asked to publish an insight, except as § 9 says. It does not promise that the insight exists.
+
+**Filling element 3.** When a client writes an entry `[K, A, …]` and fills element 3 from what A publishes, it SHOULD take the relay of A's self-entry whose key is K, where A's self-Map has one (§ 9.2). Keys are compared as §§ 4.1, 4.4 and 4.5 read them, so `39998:dlist-header` is `39998`. Otherwise it fills element 3 from A's Duty Menu as [Duty Menus](./duty-menus.md) § 6.2 step 5 says, which also says what to write for a key the menu does not offer and for an Assistant with no menu the client may fill from. A client of the Assistant service that runs A (§ 9), such as an instance writing an entry for its own Tapestry Assistant, MAY read A's menu from that service's own record, whether or not the service has published it; Duty Menus § 6.2 step 5 then applies to it as to a menu found. Its rows say, as a published menu's do, where A's insights will be published (Duty Menus § 5.1). The observer may write any relay by hand. A self-entry is not filled this way: § 9.2 sets its element 3 (Its relay).
+
+**When the insight is not there.** A reader that finds no copy of an insight that it accepts (§ 7) at the relay a provider's entry gives, for an entry with the insight's winning key (the empty string, a relay that does not answer, one that answers without it, a copy older than the reader accepts that does not count as maintained, § 9.2, or a retracted List, § 7), SHOULD look for it from that provider, A, at these relays, in order, skipping any it has already asked:
+
+1. the relay of the self-entry in A's self-Map that wins the insight (§ 9.2);
+2. the relay of the `duty` row of A's Duty Menu that answers the insight's exact key ([Duty Menus](./duty-menus.md) § 6.2), where A's menu is found (Duty Menus § 8.1) and is not a storefront (Duty Menus § 7);
+3. the write relays of A's kind 10002 relay list (NIP-65).
+
+A copy the reader does not accept does not end the search. If none of these relays gives a copy it accepts, A's insight is not found (§ 7).
+
+- **Per insight.** The reader resolves the insight by its exact key, not the entry's key: under a scope key, A may publish part of the insights at another relay (Duty Menus § 6.2 step 4).
+- **Read-time only.** It takes A's current self-Map and menu each time it reads, and writes nothing into the Map.
+- **Storefront rows** never count in step 2, for any reader: they say where a provider's per-customer keys publish, not where the storefront key does (Duty Menus § 7). Duty Menus § 7's exception for the observer's own Assistant is for filling entries, not for reading them.
+- **Enumerating** (§ 5.4). A client MAY also enumerate at the relays this fallback's three steps give for any of the insights under the key.
+
+§ 7 says when a reader moves on to the next Alternate.
 
 ## 4. Keys
 
@@ -135,11 +155,15 @@ For Score and List kinds, segment 2 is a **system word** — or, for Scores only
 **The kind and the category must agree.** The list kind is the members' reference type (§ 4.2), and the category must yield members of that type:
 
 - `30392` — profiles (empty), or a DList whose subject is `p`;
-- `30393` — a non-addressable event kind, or a DList whose subject is `e`;
-- `30394` — an addressable event kind, or a DList whose subject is `a`;
+- `30393` — a non-addressable event kind (below), the *DList headers* category (`39998`), or a DList whose subject is `e`;
+- `30394` — an addressable event kind (below), the *DList headers* category (`39998`), or a DList whose subject is `a`;
 - `30396` — a DList whose items are themselves the subjects (the usual case: restaurants), `39999` and `9999` alike;
 - `30395` — a NIP-73 type, or a DList whose subject is `i`;
 - `30397` — the *DList headers* category (`39998`), or a DList whose subjects are headers (a list of lists).
+
+**Addressable kinds.** In this NIP an *addressable* event kind is one whose events NIP-01 references by address, with an `a` tag: `30000`–`39999`, and the replaceable kinds `0`, `3` and `10000`–`19999`. So `3039x:tag:10002` matches `30394` lists only. This departs from [Content Categories](./content-categories.md) (its opening table of the four category types, and § 4) and [Spawning](./spawning.md) § 3.2, which use NIP-01's narrower term and so give a replaceable kind's events `e`, and `30393`.
+
+**Category `39998` takes three List kinds**, as Content Categories § 2 gives them, and their Score kinds `30383`, `30384` and `30387`: `30393` lists headers referenced by id, as a `9998` or `9999` header must be; `30394` lists headers referenced by address (`39998`, `39999`); and `30397` lists headers as lists, whatever their kind. So `3039x:tag:39998` covers three lists for each Tag, and one header tagged T can sit in a `30394` list and in a `30397` list.
 
 **A DList with mixed subjects** (rare: some items are headers, some aren't) spawns one list per kind under the same scope: a `30397` for the headers and a `30396` for the rest.
 
@@ -152,20 +176,34 @@ For Score and List kinds, segment 2 is a **system word** — or, for Scores only
 
 ### 4.4 Scopes and wildcards
 
-- An **omitted** trailing segment, or an **empty** segment, means *any*. `30396:tag` and `30396:tag::` both mean every Tag-based list of DList items, for any DList and any Tag.
+- An **omitted** trailing segment, or an **empty** segment, means *any*, except as the Profiles category below says. `30396:tag` and `30396:tag::` both mean every Tag-based list of DList items, for any DList and any Tag.
 - An empty segment may sit in the middle: `30396:tag::⟨Vegan⟩` covers the Vegan list of every DList.
 - The system slot can't be empty. To cover every system, stop after the kind: `30396`.
-- A key whose slots are all filled is exact. For profiles the category slot is always empty and doesn't count; it's in the layout only so every kind shares one layout.
+- **The Profiles category.** In a `tag` or `pin` key whose kind slot is `30392` or `30382`, an empty category with a value in some later segment is the Profiles category, whose slot value is empty (§ 4.3), not *any*. So `30392:tag::⟨Podcaster⟩` names one list, the profiles tagged Podcaster, and does not cover `30392:tag:⟨Nashville Chefs⟩:⟨Podcaster⟩`, whose category is a DList of people.
+  - An omitted category, or a trailing empty one, still means any category: `30392:tag::` is the key `30392:tag`, which covers both lists.
+  - The rule reads the key's own kind slot. In a family or `*` key an empty category means any category, for every kind the key reaches: `3039x:tag::⟨Podcaster⟩` covers `30392:tag:⟨Nashville Chefs⟩:⟨Podcaster⟩` as well as `30392:tag::⟨Podcaster⟩`.
+  - So a profile kind has no key for one Tag, Pin or metric in every category (§ 13, question 2). A Map names each category's key, or leaves out the Tag, Pin or metric as well (`30392:tag`).
+- A key whose slots are all filled is exact. So is a key whose only empty slot is the Profiles category: `30392:tag::⟨Podcaster⟩` is exact.
 
 ### 4.5 Concepts
 
-Concept keys keep the shape ratified in assistant-designation.md: `39998:<d-tag>` (or `39999:<d-tag>` for a header declared as a kind-39999 item). Split at the **first** colon; the rest is the `d` tag, verbatim, and may contain colons. The bare kind `39998` means all of the observer's Concept headers; the legacy spelling `39998:dlist-header` means the same and stays valid. System words don't apply to Concept keys, and `*:tag` or `*:dlist` never match a Concept.
+Concept keys keep the shape ratified in assistant-designation.md: `39998:<d-tag>` (or `39999:<d-tag>` for a header declared as a kind-39999 item). Split at the **first** colon; the rest is the `d` tag, verbatim, and may contain colons. The `d` is one segment, however many colons it holds, and a value: § 4.1's rule that a segment never contains `:`, and § 4.4's empty segments and trimming, don't apply to it. So under § 6, `39998::` (`d` = `:`) beats `39998`.
+
+- **The bare kinds.** The bare kind `39998` means all of the observer's Concept headers, those declared as kind-39999 items included; the legacy spelling `39998:dlist-header` means the same and stays valid. The bare kind `39999` means the observer's headers declared as kind-39999 items. Where a Map has both, § 6 gives those headers to `39999`. Neither reaches the headers that § 4.6 and the next bullet leave out.
+- **A Concept kind and a colon alone** (`39998:`, `39999:`) is not a key: it names no `d` tag, and it is not a spelling of the bare kind. Readers MUST ignore a Map entry keyed so, a self-entry (§ 9.2) included, as if it were absent; writers SHOULD write the bare kind instead. So no key names a Concept header whose `d` is empty, and, as for the headers § 4.6 leaves out, no key reaches one: `*`, `39998` and `39999` never do.
+- System words don't apply to Concept keys, and `*:tag` or `*:dlist` never match a Concept.
 
 A curated DList and a DList-based list are different insights. `39998:<d>` asks the Assistant to publish kind-`39998`/`39999` events (a header and its item copies) — a Concept. `30396:dlist:⟨…⟩` asks it to publish a Trusted List — a List. An Assistant may drive both from the same Trust Determination Method, but the Map treats them as separate duties.
 
 ### 4.6 Reserved words
 
 `tag`, `pin`, `dlist`, `contexts`, `dlist-header`, and every future system word. A reserved word MUST NOT be used as a NIP-85 metric name or as a Concept `d` tag.
+
+`duty-menu` is not a reserved word in this sense: a kind-`39998` Concept header may use it as its `d`, as the Duty Menu header and its dictionary copies do. [Duty Menus](./duty-menus.md) § 4 reserves it as the `d` of a kind-`39999` menu.
+
+For Map keys: no key matches a kind-`39999` Concept header whose `d` is `duty-menu`, such as an event that breaks that reservation. So `39999:duty-menu` names no Concept and asks for nothing, a client builds no filter for it (§ 5.3), and `*`, `39998` and `39999` never reach such a header, whatever they cover. `39998:duty-menu` is an ordinary Concept key.
+
+Nor does any key match a Concept header whose `d` is `dlist-header`, of either kind, such as an event that breaks the reservation above. `39998:dlist-header` is the bare `39998` (§ 4.5); `39999:dlist-header` names no Concept and asks for nothing, and a client builds no filter for it (§ 5.3); and `*`, `39998` and `39999` never reach such a header.
 
 ### 4.7 Grammar
 
@@ -177,17 +215,18 @@ scope     = metric                                      ; NIP-85 native, Score k
           / "pin"      [ ":" cat [ ":" ref [ ":" metric ] ] ]
           / "dlist"    [ ":" dl  [ ":" metric ] ]
           / "contexts" [ ":" ref [ ":" target ] ]        ; List kinds only
-          / d-tag                                       ; Concept kinds only; rest of string
+          / d-tag                                       ; Concept kinds only (§ 4.5)
 cat       = "" / 1*DIGIT / nip73-type / dl
 dl        = "" / naddr / nevent
 ref       = "" / naddr                                  ; a Tag or a Pin
 target    = "" / naddr / nevent
 metric    = "" / 1*( ALPHA / DIGIT / "_" / "-" / "." )  ; not a reserved word
+d-tag     = 1*OCTET                                     ; the rest of the key, verbatim, colons included (§ 4.5)
 ```
 
 ## 5. From entry to filter
 
-A client knows the observer (the Map's author), the Assistant `A` (element 2) and the relay `R` (element 3).
+A client knows the observer (the Map's author, or for a self-entry the observer its key serves, § 2), the Assistant `A` (element 2) and the relay `R` (element 3). When R is empty, or does not hold the insight, § 3 says where to look next.
 
 ### 5.1 Lists: the `d` tag is the scope
 
@@ -221,14 +260,14 @@ read:    ["tag:⟨Restaurants in Nashville⟩:⟨Mexican⟩:confidence", "<value
 
 ### 5.3 Concepts
 
-As in assistant-designation.md: `39998:<d>` resolves to `{"kinds":[39998], "authors":[A], "#d":["<d>"]}`, then to the items filed under that header, found with `#z`.
+As in assistant-designation.md: `39998:<d>` resolves to `{"kinds":[39998], "authors":[A], "#d":["<d>"]}`, then to the items filed under that header, found with `#z`. (No key reaches a kind-`39999` header whose `d` is `duty-menu`, a Concept header whose `d` is `dlist-header`, or one whose `d` is empty: §§ 4.5 and 4.6.)
 
 ### 5.4 Scope keys
 
 A scope key covers many insights. A client can:
 
 1. **Compute exact keys.** It usually knows what it wants (Vegan restaurants in Nashville). It builds that exact key, checks which entry wins it (§ 6) and queries by `#d`.
-2. **Enumerate.** To see which lists an Assistant actually publishes under a scope, it fetches that Assistant's lists of the kind (`{"kinds":[30396], "authors":[A]}`) and keeps those whose `d` tag starts with the scope. The `d` tag *is* the scope (§ 5.1).
+2. **Enumerate.** To see which lists an Assistant actually publishes under a scope, it fetches that Assistant's lists of the kind (`{"kinds":[30396], "authors":[A]}`) and keeps those whose `d` tag starts with the scope, leaving out any List whose latest version it finds (NIP-01) carries `["status", "retracted"]`, which is no copy (§ 7). The `d` tag *is* the scope (§ 5.1).
 
 ### 5.5 What published insights carry
 
@@ -238,12 +277,12 @@ A scope key covers many insights. A client can:
 
 ## 6. Precedence: the most specific entry wins
 
-When several entries match an insight, the entry with the most specific key wins. Compare keys segment by segment, left to right. At the first segment where they differ, the more specific one wins:
+When several entries match an insight, the entry with the most specific key wins. Keys are read as §§ 4.1, 4.4 and 4.5 read them, so two spellings of one key are one key: `30396:tag::` is `30396:tag`, and `39998:dlist-header` is `39998`. Compare keys segment by segment, left to right. At the first segment where they differ, the more specific one wins:
 
-- kind slot: exact kind, then family wildcard, then `*`
+- kind slot: exact kind, then family wildcard, then `*`. Of the two Concept kinds, `39999` beats `39998`: a bare `39998` reaches both kinds of Concept header (§ 4.5), as a family reaches its kinds.
 - any later segment: a value beats empty or omitted.
 
-Every matching key agrees with the insight wherever it names a value, so this always picks one winning key. Every entry with that key is a provider for the insight, in order (§ 7). Entries with other keys are ignored for it.
+A bare `39998` that matches a header declared as a kind-39999 item is the one case where a matching key names a value the insight does not have, and there the kind-slot rule orders it below every `39999` key. Apart from that case, every matching key agrees with the insight wherever it names a value; so this always picks one winning key. Every entry with that key is a provider for the insight, in order (§ 7). Entries with other keys are ignored for it.
 
 **Example.** A Map carries these five entries:
 
@@ -267,18 +306,20 @@ Every matching key agrees with the insight wherever it names a value, so this al
 | Profile rank | `30382:rank` | A0 |
 | Curated Restaurants in Nashville (Concept) | `39998:restaurants-nashville` | A0 |
 
-Two consequences:
+Three consequences:
 
 - **Scores and Lists are separate.** A4 covers the Mexican *list*, not the Mexican *score*. To give A4 both, add `30386:tag:⟨Restaurants in Nashville⟩:⟨Mexican⟩`.
 - **The left-most difference decides.** `3039x:tag` beats `*:tag:⟨Restaurants in Nashville⟩:⟨Mexican⟩` for the Mexican list, because the kind slot is compared first. To make an exception, name the kind.
+- **The two Concept kinds.** With `["39998", B, …]` and `["39999", C, …]`, B is the provider for the kind-`39998` Concept headers and C for the headers declared as kind-`39999` items, apart from those no key reaches (§§ 4.5 and 4.6).
 
 **Why left-most rather than most segments.** Counting named segments sounds more intuitive but ties constantly — `30396:tag:⟨Restaurants in Nashville⟩` and `30396:tag::⟨Mexican⟩` each name three — and any tie-break would itself have to be left-most. The left-most rule never ties, matches the general-to-specific order of every key, and can be checked by eye: line the keys up and read across.
 
 ## 7. Preferred and Alternate
 
 - Several entries may share one key. Their order matters: the first is the **Preferred** provider; the rest are **Alternates**, in order.
-- Clients use the Preferred provider's insight. They fall back to the next Alternate when it can't be found (missing from the relay, relay unreachable) or is older than they'll accept. They MAY show or compare Alternates.
-- Every listed provider, Preferred or Alternate, is asked to publish and maintain the insight (§ 9). Alternates are standbys that are already up to date.
+- Clients use the Preferred provider's insight. They fall back to the next Alternate when they find no copy of it that they accept: none at the relay its entry gives, nor, for a reader that follows § 3, at the relays § 3 looks at next. A reader that follows § 3 runs it for each provider in turn before moving to the next. A copy is accepted when it is no older than the reader will accept, or when it counts as maintained (§ 9.2). A List that carries `["status", "retracted"]` ([Trusted Lists](./trusted-lists.md#common-wire-shape)) is no copy, whatever the provider's self-Map says. A reader that does not follow § 3 moves on after the entry's relay. They MAY show or compare Alternates.
+- A client may ask several providers' relays at once. It uses the insight of the first provider, in order, whose copy it accepts.
+- Every listed provider, Preferred or Alternate, is asked to publish and maintain the insight, except as § 9 says: the Map asks each Alternate to be a standby that is already up to date, which the Map alone does not show. An Alternate whose duty is confirmed (§ 9.2) is a standby that is ready now.
 - Order applies within one key. An entry with a less specific key is never a fallback for a more specific one. To give an insight a fallback, list Alternates on its own key.
 - The same pubkey listed twice for one key: later listings are ignored.
 - Reordering means republishing the Map with the entries in the new order.
@@ -301,10 +342,11 @@ Two consequences:
 - An Assistant reads the Map of each observer it serves. Its duties for that observer are every insight whose winning key (§ 6) lists it, as Preferred or Alternate.
 - It expands scope keys over the observer's supported sets (§ 8), limited to the insight kinds and systems it can produce. It ignores entries it doesn't understand.
 - How it computes each insight is its own business and stays off the Map (principle 3).
-- **One key per observer.** An Assistant service that serves several people signs each person's insights with a separate key; element 2 is the key for this observer. NIP-85 already works this way: a Score event is addressed by its subject alone, so one key can hold only one observer's scores. List `d` tags (§ 5.1) behave the same way.
-- **Naming someone else's Assistant.** An entry may name a key that signs for someone else — Alice's Assistant, publishing Alice's view. That entry creates no duty: the observer adopts Alice's insight as published. Clients resolve it like any other entry.
+- **One key per observer.** An Assistant service that serves several people with an algorithm personalized to each person's point of view or settings signs each person's insights with a separate key; element 2 is the key for this observer. NIP-85 already works this way: a Score event is addressed by its subject alone, so one key can hold only one observer's scores. List `d` tags (§ 5.1) behave the same way. For a key that serves several observers, as NIP-85 allows for an algorithm that is not personalized, see § 9.2 and [Duty Menus](./duty-menus.md) § 14, question 3.
+- **Self-entries.** An entry whose element 2 is the Map's own author is a *self-entry*: that key's report of what it is publishing now (§ 9.2). It creates no duty and designates no one. An Assistant takes duties only from entries that name it in the Maps of the observers it serves, never from its own Map. A reader judges element 2 against the Map's author first: an entry that names the author is a self-entry, whatever else that key signs for, and the next bullet is for every other entry.
+- **Naming someone else's Assistant.** An entry other than a self-entry may name a key that signs for someone else — Alice's Assistant, publishing Alice's view. That entry creates no duty: the observer adopts Alice's insight as published. Clients resolve it like any other entry.
 - **Finding the Maps.** Relays don't index element 2 of 10040 tags, so an Assistant learns out of band whose Maps to read — its owner's, its customers' (§ 13, question 5).
-- **Revocation.** Republishing the Map without the entry ends the duty. Insights already published stay on relays; clients stop resolving them.
+- **Revocation.** Republishing the Map without the entry ends the duty. Insights already published stay on relays; clients stop resolving them. Before it stops updating them, the Assistant makes any change to its self-Map that § 9.2 requires; § 9.2 also asks it to retract its Lists.
 
 ### 9.1 Trust Determination Methods (non-normative)
 
@@ -316,9 +358,91 @@ Methods stay off the Map (principle 3), but keys give them a natural identifier.
 - So an Assistant needs no extra identifiers: for each duty, the winning Map entry says *who*, and the winning method says *how*.
 - The concept's shape (firmware headers, fields, the private item, templates) is in [Trust Determination Methods](./trust-determination-methods.md).
 
+### 9.2 Self-Maps
+
+A key's own Map can report what that key is publishing now. In the examples below, `<key>` → R stands for a self-entry or a `duty` row with that key and relay R, and `not-offered <key>` for a `not-offered` row, as in [Duty Menus](./duty-menus.md) § 6.2.
+
+**Terms.** A *self-entry* is as § 9 defines it. A key's *self-Map* is its own kind 10040, read for its self-entries. Every Assistant SHOULD keep a self-Map, so that clients can tell which of its duties are live.
+
+**Meaning.** A self-entry `[K, A, R]` says that A is publishing at R, and keeping up to date, each insight it speaks for that this self-entry wins. The self-entry that wins an insight is found by § 6 among A's self-entries alone, and A's other entries take no part (Ties). An insight that no self-entry wins is not reported as active. A self-entry whose element 3 is the empty string claims nothing (Its relay). A self-entry means published and maintained, not merely assigned.
+
+**What a self-entry speaks for.** A self-entry with a scope key speaks only for insights in the supported sets of the observer its key serves (§ 8), and one with an exact key for its one insight, whatever its key can produce: § 9's limit to "the insight kinds and systems it can produce" bounds an Assistant's to-do list, not its self-entries, so a key leaves out what it does not publish with narrower keys (A part A does not publish). Of those, the self-entries of a key that serves one observer other than itself speak only for its duties (§ 9): the insights that the observer's Map gives to it. They say nothing about the other insights under their keys: those the observer gave to another key, and those outside its supported sets. A key that serves only itself, such as a person who publishes their own insights with their own key, speaks for every insight its self-entries win, read over its own supported sets. A key that serves several observers, as NIP-85 allows for an algorithm that is not personalized, has no one observer to read its self-entries over; what they speak for is open, with the other questions about such keys ([Duty Menus](./duty-menus.md) § 14, question 3). Until it is settled, readers read such a key's self-entries as any others (What a reader can tell), and this section's rules on what a self-entry speaks for do not bind them.
+
+**What a reader can tell.** Whether a self-entry speaks for an insight it wins turns on the observer's supported sets and, for an Assistant, on the observer's Map. A reader may hold neither: clients don't need supported sets (§ 8). A reader takes a self-entry to speak for each insight it wins, unless it knows that the self-entry does not.
+
+**Ties.** None arise. § 6 picks one winning key among A's self-entries for each insight they match, a `39999` key over a bare `39998` included, and where A lists that key more than once, § 7 keeps the first. So with A's menu `39998` → Rc, `39999` → Rd, and duties among headers of both kinds, A's self-Map `39998` → Rc, `39999` → Rd says that A publishes its duties among the headers declared as kind-39999 items at Rd, and its other Concept duties at Rc. Each self-entry still needs an insight it speaks for (When it changes): while no header declared as a kind-39999 item is among A's duties, `39999` → Rd speaks for none, and A leaves it out.
+
+**Its key.** Where it can, an Assistant uses as a self-entry's key the key of the observer's entry that gives it the duties, copied verbatim: where A publishes at one relay every insight that key would win, beside A's other self-entries, and speak for, and Its relay (below) allows that relay for that key. Otherwise it writes narrower keys (below). A key that serves only itself chooses its keys under the same rule.
+
+**Its relay.** Element 3 is the relay where A publishes the insights the self-entry wins that it speaks for. It is never the empty string. Where A publishes a Duty Menu that is not a storefront ([Duty Menus](./duty-menus.md) § 7), it is also the relay A's menu gives the self-entry's key (what Duty Menus § 6.2 step 5 would give that key from A's menu, if the observer chose it, and kept it, for A), and a key to which A's menu gives another relay, or none, is not one of its self-entries' keys. While A moves some or all of the insights a self-entry speaks for to another relay (below), that self-entry may keep the old relay until A publishes the version that names the new one, whatever A's menu now gives its key. Readers take a self-entry whose element 3 is the empty string to claim nothing: it still wins insights among A's self-entries (§ 6), but confirms no duty, and § 3 takes no relay from it.
+
+- Example: with A's menu `*` → R0, `3038x` → R1, and an observer who gives A `*` but gives its own Lists and Concepts to another key, A's duties under `*` are Scores, which it publishes at R1. A writes `3038x` → R1, not `*` → R1.
+
+**More than one relay.** Where A publishes some of the duties under one key at another relay (a differing row's part, [Duty Menus](./duty-menus.md) § 6.2 step 4), A adds narrower self-entries naming that relay, so that every insight a self-entry wins and speaks for is one A publishes at its relay. The meet of the observer's key with the row that sends them there (Duty Menus § 6.2 step 4) is such a key only when no other row within the key sends part of the meet elsewhere, and when the meets order as their rows do; Duty Menus § 6.2 step 5 shows meets that order the other way. A writes as many narrower self-entries as that takes, such as the meet of the key with a row nested in the part, or the meet of two meets, and checks the whole against the rule below.
+
+- A nested row: with A's menu `3039x` → R0, `3039x:tag` → R1, `30396:tag` → R0, and the observer's `3039x`, A writes `3039x` → R0, `3039x:tag` → R1 and `30396:tag` → R0. Without the last, `3039x:tag` would win the Tag-based lists of DList items, which A publishes at R0.
+- Meets that order the other way: with A's menu `3039x` → R0, `30396:tag::⟨T⟩` → R1, `3039x:tag:⟨D⟩` → R2, and the observer's `30396`, the meets `30396:tag::⟨T⟩` → R1 and `30396:tag:⟨D⟩` → R2 would give `30396:tag:⟨D⟩:⟨T⟩` R2, but A publishes it at R1. A adds the meet of the two meets, `30396:tag:⟨D⟩:⟨T⟩` → R1.
+
+**A part A does not publish.** A key MUST NOT write a self-entry, or keep one past a brief gap (below), that wins an insight it speaks for but does not publish at that self-entry's relay. Where the observer's key would do so, because A does not publish part of it (a `not-offered` row within it) or publishes part of it at a relay that no narrower self-entry separates, A writes narrower keys in its place and leaves out what it cannot claim truly. A self-Map says less rather than more.
+
+- Example: with Duty Menus § 13.2's menu (`3038x` → R, `not-offered 30385`) and the observer's `["3038x", A, R]`, A writes `30382`, `30383`, `30384`, `30386` and `30387` → R, not `3038x`. If the observer later gives `30385` to another Assistant, `30385` is no longer A's duty, and A may write `3038x` again.
+
+**No order, no copies.** A self-entry never copies the observer's Preferred and Alternate order, or its other providers. An entry in A's Map that names another key is A's own request, read by § 9 like any entry. Copying the observer's entries would give those keys duties for A. A self-Map may also carry such ordinary entries.
+
+**Private duties**, those given by Map entries that their observer keeps private, such as NIP-85's entries encrypted in `.content`, never go in a self-Map's public tags. Whether they may go in its `.content` is open (§ 13, question 8).
+
+**No expiration.** A kind 10040 that carries a self-entry carries no `expiration` tag (NIP-40). A self-entry lasts until its key removes it.
+
+**When it changes.**
+
+- A key MUST NOT add a self-entry before the first full set of the insights it wins, of those it speaks for, has landed at its relay.
+- It MAY keep a self-entry through a brief gap: a failed run, a relay that is down for a while, or an insight new among those the self-entry speaks for that the key will publish at the self-entry's relay and that has not landed there yet. A self-entry says that the key is keeping the insights up to date, not that every update has landed. An insight new among those the self-entry speaks for that the key will publish at another relay, or not at all, is no gap: as soon as the key learns of it, it narrows or removes the self-entry so that it does not win that insight, and adds a self-entry for it once its first full set has landed.
+- It MUST remove or narrow a self-entry before it stops keeping up to date any insight that the self-entry wins and speaks for, whatever the reason: the service ended, the key was retired, or it can no longer publish it. A brief gap never covers a stop.
+- A key MUST NOT add a self-entry that speaks for none of the insights it wins, and MUST remove one as soon as it learns that it speaks for none, as when the observer drops the key.
+- A move to another relay ends the self-entry at the old relay, not the insights: the key first publishes a version whose self-entries name the new relay, and only then stops updating the copies at the old one. It does not retract what it moved; the copy left at the old relay is an older version.
+- A key changes its self-Map by publishing a new version. Each version's `created_at` MUST be later than the version it replaces: NIP-01 keeps the version with the lowest id when two share a `created_at`, so an equal one can leave a removed self-entry in place. No NIP-09 deletion is needed.
+
+**What follows a stop**, for each family (principle 4). A stop is the key's ceasing to keep an insight up to date (When it changes). A self-entry that the key removes or narrows while it keeps publishing what the self-entry spoke for is no stop: it ends that self-entry's claim, so a reader that sees the change no longer takes as confirmed or maintained (Confirmed duties; Maintained, at its relay) the insights that no remaining self-entry of the key wins and speaks for, and nothing below follows from it.
+
+- **Lists.** A SHOULD retract each List it stops maintaining, whatever the reason: the service ended, the key was retired, or the List is no longer among A's duties (§ 9), because the observer's Map no longer gives it to A or it left the supported sets over which a scope key gave it (§ 8). It retracts it by the retraction convention, at each relay where it published the List: an empty replacement carrying `["status", "retracted"]` ([Trusted Lists](./trusted-lists.md#common-wire-shape)), with a `created_at` later than the list's last version (NIP-01). A List it moved to another relay and still maintains there is not one it stops maintaining. § 7 reads a retraction as no copy.
+- **Scores** have no retraction convention, and published values stay on relays (§ 9, Revocation). A reader sees a stop only as the removed or narrowed self-entry, which ends the allowance (Maintained, at its relay), as it does when the key keeps publishing. A Score that left what a self-entry speaks for keeps the allowance for a reader that cannot tell (below).
+- **Concepts.** The curated header and its `b` stay ([Assistant Designation](./assistant-designation.md), Revocation), and so do A's curation copies (Assistant Designation § Curation copies, When curation stops). A does not delete the header, which other headers may point at.
+
+**Finding a self-Map.**
+
+- A self-Map is A's kind 10040: `{"kinds":[10040], "authors":["<A>"]}`.
+- A SHOULD send each version, including one that removes a self-entry, to its kind 10002 write relays, to the relays its self-entries name, and to every relay that a self-entry of an earlier version named. It may drop a relay it knows is gone.
+- A reader SHOULD ask A's kind 10002 write relays (NIP-65), every relay hint it holds for A (element 3 of the entries naming A), and the relay that each self-entry it reads names. It uses the latest version among the answers: the latest `created_at`, and on a tie the lowest id (NIP-01). The order says where to look first, not where to stop. A relay that does not answer within the reader's own timeout is skipped. A reader may ask fewer relays, and may then get an older version.
+
+**Confirmed duties.** A duty of A is confirmed when A's self-Map has a self-entry that wins it, whose element 3 is not the empty string (Its relay), and that the reader takes to speak for it (What a reader can tell): the same key as the observer's entry, or another key that wins it among A's self-entries (§ 6). An entry is confirmed for the insights such a self-entry wins and that the reader takes it to speak for, and for no others. § 7 reads a confirmed Alternate as a standby that is ready now.
+
+**Maintained, at its relay.** An insight found at the relay of the self-entry that wins it counts as maintained, whatever its age, when the reader takes that self-entry to speak for it (What a reader can tell). NIP-85 asks providers to republish only when an insight's content changes, so a current insight can be old. A copy found at another relay gets no such allowance, and § 3 looks further for a newer one.
+
+**Spot-check.** Before relying on a self-entry to switch an insight to its key, as when making an Alternate Preferred, a client SHOULD fetch a few of the insights the self-entry wins, at its relay: the self-entry is the key's claim, and the events are the proof.
+
+**As a point of view.** Read as a point of view, like any Map, a self-Map's self-entries show the view of the observer its key serves, where it serves one (§ 9, One key per observer): the slice the key publishes, for the insights they speak for. They can also win insights the key no longer keeps up to date (below), so the view can carry stale copies. Entries in it that name other keys are its author's own requests (§ 9). A self-Map that has both, such as an instance's Tapestry Assistant's, read as a point of view mixes two observers' views.
+
+**What the allowance rests on.** The allowance rests on the key's own word. It holds while the key removes or narrows a self-entry before it stops, and while readers see the change. It does not hold in four cases:
+
+- a key that stops without removing its self-entries (it crashed, lost its key, or was abandoned) keeps its last insights counted as maintained, since a self-Map does not expire; so does a removal a reader never sees, such as one that missed the relay a reader holds for a key whose kind 10002 does not answer. The key's retraction of a List is no copy in either case (§ 7);
+- until the key has read a change to the observer's Map or supported sets (§ 8), its self-entries can win a new duty it has not started. So after a re-pin, until the key restarts what was re-pinned (Spawning § 5, Restore), a reader that takes a self-entry to speak for those insights counts a Score or Concept that the key published before the drop as maintained at the self-entry's relay, and finds the key's old retraction of a List, which is no copy (§ 7);
+- a self-entry with a scope key also wins insights outside the observer's supported sets, about which it says nothing. Copies the key published before the observer dropped them from its supported sets are no longer kept up to date: the key should retract the Lists (above), but Scores and Concepts stay as they were. A reader that does not hold the observer's supported sets, a reader of the observer's own Map included, cannot tell, so it takes such a copy as maintained; a reader that holds them does not (What a reader can tell). The key's retraction of a List is no copy for either (§ 7);
+- a self-entry can also win an insight that the observer its key serves gave to another key (above). A reader of a Map that names the key as someone else's Assistant, or of the self-Map as a point of view, cannot tell without the observer's Map, so it takes a stale copy of such an insight as maintained; the key's retraction of a List is no copy (§ 7).
+
+For a key that serves several observers, the allowance rests on nothing this section asks of the key: what its self-entries speak for is open (above), so no rule binds what they claim, though readers grant the allowance as for any other key. An observer's remedy is its own Map: drop the key, reorder its providers, or give the insight to another key.
+
+**Keys the observer runs.**
+
+- An instance's Tapestry Assistant (TA) keeps a self-Map too: its self-entries report what it publishes for its owner, and it never takes duties from them; it takes them from its owner's Map (§ 9). The TA's kind 10040 is both its self-Map and the instance's own Map, the instance being its own person ([Assistant Designation](./assistant-designation.md), § Relationship to instance identity). Entries in it that name other keys are ordinary entries.
+- A person who publishes their own insights with their own key has no customer's Map to read. What they mean to publish next is theirs to keep, off the Map. Their Map names their key only for what is live, as self-entries added and removed as this section says. Their self-entries speak for every insight they win in their own supported sets, so for them too a self-entry means published and maintained.
+
+**Counting Maps.** A self-entry never counts as its key's choice of a provider. A client that counts people by their Maps (adopters, participation, points of view to enumerate) SHOULD count a Map only when at least one of its public entries names a key other than its author. So it leaves out a self-Map made only of self-entries, and an empty Map. It also leaves out the Map of a person who serves as their own Assistant for every insight, since a reader cannot tell that Map from an Assistant's without deciding which keys are Assistants, which this NIP does not ask of it; and a Map whose entries are all private (NIP-85's `.content`), which outsiders cannot read. A person who names another key in a public entry is counted.
+
+**Offered and active.** A key's Duty Menu ([Duty Menus](./duty-menus.md) § 10) says what it offers; its self-Map says what is active.
+
 ## 10. Every entry type
 
-Each row gives a key pattern, an example where the pattern has parts, and the entry in plain English: read the column heading, then the row. Every Score kind, List kind and system in § 4 appears below. Scope keys always end with *"except where this Map says otherwise"* (§ 6).
+Each row gives a key pattern, an example where the pattern has parts, and the entry in plain English: read the column heading, then the row. Every Score kind, List kind and system in § 4 appears below. Scope keys always end with *"except where this Map says otherwise"* (§ 6). A self-entry (§ 9), whose element 2 is the Map's own author, entrusts no one, and these rows do not read it: § 9.2 says what it reports.
 
 ### 10.1 Everything, and whole classes
 
@@ -327,7 +451,8 @@ Each row gives a key pattern, an example where the pattern has parts, and the en
 | `*` | …every insight for me — all my Scores, Lists and Concepts — except where this Map says otherwise. |
 | `3038x` | …all my Scores, except where this Map says otherwise. |
 | `3039x` | …all my Trusted Lists, except where this Map says otherwise. |
-| `39998` (legacy: `39998:dlist-header`) | …my Concept Graph — my DList headers and the items filed under them — except where this Map says otherwise. |
+| `39998` (legacy: `39998:dlist-header`) | …my Concept Graph — my DList headers, those declared as kind-39999 items included, and the items filed under them — except where this Map says otherwise. |
+| `39999` | …my DList headers declared as kind-39999 items, and the items filed under them, except where this Map says otherwise. |
 
 ### 10.2 Whole systems
 
@@ -372,13 +497,13 @@ Each row gives a key pattern, an example where the pattern has parts, and the en
 
 | Key | Example | *I entrust Bob's Brainstorm Assistant to publish and maintain…* |
 |---|---|---|
-| `30392:tag` | | …one Trusted List of profiles for each Tag in my supported Tags for profiles, except where this Map says otherwise. |
+| `30392:tag` | | …one Trusted List of profiles for each Tag in my supported Tags, in each category of profiles it is supported in (the Profiles category, or a DList of people), except where this Map says otherwise. |
 | `30392:tag::<Tag>` | `30392:tag::⟨Podcaster⟩` | …the Trusted List of every profile my trusted community tags as Podcaster. |
 | `30392:tag:<DList>:<Tag>` | `30392:tag:⟨Nashville Chefs⟩:⟨Vegan⟩` | …the Trusted List of the Nashville chefs (a DList of people) my trusted community tags as Vegan. |
-| `30382:tag` | | …for every profile, a Score for each Tag in my supported Tags for profiles, in every metric, except where this Map says otherwise. |
-| `30382:tag::<Tag>` | `30382:tag::⟨Podcaster⟩` | …for every profile, its Podcaster Scores in every metric, except where this Map says otherwise. |
+| `30382:tag` | | …for every profile, a Score for each Tag in my supported Tags, in each category of profiles it is supported in, in every metric, except where this Map says otherwise. |
+| `30382:tag::<Tag>` | `30382:tag::⟨Podcaster⟩` | …for every profile, its Podcaster Scores in the Profiles category, in every metric, except where this Map says otherwise. |
 | `30382:tag::<Tag>:<metric>` | `30382:tag::⟨Podcaster⟩:confidence` | …for every profile, a confidence score for how strongly my trusted community agrees it is a Podcaster. |
-| `30382:tag:::<metric>` | `30382:tag:::confidence` | …for every profile, a confidence score for each Tag in my supported Tags for profiles, except where this Map says otherwise. |
+| `30382:tag:::<metric>` | `30382:tag:::confidence` | …for every profile, a confidence score for each Tag in my supported Tags in the Profiles category, except where this Map says otherwise. |
 
 ### 10.6 Tag-based: events (`30393`, `30383`)
 
@@ -457,7 +582,7 @@ Each row gives a key pattern, an example where the pattern has parts, and the en
 | `39998:<d-tag>` | `39998:restaurants-nashville` | …my curated copy of Restaurants in Nashville: its header, and a copy of each item my trusted community accepts. |
 | `39999:<d-tag>` | `39999:nashville-food-trucks` | …my curated copy of a DList whose header is declared as a kind-39999 item. |
 
-(The bare `39998` is in § 10.1.)
+(The bare `39998` and `39999` are in § 10.1.)
 
 ### 10.13 Reserved: future insight types
 
@@ -478,7 +603,7 @@ A **Scorecard** is one event per observer, observee and context, carrying GrapeR
 
 **Why isn't a Trusted List of restaurants a `30397`?** Because `30397` is for members that are *lists*. A restaurant is a DList item (`30396`); a client fetches it. A member of Supported DLists is a list; a client queries `#z` with it. The same `a`-shaped value means different things in the two, so they need different kinds.
 
-**How many colons?** A fixed number per system (§ 4.3), the same for every kind. Fewer segments, or an empty one, makes a scope.
+**How many colons?** In each system (§ 4.3), every List key has the same number, whatever its kind, and so does every Score key. Where a system has both, a Score key has one more, since it is the matching List key plus `:<metric>`. A Concept key has no system: its `d` is one segment, which may hold colons (§ 4.5). Fewer segments, or an empty one, makes a scope, except where § 4.4 makes an empty category the Profiles category: `30392:tag::⟨Podcaster⟩` is exact, and `30382:tag::⟨Podcaster⟩`, with no metric, is a scope.
 
 **What goes in an naddr?** One coordinate: kind, author, `d`. Never relays, which break determinism, and nothing about how the insight is computed.
 
@@ -501,7 +626,7 @@ A **Scorecard** is one event per observer, observee and context, carrying GrapeR
 | `30382:<Tag>:rank` | `30382:tag::<Tag>:rank` |
 | `30397:<DList>:<score>` (mock: DList-based method, Lists) | `30396:dlist:<DList>`: Lists carry no metric |
 | `30387:<DList>:<score>` (mock: DList-based method, Scores) | `30386:dlist:<DList>:<score>` |
-| TBD: Nostr Event Kind (with or without a Tag) | `30393:tag:<kind>[:<Tag>]`; for an addressable kind such as `34550` communities, `30394:tag:<kind>[:<Tag>]` |
+| TBD: Nostr Event Kind (with or without a Tag) | `30393:tag:<kind>[:<Tag>]`; for an addressable kind (§ 4.3), such as `34550` communities or `10002` relay lists, `30394:tag:<kind>[:<Tag>]` |
 | TBD: Nostr Event ID with a Tag | `30393:tag::<Tag>` (a scope over event categories) |
 | TBD: Nostr Event Address with a Tag | `30394:tag::<Tag>` (a scope over addressable-event categories) |
 | TBD: DList Header with a Tag | `30396:tag:<DList>:<Tag>` |
@@ -518,17 +643,18 @@ The mock's "Nostr Event ID" and "Nostr Event Address" rows are read here as "eve
 ## 13. Open questions
 
 1. ~~Descriptor tag letters~~ — rejected (W18): lists carry no descriptor tags.
-2. **Empty categories.** Here an empty category is always a scope (except for profiles), so there is no single "Bitcoin events of any kind" list; clients combine the per-category lists. Should an "any category" list exist too?
-3. ~~Profiles within a category~~ — resolved: a DList whose subject is `p` is a category of `30392` (§ 10.5).
+2. **Empty categories.** Here an empty category is always a scope, except where § 4.4 makes it the Profiles category: in a profile kind's `tag` or `pin` key, with a value after it. So there is no single "Bitcoin events of any kind" list, and no key for one Tag's profile lists in every category; clients combine the per-category lists. Should an "any category" list exist too?
+3. ~~Profiles within a category~~ — resolved: a DList whose subject is `p` is a category of `30392` (§ 10.5); in a profile kind's `tag` or `pin` key, an empty category with a value after it is the Profiles category (§ 4.4).
 4. **NIP-73 types with colons** (`podcast:guid`). Proposal: percent-encode them (`podcast%3Aguid`).
-5. **Finding one's duties.** Add optional `["p", "<assistant pubkey>"]` tags to the Map, so an Assistant can find the Maps naming it with `#p`? They reveal nothing the entries don't, but some clients notify on `p` tags.
+5. **Finding one's duties.** Add optional `["p", "<assistant pubkey>"]` tags to the Map, so an Assistant can find the Maps naming it with `#p`? They reveal nothing the entries don't, but some clients notify on `p` tags. If they are adopted, an Assistant that finds Maps by `#p` skips any Map it wrote itself: its self-entries name it but create no duty (§ 9).
 6. **Map size.** An exact key with two naddrs runs to about 250 characters. Scopes keep Maps small; a Map full of exceptions may hit relay size limits.
 7. **NIP-85-only clients** read only exact `<kind>:<metric>` keys, so a Map that relies on `*` is invisible to them. Writers SHOULD also write explicit NIP-85 entries for the metrics they care about, naming the same providers (§ 14 does this for `30382:rank`).
-8. **Private entries.** Decided (W22): private items follow one pattern everywhere. They are published by the owner's Assistant, NIP-44-encrypted to itself, and marked `["private", "1"]`. Delegation entries in the Map stay public until NIP-85's current private-entry text is checked.
+8. **Private entries.** Private items follow one pattern everywhere, as decided in W22: they are published by the owner's Assistant, NIP-44-encrypted to itself, and marked `["private", "1"]`. Two things are open. Delegation entries in the Map stay public until NIP-85's current private-entry text is checked. And a self-Map keeps private duties out of its public tags (§ 9.2): may it carry them in its `.content`?
 9. **Named variants of one list.** The mock's DList-based stored methods put a score name on the List key (`30397:<DList>:<score>`). This draft drops it: one list per exact key. If two lists for one DList are ever needed, that means a new system word, not a trailing name.
 10. **Scorecards.** Kinds and addressing (subject plus context) to be defined (§ 10.13).
 11. ~~Mixed-item DLists~~ — resolved: `30396` holds `39999` and `9999` items in one list.
 12. **Is `*:<scope>` needed?** A `*:…` key never reaches a Concept (§ 4.3, § 4.5), so `*:<scope>` reaches exactly what `3038x:<scope>` and `3039x:<scope>` reach together. Dropping it would leave a bare `*` as the only key for everything, and remove the precedence cases between a family key and a `*:…` key (§ 6). For now, Brainstorm's Treasure Map page reads only a bare `*` (`*:` with nothing after it is the same key) and ignores any other `*:…` entry.
+13. **Alternates on a per-list Concept key.** §§ 7 and 9 ask every provider listed on a key such as `39998:<d-tag>`, Alternates included, to publish and maintain its Concept, a header and its item copies (§ 4.5), and [Spawning](./spawning.md)'s two gates (principle 3) pass for each of them, since the Map names each on the key and the key is exact. But [Assistant Designation](./assistant-designation.md) § Per-DList curation entries empowers only the first entry for a (kind, d-tag), so a list has at most one curating assistant, and its § Curation copies lets an assistant curate only while a Map entry empowers it. Does an Alternate on such a key curate the list as a standby, and if so, what empowers it? The writer rules differ as well: Assistant Designation keeps one entry per (kind, d-tag), replaced in place, where § 7 lets several entries share one key.
 
 ## 14. A complete Map
 

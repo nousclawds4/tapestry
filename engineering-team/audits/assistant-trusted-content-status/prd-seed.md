@@ -31,7 +31,7 @@
 
 ## 3. Scope (as-built)
 
-`[FROM FRAME]` On `staging` (PR #832); production pending:
+`[FROM FRAME]` On `staging` (PR #832) and in production (2026-10-10, PR #838):
 
 - **The names.** Scores, Lists, Concepts open the section, in that order. Descriptions, NIP links and page addresses are unchanged.
 - **The answer.** Each category is Done when the person's newest Treasure Map gives it to their Tapestry Assistant here, alone or beside other Assistants. Otherwise it needs attention, with one of three reasons: no Map, not assigned, or other Assistants only. When the Map couldn't be read it is "not known yet", and stays marked but uncounted.
@@ -68,8 +68,8 @@ Promoted from audit §6:
 
 ## 7. What product must validate
 
-- [ ] **The two pages' different questions.** Is it right that `/treasure-map` is satisfied by any Assistant while `/assistant` wants yours? If yes, should either page say so in words, so the difference doesn't read as a bug?
-- [ ] **Backups.** Should naming your Tapestry Assistant as a backup for a category count as Done? Today it doesn't, because the card shows only the preferred Assistant.
+- [x] **The two pages' different questions.** Is it right that `/treasure-map` is satisfied by any Assistant while `/assistant` wants yours? If yes, should either page say so in words, so the difference doesn't read as a bug? **Answered 2026-10-11 by book `assistant-shared-categories`:** no. Both pages are now satisfied by any Assistant, and `/assistant` adds a quiet **Shared** pill and a line when an Assistant other than yours holds part or all of a category (`audits/assistant-shared-categories/audit.md`).
+- [x] **Backups.** Should naming your Tapestry Assistant as a backup for a category count as Done? Today it doesn't, because the card shows only the preferred Assistant. **Answered 2026-10-11 by book `assistant-shared-categories`:** the category is Done whoever holds it. With your Assistant only as a backup, it reads **Done, shared (entirely)**, because the preferred Assistant is another.
 - [ ] **The vocabulary.** Should the FAQ and the card descriptions move to Scores, Lists and Concepts as well?
 - [ ] **What the three pages become,** now that they carry the rule and a link: status and reason, a fix, or something richer.
 - [ ] **"Assigned" versus "publishing".** Is a Map pointer enough to call Scores done, or should the hub look for the Assistant's actual events?

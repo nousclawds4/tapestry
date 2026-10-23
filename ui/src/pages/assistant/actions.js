@@ -1,6 +1,7 @@
 /**
  * The Assistant Management page, as data (assistant-management #1, ADR 0001 sub-decision 1): its three
- * sections, its eleven actions (Outbox Relays since assistant-outbox-relays #1), its FAQ and its words — and the one answer to "which of the viewer's actions
+ * sections, its thirteen actions (Outbox Relays since assistant-outbox-relays #1; Duty Menu and Your Assistant's
+ * Treasure Map since assistant-duty-cards #1), its FAQ and its words — and the one answer to "which of the viewer's actions
  * need attention", which the page's marks, its count line and the Assistant Alert (story 2) all read. Since
  * assistant-identification-tags #1 that answer merges the server's real checks (GET /api/assistant/attention,
  * the actions in CHECKED_ACTIONS) with the placeholders, in two readings: the page's and the pill's.
@@ -15,10 +16,17 @@
  * The words were approved with the stories; change them there first:
  * engineering-team/stories/done/assistant-management/1-the-assistant-management-page.md § Copy,
  * engineering-team/stories/done/assistant-management/2-the-assistant-alert.md § Copy,
- * engineering-team/stories/assistant-outbox-relays/1-the-outbox-check-and-the-hubs-outbox-relays-card.md § Copy, and
+ * engineering-team/stories/assistant-outbox-relays/1-the-outbox-check-and-the-hubs-outbox-relays-card.md § Copy,
  * engineering-team/stories/assistant-trusted-content-status/1-scores-lists-and-concepts-on-the-hub.md § Copy (since
  * then the first three Publication of Trusted Content actions are Scores, Lists and Concepts, the Treasure Map's
- * categories).
+ * categories; their alert criteria and the hub's Shared words since
+ * engineering-team/stories/done/assistant-shared-categories/1-done-but-shared.md § Copy), and
+ * engineering-team/stories/assistant-duty-cards/1-duty-menu-and-treasure-map-placeholder-cards.md § Copy (the Duty Menu's
+ * alert criteria since engineering-team/stories/assistant-duty-menu/1-the-duty-menu-page-and-its-check.md, ADR
+ * assistant-duty-menu/0001 sub-decision 6, which made it a checked action with its own page; the Treasure Map's since
+ * engineering-team/stories/assistant-self-map/3-one-name-for-your-assistants-treasure-map.md § Copy), and
+ * engineering-team/stories/done/assistant-coming-soon/1-coming-soon-cards.md § Copy (the Coming soon words, since five of the
+ * placeholders say Coming soon and are never marked or counted: COMING_SOON_ACTIONS).
  */
 
 import { ASSISTANT_MANAGEMENT_PATH, MY_ASSISTANT_PATH, MANAGE_TREASURE_MAP_PATH } from '../../config/avatarMenuLinks.js';
@@ -82,6 +90,27 @@ export const ASSISTANT_ACTIONS = [
     alertCriteria: "If your Assistant's relay list (kind 10002) names no outbox relay.",
     planningNotes: null,
   },
+  // Duty Menu (assistant-duty-cards #1; checked, with its own page, since assistant-duty-menu #1, ADR 0001
+  // sub-decision 6) and Your Assistant's Treasure Map (assistant-duty-cards #1; checked, with its own page, since
+  // assistant-self-map #1, ADR 0001 sub-decision 9).
+  {
+    key: 'duty-menu',
+    section: 'persona',
+    path: `${ASSISTANT_MANAGEMENT_PATH}/duty-menu`,
+    title: 'Duty Menu',
+    description: ["Let other clients, apps and Assistants know which duties your Assistant can take on, and which relay each one is published to. Your Assistant's Duty Menu is one item on the shared list of Duty Menus."],
+    alertCriteria: 'If your Assistant has not published a Duty Menu, or the one it published differs from what this instance offers for it now.',
+    planningNotes: null,
+  },
+  {
+    key: 'treasure-map',
+    section: 'persona',
+    path: `${ASSISTANT_MANAGEMENT_PATH}/treasure-map`,
+    title: "Your Assistant's Treasure Map",
+    description: ['Your Assistant keeps its own Treasure Map (kind 10040), naming itself as its own Assistant, to show which duties it is publishing right now. If you move a duty to this Assistant and it is already publishing it, the switch takes effect right away instead of waiting for a first computation.'],
+    alertCriteria: "If your Assistant's Treasure Map doesn't list exactly the duties that are live now.",
+    planningNotes: null,
+  },
   {
     key: 'trusted-assertions',
     section: 'trusted-content',
@@ -92,7 +121,7 @@ export const ASSISTANT_ACTIONS = [
       { text: 'NIP-85 Trusted Assertions', href: NIP_LINKS.trustedAssertions },
       ', curated by your trusted and extended community. This includes trust scores for pubkeys as well as for other categories of content. From a technical standpoint, this means your Assistant will publish kinds 3038x events on your behalf.',
     ],
-    alertCriteria: 'Needs attention until your Treasure Map gives Scores to your Tapestry Assistant on this instance, on its own or alongside other Assistants.',
+    alertCriteria: 'Needs attention until your Treasure Map gives Scores to an Assistant. Shared while any of it goes to an Assistant other than your Tapestry Assistant on this instance.',
     planningNotes: null,
     editLink: TREASURE_MAP_LINK,
   },
@@ -106,7 +135,7 @@ export const ASSISTANT_ACTIONS = [
       { text: 'Trusted Lists NIP', href: NIP_LINKS.trustedLists },
       '.',
     ],
-    alertCriteria: 'Needs attention until your Treasure Map gives Lists to your Tapestry Assistant on this instance, on its own or alongside other Assistants.',
+    alertCriteria: 'Needs attention until your Treasure Map gives Lists to an Assistant. Shared while any of it goes to an Assistant other than your Tapestry Assistant on this instance.',
     planningNotes: null,
     editLink: TREASURE_MAP_LINK,
   },
@@ -120,7 +149,7 @@ export const ASSISTANT_ACTIONS = [
       { text: 'Decentralized Lists NIP', href: NIP_LINKS.decentralizedLists },
       '.',
     ],
-    alertCriteria: 'Needs attention until your Treasure Map gives Concepts to your Tapestry Assistant on this instance, on its own or alongside other Assistants.',
+    alertCriteria: 'Needs attention until your Treasure Map gives Concepts to an Assistant. Shared while any of it goes to an Assistant other than your Tapestry Assistant on this instance.',
     planningNotes: null,
     editLink: TREASURE_MAP_LINK,
   },
@@ -211,6 +240,17 @@ export const ASSISTANT_COPY = {
   // ADR assistant-profile-checklist/0001 sub-decision 7 specifies it).
   done: 'Done',
   doneSrPrefix: 'Done: ',
+  // Done, but shared: a category another Assistant holds too, or only (assistant-shared-categories #1 § Copy).
+  shared: 'Shared',
+  doneSharedSrPrefix: 'Done, shared: ',
+  sharedLine: { partly: 'Partly handled by another Assistant', entirely: 'Handled by another Assistant' },
+  sharedMoveLink: 'Move it here →',
+  // An action that is not built yet (assistant-coming-soon #1 § Copy): the hub's muted pill, in the background image
+  // panel's words (PROFILE_CHECKLIST_COPY.comingSoon, written out to keep this module's one import), its screen-reader
+  // prefix, and the bold line on its page in place of "Placeholder page.".
+  comingSoon: 'Coming soon',
+  comingSoonSrPrefix: 'Coming soon: ',
+  comingSoonPage: 'Coming soon.',
   faqToggle: 'Frequently asked questions',
   placeholder: 'Placeholder page.',
   alertCriteriaHeading: 'Alert criteria',
@@ -228,8 +268,12 @@ export const ASSISTANT_ALERT_COPY = {
   button: 'Manage Assistant →',
 };
 
-/** The count line on the page, and the pill's count. */
+/**
+ * The count line on the page, and the pill's count. At zero the hub's line has its own words (assistant-self-map #1
+ * AC-5); the pill draws only above zero.
+ */
 export function attentionCountText(n) {
+  if (n === 0) return 'Nothing needs attention';
   return n === 1 ? '1 action needs attention' : `${n} actions need attention`;
 }
 
@@ -242,38 +286,55 @@ export function plainText(parts) {
  * The actions whose "needs attention" answer is real — computed by GET /api/assistant/attention for the viewer's own
  * assistant (ADR assistant-identification-tags/0001 sub-decision 6; the profile since ADR assistant-profile-checklist/0001,
  * the outbox relays since assistant-outbox-relays #1, Scores, Lists and Concepts since assistant-trusted-content-status
- * #1) — as opposed to the placeholders, which count everywhere until their check is built. An action joins this list
- * when its check ships, in ASSISTANT_ACTIONS order.
+ * #1, the Duty Menu since assistant-duty-menu #1, Your Assistant's Treasure Map since assistant-self-map #1) — as opposed
+ * to the placeholders, which count everywhere until their check is built. An action joins this list when its check
+ * ships, in ASSISTANT_ACTIONS order.
  */
-export const CHECKED_ACTIONS = ['profile', 'identification-tags', 'outbox-relays', 'trusted-assertions', 'trusted-lists', 'dlists'];
+export const CHECKED_ACTIONS = ['profile', 'identification-tags', 'outbox-relays', 'duty-menu', 'treasure-map', 'trusted-assertions', 'trusted-lists', 'dlists'];
+
+/**
+ * The actions that are not built yet and say so (assistant-coming-soon #1, the owner's choice of 2026-10-12): each card
+ * shows a muted "Coming soon" pill, for every viewer, and is never marked or counted, as the background image panel on
+ * /assistant/profile is listed but never counted. Every other action without a check is a placeholder, marked and counted
+ * until its check is built (none since assistant-self-map #1 built Your Assistant's Treasure Map). In ASSISTANT_ACTIONS
+ * order.
+ */
+export const COMING_SOON_ACTIONS = ['bounties', 'pins', 'tags', 'notifications-and-alerts', 'preferences'];
 
 /**
  * Which of the viewer's actions need attention (story 1 AC-2; the pill counts the same answer, story 2 AC-5), in the
- * two readings ADR assistant-identification-tags/0001 sub-decision 6 defines:
+ * two readings ADR assistant-identification-tags/0001 sub-decision 6 defines (an action in COMING_SOON_ACTIONS is in
+ * neither, nor in `done` or `shared`, whatever the answer says for it — assistant-coming-soon #1):
  *   - the page reading, `needsAttention` and `count`: a placeholder is always marked; a checked action is marked
  *     unless its answer says `done` — so while the answer is on its way, when the fetch failed, and when the check
  *     did not finish, it stays marked, as /setup shows a step as not done until it knows;
  *   - the pill reading, `alertCount`: a placeholder always counts; a checked action counts only when its answer says
  *     `pending` (a finished check found something missing) — the confident reading, as the Setup Alert counts;
  * and the hub's Done list, `done`: the checked actions whose answer says `done` (never a placeholder), which the hub
- * badges "Done" (ADR assistant-profile-checklist/0001 sub-decision 7; assistant-outbox-relays #1 AC-4).
+ * badges "Done" (ADR assistant-profile-checklist/0001 sub-decision 7; assistant-outbox-relays #1 AC-4); and `shared`:
+ * for those done actions whose answer says another Assistant holds the category too ('partly') or only ('entirely'),
+ * the extent, which the hub adds a Shared pill and a line for (assistant-shared-categories #1). A shared action is
+ * done and not pending, so neither reading counts it.
  * All are about a viewer who has an assistant on this instance — sign-in's user.assistantPubkey, the
  * getAssistantPubkeyFor answer that also marks /setup's first step done — and empty for anyone else.
  * @param {?{ assistantPubkey?: ?string }} user
- * @param {?{ answered?: boolean, actions?: Object<string, { done?: boolean, pending?: boolean }> }} [attention]
+ * @param {?{ answered?: boolean, actions?: Object<string, { done?: boolean, pending?: boolean, shared?: ?string }> }} [attention]
  *   what useAssistantAttention() returns (ui/src/context/AssistantAttentionContext.jsx); omitted = not answered
- * @returns {{ hasAssistant: boolean, needsAttention: string[], done: string[], count: number, alertCount: number }}
+ * @returns {{ hasAssistant: boolean, needsAttention: string[], done: string[], shared: Object<string, string>,
+ *   count: number, alertCount: number }}
  */
 export function assistantAttention(user, attention = null) {
   const hasAssistant = Boolean(user && user.assistantPubkey);
-  if (!hasAssistant) return { hasAssistant: false, needsAttention: [], done: [], count: 0, alertCount: 0 };
+  if (!hasAssistant) return { hasAssistant: false, needsAttention: [], done: [], shared: {}, count: 0, alertCount: 0 };
   const answers = attention && attention.answered === true && attention.actions && typeof attention.actions === 'object'
     ? attention.actions
     : {};
   const needsAttention = [];
   const done = [];
+  const shared = {};
   let alertCount = 0;
   for (const action of ASSISTANT_ACTIONS) {
+    if (COMING_SOON_ACTIONS.includes(action.key)) continue;
     if (!CHECKED_ACTIONS.includes(action.key)) {
       needsAttention.push(action.key);
       alertCount += 1;
@@ -281,8 +342,11 @@ export function assistantAttention(user, attention = null) {
     }
     const answer = answers[action.key];
     if (!answer || answer.done !== true) needsAttention.push(action.key);
-    else done.push(action.key);
+    else {
+      done.push(action.key);
+      if (answer.shared === 'partly' || answer.shared === 'entirely') shared[action.key] = answer.shared;
+    }
     if (answer && answer.pending === true) alertCount += 1;
   }
-  return { hasAssistant, needsAttention, done, count: needsAttention.length, alertCount };
+  return { hasAssistant, needsAttention, done, shared, count: needsAttention.length, alertCount };
 }

@@ -256,7 +256,7 @@ test('S2: the first card publishes through the publisher\'s report-returning var
   assert(wrong.length === 0, `ADR 0002 sub-decision 6: ${wrong.join('; ')}`);
 });
 
-test('S3: App.jsx routes this action to the page through an override map, and every action without a built page to the placeholder (AC-6; ADR 0002 sub-decision 1; re-aimed by assistant-outbox-relays #2, whose page joins the map)', () => {
+test('S3: App.jsx routes this action to the page through an override map, and every action without a built page to the placeholder (AC-6; ADR 0002 sub-decision 1; re-aimed by assistant-outbox-relays #2 and assistant-duty-menu #1, whose pages join the map)', () => {
   const app = codeOnly(safeRead(APP));
   const wrong = [];
   if (!/import\s+IdentificationTagsPage\s+from\s+['"]\.\/pages\/assistant\/IdentificationTags(?:\.jsx?)?['"]/.test(app)) wrong.push('no default import from ./pages/assistant/IdentificationTags');
@@ -265,8 +265,11 @@ test('S3: App.jsx routes this action to the page through an override map, and ev
     wrong.push('the routes are not ...ASSISTANT_ACTIONS.map((a) => ({ path: a.path, element: ACTION_PAGES[a.key] ?? <AssistantActionPage action={a} /> }))');
   }
   // Each key in the map is an action with its own built page; the rest route to the placeholder through the map's ??.
+  // Re-aimed by assistant-duty-menu #1 (ADR 0001 sub-decision 6): the Duty Menu page joins the map; and by assistant-self-map
+  // #1 (its ADR 0001 sub-decision 9): Your Assistant's Treasure Map page too; and by assistant-scores #1 (its ADR 0001
+  // sub-decision 6): the Scores page.
   const keys = ((app.match(/const\s+ACTION_PAGES\s*=\s*\{([^}]*)\}/) || ['', ''])[1].match(/['"]([a-z-]+)['"]\s*:/g) || []).map((k) => k.replace(/['":\s]/g, ''));
-  const built = ['identification-tags', 'outbox-relays'];
+  const built = ['identification-tags', 'outbox-relays', 'duty-menu', 'treasure-map', 'trusted-assertions'];
   if (!keys.includes('identification-tags') || keys.some((k) => !built.includes(k))) wrong.push(`ACTION_PAGES names the built action pages only (${show(built)}); got ${show(keys)}`);
   assert(wrong.length === 0, wrong.join('; '));
 });
@@ -325,7 +328,7 @@ test('R1: the publisher\'s callers keep their contract: publishProfileTagAsserti
   assert(/\bpublishOrThrow\b/.test(pin), 'publishTagPin imports publishOrThrow');
 });
 
-test('R2: actions.js is unchanged by this story — the identification-tags entry still carries the owner\'s description, and the hub holds every action of its fixture (re-aimed by assistant-outbox-relays #1: eleven)', async () => {
+test('R2: actions.js is unchanged by this story — the identification-tags entry still carries the owner\'s description, and the hub holds every action of its fixture (re-aimed by assistant-outbox-relays #1: eleven; by assistant-duty-cards #1: thirteen)', async () => {
   const mod = await esm(ACTIONS_MOD, 'It holds the actions.');
   const entry = mod.ASSISTANT_ACTIONS.find((a) => a.key === X.CHECKED_ACTION);
   assert(entry && entry.path === X.PAGE, `the action's path is ${X.PAGE}`);

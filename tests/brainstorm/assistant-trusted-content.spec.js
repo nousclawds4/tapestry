@@ -3,6 +3,9 @@ const X = require('../../test/helpers/assistantManagementFixtures');
 const P = require('../../test/helpers/profileChecklistFixtures');
 const TC = require('../../test/helpers/trustedContentFixtures');
 const O = require('../../test/helpers/outboxRelaysFixtures');
+const DM = require('../../test/helpers/dutyMenuFixtures');
+const SM = require('../../test/helpers/selfMapFixtures');
+const SC = require('../../test/helpers/scoresFixtures');
 
 /**
  * assistant-trusted-content-status #1 — Scores, Lists and Concepts on the hub: what a viewer SEES.
@@ -17,7 +20,8 @@ const O = require('../../test/helpers/outboxRelaysFixtures');
  *   TC2 — all three done: each card says Done, not Needs attention; the count line and the pill leave them out.     [AC-5]
  *   TC3 — one of each: pending (marked and counted), unfinished (marked, not counted), done (Done).               [AC-4, AC-5]
  *   TC4 — a screen reader hears "Done: Scores" and "Needs attention: Lists"; each card still leads to its page.      [AC-5]
- *   TC5 — each card's page: the new title, the rule as alert criteria, and one link to /treasure-map that opens it.   [AC-1]
+ *   TC5 — each card's page: the new title, the rule as alert criteria (while a placeholder: Scores is built since
+ *         assistant-scores #1), and one link to /treasure-map that opens it.                                       [AC-1]
  *
  * ── Hermetic by construction ─────────────────────────────────────────────
  * Every /api route is mocked; /api/setup/status always answers "all done", so the Assistant pill has its turn. The
@@ -39,15 +43,21 @@ const SETUP_DONE = {
   },
 };
 const ID_DONE = { finished: true, done: true, pending: false, taggings: [] };
-const TOTAL = X.ACTIONS.length;
+// Re-aimed by assistant-coming-soon #1 (AC-2): the five that say Coming soon are never marked or counted.
+const TOTAL = X.COUNTED.length;
 // The actions other than the three and Identification Tags; in every answer here they are marked and counted (the profile
 // and Outbox Relays pending, the rest placeholders), whichever of them a parallel book has made a real check.
 const OTHERS = TOTAL - 1 - TC.KEYS.length;
 
-/** An answer: Identification Tags done, the profile and Outbox Relays (assistant-outbox-relays #1) pending, and the three. */
+/**
+ * An answer: Identification Tags done, the profile and Outbox Relays (assistant-outbox-relays #1) pending, and the three.
+ * Re-aimed by assistant-duty-menu #1: the Duty Menu pending too (no menu found), so OTHERS still marks and counts it.
+ */
 const answerWith = (trio) => ({
   success: true, signedIn: true, hasAssistant: true,
-  actions: { 'identification-tags': ID_DONE, profile: P.PROFILE_PENDING, [O.KEY]: O.OUTBOX.PENDING, ...trio },
+  // Re-aimed by assistant-self-map #1: the Treasure Map card is checked now; pending (not published), it marks and counts
+  // as the placeholder did, so OTHERS still holds.
+  actions: { 'identification-tags': ID_DONE, profile: P.PROFILE_PENDING, [O.KEY]: O.OUTBOX.PENDING, [DM.KEY]: DM.ANSWERS.NONE, [SM.KEY]: SM.ANSWERS.NOT_PUBLISHED, ...trio },
 });
 
 const json = (body, status = 200) => ({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -116,7 +126,8 @@ test.describe('Scores, Lists and Concepts on the hub (assistant-trusted-content-
     await open(page, X.HUB);
     const links = trustedContent(page).locator('.bs-assistant-hub-card-link');
     const titles = (await links.evaluateAll((els) => els.map((el) => el.textContent)))
-      .map((t) => squash(t).replace(/^(Needs attention: |Done: )/, ''));
+      // Re-aimed by assistant-coming-soon #1 (AC-1): Bounties, Pins and Tags read "Coming soon: <title>" to a screen reader.
+      .map((t) => squash(t).replace(/^(Needs attention: |Done: |Coming soon: )/, ''));
     expect(titles).toEqual(['Scores', 'Lists', 'Concepts', 'Bounties', 'Pins', 'Tags']);
     for (const old of ['Trusted Assertions', 'Trusted Lists', 'Decentralized Lists']) {
       await expect(page.locator('.bs-assistant-hub-card-link', { hasText: new RegExp(`^(Needs attention: |Done: )?${old}$`) }), `no card titled ${old}`).toHaveCount(0);
@@ -129,9 +140,11 @@ test.describe('Scores, Lists and Concepts on the hub (assistant-trusted-content-
     expect(await pillCount(page), 'the pill leaves the three out').toBe(OTHERS);
   });
 
-  test('TC3: one of each — Scores pending (only other Assistants) is marked and counted; Lists unfinished is marked but the pill leaves it out; Concepts done says Done (AC-4, AC-5)', async ({ page }) => {
+  // Re-aimed by assistant-shared-categories #1: "only other Assistants" is done (shared) now, so Scores' pending stand-in
+  // is not-assigned, the finished pending reason that remains.
+  test('TC3: one of each — Scores pending (not assigned) is marked and counted; Lists unfinished is marked but the pill leaves it out; Concepts done says Done (AC-4, AC-5)', async ({ page }) => {
     await mock(page, answerWith({
-      'trusted-assertions': TC.pending('scores', 'other-assistants-only', 'local'),
+      'trusted-assertions': TC.pending('scores', 'not-assigned', 'local'),
       'trusted-lists': TC.unfinished('lists', 'outside-unreachable'),
       dlists: TC.done('concepts'),
     }));
@@ -149,12 +162,14 @@ test.describe('Scores, Lists and Concepts on the hub (assistant-trusted-content-
   });
 
   for (const card of TC.CARDS) {
-    test(`TC5 ${card.path}: the page is titled ${card.title}, gives the rule as its alert criteria, and its one link, "${TC.MAP_LINK.text}", opens /treasure-map (AC-1)`, async ({ page }) => {
+    test(`TC5 ${card.path}: the page is titled ${card.title}, gives the rule as its alert criteria while it is a placeholder, and its one link, "${TC.MAP_LINK.text}", opens /treasure-map (AC-1)`, async ({ page }) => {
       await mock(page, answerWith(TC.trio((c) => TC.pending(c))));
       await open(page, card.path);
       const main = page.locator('main').first();
       await expect(main.getByRole('heading', { level: 1 })).toHaveText(card.title);
-      await expect(main.getByText(card.alertCriteria, { exact: true }), 'the rule, in plain words').toBeVisible();
+      // Re-aimed by assistant-scores #1: the Scores page is built now, and a built page shows no placeholder's alert
+      // criteria; its title and its Treasure Map link stay pinned here (and in tests/brainstorm/assistant-scores.spec.js).
+      if (card.path !== SC.PATH) await expect(main.getByText(card.alertCriteria, { exact: true }), 'the rule, in plain words').toBeVisible();
       const link = main.getByRole('link', { name: TC.MAP_LINK.text, exact: true });
       await expect(link).toHaveAttribute('href', TC.MAP_LINK.to);
       await link.click();

@@ -281,10 +281,12 @@ async function register(app) {
     app.get('/api/hops-count', algos.hops.handleGetHopsCount);
     
     // Pipeline endpoints
+    // Negentropy syncs: owner, admins and direct-local callers only (./strfry/negentropyAccess.js).
+    const { requireSyncManager } = require('./strfry/negentropyAccess');
     app.post('/api/delete-all-relationships', pipeline.handleDeleteAllRelationships);
     app.post('/api/batch-transfer', pipeline.handleBatchTransfer);
     app.post('/api/reconciliation', pipeline.handleReconciliation);
-    app.post('/api/negentropy-sync', pipeline.handleNegentropySync);
+    app.post('/api/negentropy-sync', requireSyncManager, pipeline.handleNegentropySync);
 
     // Algos endpoint
     app.post('/api/calculate-hops', algos.hops.handleCalculateHops);
@@ -292,9 +294,9 @@ async function register(app) {
     // Task execution endpoint
     app.post('/api/run-task', manage.handleRunTask);
     // Negentropy sync endpoints
-    app.post('/api/negentropy-sync-wot', manage.handleNegentropySyncWoT);
-    app.post('/api/negentropy-sync-profiles', manage.handleNegentropySyncProfiles);
-    app.post('/api/negentropy-sync-personal', manage.handleNegentropySyncPersonal);
+    app.post('/api/negentropy-sync-wot', requireSyncManager, manage.handleNegentropySyncWoT);
+    app.post('/api/negentropy-sync-profiles', requireSyncManager, manage.handleNegentropySyncProfiles);
+    app.post('/api/negentropy-sync-personal', requireSyncManager, manage.handleNegentropySyncPersonal);
 
     // Add route handler for Brainstorm control
     app.post('/api/brainstorm-control', manage.handleBrainstormControl);
@@ -341,12 +343,20 @@ async function register(app) {
     app.get('/api/settings/overrides', requireOwner, handleGetOverrides);
     app.put('/api/settings', requireOwner, handleUpdateSettings);
     app.delete('/api/settings/*', requireOwner, handleResetSetting);
+    // The Assistant Duties tab: the duties every Assistant here offers (assistant-duties-settings #1, ADR 0001). Reset
+    // is a POST, not a DELETE, so it never competes with the reset route above.
+    const assistantDutiesApi = require('./settings/assistantDutiesApi');
+    app.get('/api/settings/assistant-duties', requireOwner, assistantDutiesApi.handleGetAssistantDuties);
+    app.put('/api/settings/assistant-duties', requireOwner, assistantDutiesApi.handleUpdateAssistantDuties);
+    app.post('/api/settings/assistant-duties/reset', requireOwner, assistantDutiesApi.handleResetAssistantDuties);
 
     // Neo4j endpoints
     app.post('/api/neo4j-setup-constraints-and-indexes', handleNeo4jSetupConstraintsAndIndexes);
 
     // Owner info endpoint
     app.get('/api/owner-info', handleGetOwnerInfo);
+    // Who runs this instance and how many customers it has: public, for /about (about-this-instance #1, ADR 0001).
+    app.get('/api/about-this-instance', require('./owner').handleGetAboutThisInstance);
 
     // Grapevine Interactions endpoint
     app.get('/api/get-grapevine-interaction', handleGetGrapevineInteraction);
@@ -600,6 +610,17 @@ async function register(app) {
     // Your Assistant signs its NIP-65 relay list (kind 10002) from the Outbox Relays page's draft — another narrow,
     // session-bound route in the same shape; the generic signer is unchanged (assistant-outbox-relays #3, ADR 0003).
     app.post('/api/assistant/outbox-relays/publish', require('./assistant/relayListPublish').handlePublishRelayList);
+    // Your Assistant signs its Duty Menu (kind 39999), built here from this instance's offer; the request names
+    // nothing — another narrow, session-bound route in the same shape (assistant-duty-menu #2, ADR 0002).
+    app.post('/api/assistant/duty-menu/publish', require('./assistant/dutyMenuPublish').handlePublishDutyMenu);
+    // Your Assistant turns its self-Map on or off: one bit in the body, the Assistant from the session, the self-entries
+    // from this instance's own check, every other tag kept (assistant-self-map #2, ADR 0002).
+    app.post('/api/assistant/self-map', require('./assistant/selfMapPublish').handleSelfMap);
+    // The Scores page: when your Assistant last published Trusted Assertions, and the Recalculate press, which enqueues
+    // your own pipeline and names nothing — both session-bound (assistant-scores #1, ADR 0001).
+    const assistantScoresApi = require('./assistant/scores');
+    app.get('/api/assistant/scores', assistantScoresApi.handleScoresStatus);
+    app.post('/api/assistant/scores/recalculate', assistantScoresApi.handleRecalculateScores);
 
     // ── Owner pubkey (public) ──
     const ownerApi = require('./owner');
