@@ -294,8 +294,24 @@ paths:
       summary: Which of the signed-in viewer's Assistant Management actions need attention
       description: >-
         Read-only. Answers for the session's viewer and the assistant this instance holds for them, and takes
-        no parameters. `actions` maps each action that has a real check to its answer; today only
-        `identification-tags`, the offered taggings between a person and their assistant: My Tapestry Assistant (by
+        no parameters. `actions` maps each action that has a real check to its answer: `profile`, `outbox-relays` and
+        `identification-tags`. `outbox-relays`
+        (assistant-outbox-relays ADR 0001): the outbox relays (an `r` tag with no marker or `write`) the assistant's
+        newest NIP-65 relay list (kind 10002) names, looked up on the local relay first and on the configured
+        general-purpose, profile and WoT relays only on a local miss; `done` with at least one, `pending` when a finished
+        check found none; `inboxOnlyCount` counts the `read` entries; `suggestions` are the relays the Outbox Relays page
+        offers (this instance's relay at its public address, then the general-purpose, trusted-assertion, trusted-list,
+        DList and outbox relay settings); a failing outbox check answers `reason: check-failed` without failing the
+        others. `profile` (assistant-profile-checklist ADR 0001) checks seven items of the assistant's
+        newest kind 0 (local relay first, then the publish relays), in order: `avatar` (a stamped composite this
+        instance still serves, at its own address), `banner` (listed, never checked, never counted: `reason`
+        `not-checked`), `nip05` (on this instance's domain, and that domain's nostr.json lists it for the assistant),
+        `website` (this instance's https address), `name-and-about`, `client-tag` (["client", <this domain>]) and
+        `visible` (at least one outside publish relay holds the profile, at least as new). Each row says `finished`,
+        `done` and a `reason` when not done; the action carries `hasProfile` and this instance's `instance` block, and
+        is `done` when every counted item is finished and done, `pending` when a finished one is not. A profile check
+        that throws answers `reason: check-failed` with no items, and never takes `identification-tags` with it.
+        `identification-tags` checks the offered taggings between a person and their assistant: My Tapestry Assistant (by
         the person) and My Tapestry Owner (by the assistant); My Agent and My Human are listed but parked, and never
         looked up. Each tagging is looked up by its
         replaceable address on the local relay first and on the configured tag-federation relays only on a local
@@ -303,7 +319,40 @@ paths:
         be completed (`reason`). The action is `done` when every tagging is finished and present, and `pending`
         (what the Assistant Alert counts) when a finished check found one missing. Each row's `definition` says
         whether the tag's definition was found at its own author's address (Nous for My Tapestry Assistant, Nous'
-        Tapestry Assistant for My Tapestry Owner). Without a session it answers
+        Tapestry Assistant for My Tapestry Owner). Scores, Lists and Concepts are checked too, under their action keys
+        `trusted-assertions`, `trusted-lists` and `dlists` (assistant-trusted-content-status ADR 0001): each is `done`
+        when the viewer's newest Treasure Map (kind 10040, local relay first, then the outside relays a Map is
+        published to) gives that `category` (`scores`, `lists`, `concepts`) to any Assistant, read through the
+        Treasure Map page's category rule; a done category is `shared` when any of those Assistants is not the
+        viewer's own assistant here, `partly` beside it or `entirely` without it, and `shared` is null otherwise
+        (assistant-shared-categories #1). Otherwise `pending` with `reason` `no-map` or `not-assigned`, or unfinished
+        with the lookup's `reason` (`check-failed` when the check itself failed). `source` says where the Map was
+        found. `duty-menu` (assistant-duty-menu ADR
+        0001): `offer` is the Duty Menu rows this instance offers for the viewer's own assistant (Scores `30382` for
+        the Owner and active customers, Lists `30392`–`30394` and Concepts `39998`, `39999` for every assistant), each
+        at this instance's relay at its public address, or Concepts at the first public DList relay when there is none;
+        `published` is the menu found for the assistant now, read from this instance's relay first: when it holds any
+        version, the newest there counts and no outside relay is asked (assistant-duty-menu ADR 0002); only otherwise
+        duty-menus.md § 8.1's places, the viewer's Treasure Map hints and the assistant's and Nous' kind 10002 write
+        relays (at most 50 of them), where the newest found counts. It must be a menu by § 6.1, or it is null; `current` says whether the two have the same rows (null when unfinished). The
+        action is `done` when a menu was found and it is current, `pending` when a finished check found none or an out
+        of date one, and unfinished with `reason: no-relay-answered` when no relay answered, the local relay included;
+        a check that throws answers `reason: check-failed` without failing the others. `treasure-map` (assistant-self-map
+        ADR 0001): the assistant's self-Map, its own kind 10040 entries naming itself (treasure-maps.md § 9.2).
+        `duties` lists the duties the viewer's newest Treasure Map (`mapFound`) gives the assistant, one item per Map
+        key with one line per part: `active` (live and claimed), `offered` (with a `reason`), `not-offered`, or
+        `elsewhere` (a more specific key gives it to another Assistant); `falseClaim` marks a part the found self-Map
+        claims that is not live. Live is read from what has landed: Scores when the assistant's newest 30382 in this
+        instance's relay is younger than twice the shortest enabled schedule that re-signs them (`not-scheduled`,
+        `upkeep-stopped` with `lastLandedAt` in seconds, `not-landed` otherwise); Concepts from the assistant's 39998
+        headers at their relay; Lists never yet (`older-form`, `not-published-here`). `shouldSay` is the self-entries
+        the self-Map should hold now (key and relay); `published` is the self-Map found (`selfEntries`, the count of
+        `otherEntries`, `createdAt`, `source`, `eventId`, and the version itself as `event`), this instance's relay first,
+        then one outside round, or null;
+        `current` says whether the two match. `instanceMap` is true for the Owner, whose assistant's Map is also this
+        instance's own. Done when finished and current, pending when finished and not; unfinished with
+        `no-relay-answered` when a relay it needed did not answer, or `instance-unanswered` when this instance's own
+        relay could not be read. Without a session it answers
         `{ success: true, signedIn: false }`; with a session but no assistant here, `hasAssistant: false`.
       responses:
         '200':
@@ -327,6 +376,95 @@ paths:
                         finished: { type: boolean }
                         done: { type: boolean }
                         pending: { type: boolean }
+                        category: { type: string, enum: [scores, lists, concepts], description: 'trusted-assertions, trusted-lists, dlists: the Treasure Map category' }
+                        reason: { type: string, nullable: true, description: 'why the check did not finish (outbox-relays; duty-menu: no-relay-answered; treasure-map: no-relay-answered, instance-unanswered), or check-failed (any action); trusted-assertions, trusted-lists, dlists: why not done' }
+                        source: { type: string, nullable: true, description: 'outbox-relays: local or relay; trusted-assertions, trusted-lists, dlists: where the Map was found (local, relay, or null)' }
+                        shared: { type: string, nullable: true, enum: [partly, entirely], description: 'trusted-assertions, trusted-lists, dlists: when done, whether another Assistant holds the category beside the viewer''s own (partly) or instead of it (entirely); null otherwise' }
+                        createdAt: { type: integer, nullable: true, description: 'outbox-relays: the relay list created_at' }
+                        outbox: { type: array, items: { type: string }, description: 'outbox-relays: the outbox relays, in the list order' }
+                        inboxOnlyCount: { type: integer, description: 'outbox-relays: how many read-only entries the list names' }
+                        suggestions: { type: array, items: { type: string }, description: 'outbox-relays: the relays the page suggests' }
+                        offer:
+                          type: array
+                          description: The duty-menu action only — the rows this instance offers for the assistant, Scores, Lists, Concepts
+                          items:
+                            type: object
+                            properties:
+                              tag: { type: string, enum: [duty, not-offered] }
+                              key: { type: string, description: 'a Treasure Map key, normalized' }
+                              relay: { type: string, nullable: true, description: 'null on a not-offered row' }
+                        published:
+                          type: object
+                          nullable: true
+                          description: 'duty-menu: the menu found for the assistant now; treasure-map: the self-Map found; null when none was found'
+                          properties:
+                            rows: { type: array, items: { type: object }, description: 'duty-menu: its rows as a reader keeps them, shaped as offer' }
+                            selfEntries:
+                              type: array
+                              description: 'treasure-map: the self-Map''s entries naming the assistant, key and relay'
+                              items:
+                                type: object
+                                properties:
+                                  key: { type: string }
+                                  relay: { type: string }
+                            otherEntries: { type: integer, description: 'treasure-map: how many of the event''s entries name other keys or Assistants' }
+                            createdAt: { type: integer }
+                            source: { type: string, enum: [local, relay] }
+                            eventId: { type: string }
+                            event: { type: object, nullable: false, description: 'treasure-map: the found version itself, as read (id, pubkey, created_at, kind, tags, content, sig). It carries the Assistant''s pubkey and any other the version holds: the one exception to this answer''s no-pubkey rule (assistant-self-map ADR 0003 Amendment 1).' }
+                        current: { type: boolean, nullable: true, description: 'duty-menu: the published menu has the offer''s rows; treasure-map: the self-Map found says what it should; null when the check did not finish' }
+                        mapFound: { type: boolean, description: 'treasure-map: a Treasure Map was found for the viewer' }
+                        instanceMap: { type: boolean, description: 'treasure-map: the assistant''s Treasure Map is also this instance''s own (the Owner)' }
+                        selfMapOn: { type: boolean, nullable: true, description: 'treasure-map: the remembered self-Map choice for the assistant (assistant-self-map ADR 0002): on, off, or null when the choice file cannot be read; it moves no mark' }
+                        duties:
+                          type: array
+                          description: 'treasure-map: the duties the viewer''s Treasure Map gives the assistant, one item per Map key'
+                          items:
+                            type: object
+                            properties:
+                              key: { type: string }
+                              lines:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    key: { type: string }
+                                    category: { type: string, nullable: true, enum: [scores, lists, concepts], description: 'null for a kind outside the three families' }
+                                    relay: { type: string, nullable: true, description: 'the offer''s relay on active and offered lines; null otherwise' }
+                                    status: { type: string, enum: [active, offered, not-offered, elsewhere] }
+                                    reason: { type: string, nullable: true, enum: [live-unclaimed, not-published-here, older-form, nothing-to-publish, not-landed, not-scheduled, upkeep-stopped, unchecked] }
+                                    lastLandedAt: { type: integer, nullable: true, description: 'upkeep-stopped: the newest landing, in seconds' }
+                                    falseClaim: { type: boolean }
+                        shouldSay:
+                          type: array
+                          description: 'treasure-map: the self-entries the self-Map should hold now'
+                          items:
+                            type: object
+                            properties:
+                              key: { type: string }
+                              relay: { type: string }
+                        hasProfile:
+                          type: boolean
+                          nullable: true
+                          description: The profile action only; null when this instance's relay could not be read
+                        instance:
+                          type: object
+                          description: The profile action only — this instance, as its rules read it
+                          properties:
+                            domain: { type: string }
+                            website: { type: string }
+                            isPublic: { type: boolean }
+                        items:
+                          type: array
+                          description: The profile action only — one row per item, in order
+                          items:
+                            type: object
+                            properties:
+                              key: { type: string, enum: [avatar, banner, nip05, website, name-and-about, client-tag, visible] }
+                              counts: { type: boolean }
+                              finished: { type: boolean }
+                              done: { type: boolean }
+                              reason: { type: string, nullable: true }
                         taggings:
                           type: array
                           items:
@@ -352,6 +490,46 @@ paths:
                                   address: { type: string }
         '500':
           description: The check could not run
+  /api/assistant/my-picture:
+    get:
+      tags: [Auth]
+      summary: The signed-in person's own profile picture, same-origin, for stamping
+      description: >-
+        For a signed-in person with an assistant on this instance (the Owner, an Admin or a Customer), it streams the
+        picture on their own newest kind 0 (this instance's relay first, then the profile relays) so their browser can
+        stamp it with the Tapestry mark (assistant-profile-checklist ADR 0003; it was /api/assistant/owner-avatar). It
+        takes no parameters. Every hop of the fetch goes through the SSRF guard: https to a public host only, one
+        redirect at most. Raster images only, at most 5 MB.
+      responses:
+        '200':
+          description: The picture's bytes, with its image type
+        '401':
+          description: 'Not signed in (`code: not-signed-in`)'
+        '403':
+          description: 'No assistant on this instance (`code: no-assistant`)'
+        '404':
+          description: '`code` says which: no-picture, unfetchable, or not-stampable'
+  /api/assistant/avatar:
+    post:
+      tags: [Auth]
+      summary: Store a stamped avatar on this instance
+      description: >-
+        Multipart, field `avatar`: a PNG of at most 2 MB, checked by its bytes, stored under
+        ta-avatar-<32 hex of its SHA-256>.png and served at /generated/. Older composites are never deleted. For a
+        signed-in person with an assistant on this instance; the gate runs before the upload is read. At most 20 new
+        files per person in a rolling day; bytes already stored are not counted. `url` is empty when this instance
+        has no public web address.
+      responses:
+        '200':
+          description: '{ success, filename, path, url }'
+        '400':
+          description: Not a PNG, too large, or no file
+        '401':
+          description: 'Not signed in (`code: not-signed-in`)'
+        '403':
+          description: 'No assistant on this instance (`code: no-assistant`)'
+        '429':
+          description: 'Too many new avatars today (`code: too-many`)'
   /api/assistant/my-assistants:
     get:
       tags: [Auth]
@@ -484,12 +662,296 @@ paths:
           description: No Assistant on this instance for the viewer (code no-assistant)
         '500':
           description: The publish could not run
+  /api/assistant/outbox-relays/publish:
+    post:
+      tags: [Auth]
+      summary: Have the signed-in viewer's own Assistant sign and publish its NIP-65 relay list
+      description: >-
+        A narrow, session-bound route in the shape of the identification-tags publish (assistant-outbox-relays ADR 0003):
+        the signed-in person's own Assistant signs a kind 10002 relay list built from the Outbox Relays page's draft.
+        The body names relays only; whose Assistant comes from the session (the Owner's is the instance TA; anyone
+        else's their own). Refused before any key is read: no session (401 not-signed-in), a body whose `relays` is not
+        a list of up to 50 ws/wss addresses with none twice (400 not-a-relay-list), a relay that is plainly not on the
+        public internet (a private, loopback or link-local address, localhost, a local-network name, a name with no dot;
+        400 not-a-public-relay), no Assistant on this instance (403 no-assistant). The event: the draft's relays in order, each keeping its marker from the Assistant's newest relay
+        list (none stays none, write stays write, read becomes both), others marked write; then the newest list's
+        read-only entries the draft does not name; a removed relay is dropped. An empty list is allowed. It is written
+        to this instance's relay first (a failed write sends it nowhere and says so), then to every relay the new and
+        previous lists name and the configured general-purpose, profile and WoT relays, each once and each reported
+        (accepted, refused, unreachable, timeout; skipped in local-only mode). Every relay from a relay list is resolved
+        first and never connected to unless every address is public; such a relay reads not-sent (assistant-outbox-relays
+        ADR 0003 Amendment 1). Nothing calls this when an Assistant is
+        created.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [relays]
+              properties:
+                relays:
+                  type: array
+                  maxItems: 50
+                  description: The outbox relays, in order (ws:// or wss://)
+                  items: { type: string }
+      responses:
+        '200':
+          description: The report, whatever the relays did
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  result:
+                    type: object
+                    properties:
+                      ok: { type: boolean }
+                      outcome: { type: string, enum: [published, kept-local, not-delivered] }
+                      message: { type: string }
+                      localOnly: { type: boolean }
+                      stage: { type: string, enum: [local] }
+                      outbox: { type: array, items: { type: string } }
+                      relays:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          success: { type: integer }
+                          results:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                relay: { type: string }
+                                status: { type: string, enum: [accepted, refused, unreachable, timeout, skipped, not-sent] }
+                                reason: { type: string }
+        '400':
+          description: The body is not a list of relay addresses (code not-a-relay-list), or names a relay that is not on the public internet (code not-a-public-relay)
+        '401':
+          description: No signed-in session (code not-signed-in)
+        '403':
+          description: No Assistant on this instance for the viewer (code no-assistant)
+        '500':
+          description: The publish could not run
+  /api/assistant/duty-menu/publish:
+    post:
+      tags: [Auth]
+      summary: Have the signed-in viewer's own Assistant sign and publish its Duty Menu
+      description: >-
+        A narrow, session-bound route in the shape of the Outbox Relays publish (assistant-duty-menu ADR 0002): the
+        signed-in person's own Assistant signs a Duty Menu (kind 39999, `d` = `duty-menu`, one `p` the Assistant
+        itself, Nous' `z`), with one `duty` row per row of the offer this instance computes for the viewer now, and no
+        other tags; an empty offer publishes an empty menu. The request names nothing and its body is never read; whose
+        Assistant comes from the session (the Owner's is the instance TA; anyone else's their own). Refused before any
+        key is read: no session (401 not-signed-in), no Assistant on this instance (403 no-assistant). The menu is dated
+        at least one second after the newest version found. It is written to this instance's relay first (a failed
+        write sends it nowhere and says so), then, each once, to the relays its rows name, and to at most 50 relays from
+        events: the Assistant's write relays, the relays the newest version's rows named, and Nous' write relays. Each
+        relay from an event is resolved first and never connected to unless every address is public (otherwise
+        not-sent); every relay is reported (accepted, refused, unreachable, timeout; skipped in local-only mode).
+        Nothing calls this when an Assistant is created or on a schedule.
+      responses:
+        '200':
+          description: The report, whatever the relays did
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  result:
+                    type: object
+                    properties:
+                      ok: { type: boolean }
+                      outcome: { type: string, enum: [published, kept-local, not-delivered] }
+                      message: { type: string }
+                      localOnly: { type: boolean }
+                      stage: { type: string, enum: [local] }
+                      duties: { type: integer, description: 'how many duty rows the menu signed lists' }
+                      relays:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          success: { type: integer }
+                          results:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                relay: { type: string }
+                                status: { type: string, enum: [accepted, refused, unreachable, timeout, skipped, not-sent] }
+                                reason: { type: string }
+        '401':
+          description: No signed-in session (code not-signed-in)
+        '403':
+          description: No Assistant on this instance for the viewer (code no-assistant)
+        '500':
+          description: The publish could not run
+  /api/assistant/self-map:
+    post:
+      tags: [Auth]
+      summary: Turn the signed-in viewer's own Assistant's self-Map on or off
+      description: >-
+        A narrow, session-bound route in the Duty Menu publish's shape (assistant-self-map ADR 0002). The body is one
+        bit, `{ "on": true | false }` (Turn on and Update now send true, Turn off false); whose Assistant comes from the
+        session (the Owner's is the instance TA; anyone else's their own), and nothing in the request can name another
+        Assistant, choose an entry or pick a relay. Refused first: no session (401 not-signed-in), a body whose `on` is
+        not a boolean (400 bad-request), no Assistant on this instance (403 no-assistant). One press at a time per
+        Assistant. The press reads this instance's relay, its copy of the newest version a press here has seen or signed
+        (kept on the data volume, so it survives a strfry wipe), and the outside relays together for the Assistant's
+        kind 10040 (and, to turn on, the whole self-Map check); the newest wins. With no version on this instance's
+        relay and no copy (an Assistant's first press here), the read finishes only when the Assistant's relay-list
+        lookup finished (a list found nowhere counts only when every outside configured publish relay answered) and one
+        of its write relays answered (or, having none, one of the other outside relays did, or there were none to ask).
+        When a read does not finish, or the version found is not the Assistant's own validly signed one, it answers 503
+        not-read and changes nothing. It keeps the version found as the copy when newer (or in place of a copy that
+        failed its check), then remembers the choice (assistant-self-map.json on the data volume), and publishes nothing
+        when the self-entries found are already the target and this instance's relay holds that version and, when that
+        target is not empty, no expiration or other owned tag sits beside them. Otherwise it signs a new kind 10040
+        whose self-entries are exactly what the self-Map should say (none, to turn off), keeping every other tag and the
+        content as found (an expiration is dropped beside a self-entry), dated after the version it replaces, and keeps
+        it as the copy; a removal retracts nothing. It is written to this instance's relay first (a failed write sends
+        it nowhere), then, each once, to the relays its self-entries name and to at most 50 relays from events, each
+        resolved first and never connected to unless public: the Assistant's write relays and the relays the found
+        version's self-entries named. Local-only mode keeps it here. Nothing calls this when an Assistant is created or
+        on a schedule.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [on]
+              properties:
+                on: { type: boolean }
+      responses:
+        '200':
+          description: The press was accepted; the report, whatever the relays did
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  result:
+                    type: object
+                    properties:
+                      ok: { type: boolean }
+                      on: { type: boolean, description: 'the choice now remembered' }
+                      published: { type: boolean, description: 'a new version was written here' }
+                      unchanged: { type: string, enum: [nothing-to-claim, already-current, nothing-claimed], description: 'why nothing was published' }
+                      outcome: { type: string, enum: [published, kept-local, not-delivered] }
+                      message: { type: string }
+                      localOnly: { type: boolean }
+                      stage: { type: string, enum: [local] }
+                      selfEntries: { type: integer, description: 'how many self-entries the version signed holds' }
+                      relays:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          success: { type: integer }
+                          results:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                relay: { type: string }
+                                status: { type: string, enum: [accepted, refused, unreachable, timeout, skipped, not-sent] }
+                                reason: { type: string }
+        '400':
+          description: The body's `on` is not a boolean (code bad-request); nothing changed
+        '401':
+          description: No signed-in session (code not-signed-in)
+        '403':
+          description: No Assistant on this instance for the viewer (code no-assistant)
+        '503':
+          description: The Assistant's current Treasure Map could not be read (code not-read); nothing changed
+        '500':
+          description: The press could not run; nothing was published, though the choice may have been remembered
+  /api/assistant/scores:
+    get:
+      tags: [Auth]
+      summary: When the signed-in viewer's own Assistant last published Trusted Assertions, and whether a recalculation is under way
+      description: >-
+        Session-shaped and read-only, like /api/assistant/attention (assistant-scores ADR 0001); it takes no parameters.
+        Signed out it answers `{ success: true, signedIn: false }`, and with no Assistant here
+        `{ success: true, signedIn: true, hasAssistant: false }`, reading nothing. Otherwise, for the viewer's own
+        Assistant (the Owner's is the instance TA): `published.latestAt` is the created_at of the newest kind 30382 it
+        signed on this instance's relay (every run re-signs every one), or null when it has published none, and
+        `published.count` how many it has published (null when the count failed); when the relay could not be read,
+        `published` is `{ finished: false }` and says nothing about what it holds. `pipeline` is `owner`
+        (updateAllScoresForOwner), `customer` (an active Customer's own processCustomer, an Admin who is one included),
+        or null for anyone else. `run` is `running` when a job that re-signs the viewer's scores is active, `queued` when
+        one is waiting or prioritized, null when neither (delayed jobs, a schedule's next fire, never count), and `unknown` when the
+        task queue is off, unavailable or could not be read; it is null with no pipeline.
+      responses:
+        '200':
+          description: The answer for the session's viewer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  signedIn: { type: boolean }
+                  hasAssistant: { type: boolean }
+                  assistantPubkey: { type: string }
+                  published:
+                    type: object
+                    properties:
+                      finished: { type: boolean }
+                      latestAt: { type: integer, nullable: true, description: 'unix seconds' }
+                      count: { type: integer, nullable: true }
+                  pipeline: { type: string, nullable: true, enum: [owner, customer] }
+                  run: { type: string, nullable: true, enum: [running, queued, unknown] }
+        '500':
+          description: The answer could not be built
+  /api/assistant/scores/recalculate:
+    post:
+      tags: [Auth]
+      summary: Recalculate and republish the signed-in viewer's own scores
+      description: >-
+        A narrow, session-bound press (assistant-scores ADR 0001): the request names nothing, and nothing in its query or
+        body reaches the task. Whose run comes from the session: the Owner's is updateAllScoresForOwner; an active
+        Customer's (an Admin who is one included) is their own processCustomer. Refused first, in order, each starting
+        nothing: no session (401, from the route table, which answers before the handler and carries no code), no
+        Assistant here (403 no-assistant), no pipeline here (403 no-pipeline), the task queue off, unavailable or
+        unreadable (503 queue-unavailable), a run of the viewer's already queued or running (409 already, with `run`).
+        Otherwise it enqueues the task on its own task-queue queue with run-task's jobId (`processCustomer-<pubkey>` for
+        a Customer), so a second press, or an operator's trigger for the same account, joins the same run.
+      responses:
+        '202':
+          description: The run was queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  run: { type: string, enum: [queued] }
+        '401':
+          description: No signed-in session; the route table refuses it before the handler, with no code
+        '403':
+          description: No Assistant here (code no-assistant), or no pipeline for this account here (code no-pipeline)
+        '409':
+          description: A run of the viewer's is already queued or running (code already; `run` says which)
+        '503':
+          description: The task queue is off, unavailable or could not be read (code queue-unavailable)
+        '500':
+          description: The run could not be enqueued (code failed)
   /api/auth/sign-up-new-customer:
     post:
       tags: [Auth]
       summary: Sign up as a new customer
-      description: Requires an authenticated session. Creates a customer account with relay keys.
+      description: >-
+        Creates a customer account with relay keys. Owner, admin or a direct-local caller only
+        (src/middleware/routeAccess.js); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Customer created
           content:
@@ -501,7 +963,14 @@ paths:
     get:
       tags: [Auth]
       summary: Test authentication endpoint
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Test result
           content:
@@ -523,6 +992,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Create a full concept with all 8 core nodes
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -547,6 +1019,10 @@ paths:
                 conceptHeaderOverrides:
                   type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Concept created
           content:
@@ -567,6 +1043,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Create missing core nodes for an existing concept
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -584,6 +1063,10 @@ paths:
                 dryRun:
                   type: boolean
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Skeleton result
           content:
@@ -608,6 +1091,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Regenerate JSON for core nodes
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -621,6 +1107,10 @@ paths:
                 node:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: JSON regenerated
           content:
@@ -639,6 +1129,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Create a new element of a concept
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -654,6 +1147,10 @@ paths:
                 json:
                   type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Element created
           content:
@@ -670,6 +1167,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Save or update a concept's JSON Schema
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -684,6 +1184,10 @@ paths:
                   type: object
                   description: JSON Schema object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Schema saved
           content:
@@ -700,6 +1204,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Save or update an element's JSON data
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -715,6 +1222,10 @@ paths:
                 json:
                   type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Element JSON saved
           content:
@@ -726,6 +1237,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Create a property for a concept
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -754,6 +1268,10 @@ paths:
                 required:
                   type: boolean
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Property created
           content:
@@ -770,6 +1288,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Generate property tree from JSON Schema (idempotent)
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -785,6 +1306,10 @@ paths:
                 strategy:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Property tree generated
           content:
@@ -803,6 +1328,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Wire an existing node as element of a concept
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -818,6 +1346,10 @@ paths:
                 elementName:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Node wired as element
           content:
@@ -829,6 +1361,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Create IS_A_SUPERSET_OF between concepts
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -844,6 +1379,10 @@ paths:
                 relType:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Concepts linked
           content:
@@ -860,6 +1399,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Create ENUMERATES relationship
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -877,6 +1419,10 @@ paths:
                   items:
                     type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Enumeration created
           content:
@@ -893,6 +1439,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Set or update a node's slug
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -906,6 +1455,10 @@ paths:
                 slug:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Slug set
           content:
@@ -917,6 +1470,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Create a new Set node under a Superset
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -932,6 +1488,10 @@ paths:
                 description:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Set created
           content:
@@ -948,6 +1508,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Add an element to a Set
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -963,6 +1526,10 @@ paths:
                 elementName:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Element added to set
           content:
@@ -974,6 +1541,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Fork another author's node
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -987,6 +1557,10 @@ paths:
                 newName:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Node forked
           content:
@@ -1003,6 +1577,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Set or update any node's json tag
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -1016,6 +1593,10 @@ paths:
                 json:
                   type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: JSON tag set
           content:
@@ -1027,6 +1608,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Prune redundant direct Superset edges
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -1041,6 +1625,10 @@ paths:
                   type: string
                   enum: [HAS_ELEMENT, IS_A_SUPERSET_OF]
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Edges pruned
           content:
@@ -1059,6 +1647,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Apply enumeration relationships for a concept
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -1070,6 +1661,10 @@ paths:
                 concept:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Enumerations applied
           content:
@@ -1088,6 +1683,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Wire implicit HAS_ELEMENT edges from z-tags
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -1099,6 +1697,10 @@ paths:
                 concept:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Elements wired
           content:
@@ -1117,6 +1719,9 @@ paths:
     post:
       tags: [Normalize]
       summary: Migrate z-tags to point to primary property concept
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -1128,6 +1733,10 @@ paths:
                 concept:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Z-tags migrated
           content:
@@ -1422,7 +2031,10 @@ paths:
     post:
       tags: [Firmware]
       summary: Install or reinstall firmware concepts
-      description: Two-pass process that bootstraps all concepts and elements, then enriches JSON Schemas. Long-running (up to 10 minutes).
+      description: >-
+        Two-pass process that bootstraps all concepts and elements, then enriches JSON Schemas. Long-running (up to 10
+        minutes). Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in,
+        403 for any other signed-in person.
       requestBody:
         content:
           application/json:
@@ -1432,6 +2044,10 @@ paths:
                 versionId:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Installation log
           content:
@@ -1607,6 +2223,9 @@ paths:
     post:
       tags: [Neo4j]
       summary: Import or update a single event in Neo4j
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -1619,6 +2238,10 @@ paths:
                 uuid:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Event updated
           content:
@@ -1654,7 +2277,14 @@ paths:
     post:
       tags: [Neo4j]
       summary: Set up Neo4j constraints and indexes
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Constraints and indexes created
           content:
@@ -1747,6 +2377,10 @@ paths:
     post:
       tags: [Strfry]
       summary: Sign and publish an event to strfry
+      description: >-
+        Anyone may publish an event they signed themselves (signAs "client", the default; the signature is verified).
+        signAs "assistant" signs with the instance's assistant key and is the owner's alone, or a direct-local caller's:
+        403 for anyone else, admins included.
       requestBody:
         required: true
         content:
@@ -1758,6 +2392,8 @@ paths:
                   type: object
                   description: Nostr event object
       responses:
+        '403':
+          description: signAs "assistant" from anyone but the owner or a direct-local caller, or a kind 0 signed as the assistant
         '200':
           description: Event published
           content:
@@ -1774,8 +2410,14 @@ paths:
     post:
       tags: [Strfry]
       summary: Wipe all strfry events
-      description: Dangerous! Deletes all events from the local relay.
+      description: >-
+        Dangerous! Deletes all events from the local relay. Owner, admin or a direct-local caller only
+        (src/middleware/routeAccess.js); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Wipe result
           content:
@@ -1804,6 +2446,9 @@ paths:
     post:
       tags: [Strfry]
       summary: Enable or disable a sync stream
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         content:
           application/json:
@@ -1813,6 +2458,10 @@ paths:
                 enabled:
                   type: boolean
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Stream toggled
           content:
@@ -1841,12 +2490,19 @@ paths:
     post:
       tags: [Strfry]
       summary: Update router configuration
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         content:
           application/json:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Config updated
           content:
@@ -1875,7 +2531,14 @@ paths:
     post:
       tags: [Strfry]
       summary: Restart the strfry router
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Router restarted
           content:
@@ -1887,7 +2550,14 @@ paths:
     post:
       tags: [Strfry]
       summary: Restore router to default configuration
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Defaults restored
           content:
@@ -1899,13 +2569,18 @@ paths:
     post:
       tags: [Strfry]
       summary: Trigger negentropy sync from a relay
-      description: Non-streaming sync that waits for completion.
+      description: >-
+        Non-streaming sync that waits for completion. Owner, admin or a direct-local caller may run any sync. Any other signed-in person may run only the point-of-view sync: `dir: "down"`, `filter: { kinds: [30382], authors: [<one hex pubkey>] }` (src/api/strfry/negentropyAccess.js). 401 when not signed in, 403 for any other request from a signed-in person.
       requestBody:
         content:
           application/json:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not allowed to run this sync
         '200':
           description: Sync result
           content:
@@ -1917,8 +2592,13 @@ paths:
     get:
       tags: [Strfry]
       summary: Streaming negentropy sync via SSE
-      description: Returns Server-Sent Events with progress updates.
+      description: >-
+        Returns Server-Sent Events with progress updates. Owner, admin or a direct-local caller only (src/api/strfry/negentropyAccess.js); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not allowed to run this sync
         '200':
           description: SSE stream
           content:
@@ -1930,7 +2610,13 @@ paths:
     get:
       tags: [Strfry]
       summary: Get current negentropy sync status
+      description: >-
+        Owner, admin or a direct-local caller only (src/api/strfry/negentropyAccess.js); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not allowed to run this sync
         '200':
           description: Sync status (active or idle)
           content:
@@ -1947,7 +2633,13 @@ paths:
     get:
       tags: [Strfry]
       summary: Query local and remote event counts
+      description: >-
+        Owner, admin or a direct-local caller only (src/api/strfry/negentropyAccess.js); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not allowed to run this sync
         '200':
           description: Event counts
           content:
@@ -1967,7 +2659,14 @@ paths:
     get:
       tags: [Settings]
       summary: Get merged settings (owner-only)
+      description: >-
+        Owner or admin only (src/middleware/routeAccess.js, then the requireOwner route guard, which also refuses a
+        caller with no session); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Settings object
           content:
@@ -1988,6 +2687,10 @@ paths:
     put:
       tags: [Settings]
       summary: Update settings (owner-only, deep merge)
+      description: >-
+        Owner or admin only (src/middleware/routeAccess.js, then the requireOwner route guard, which also refuses a
+        caller with no session); 401 when not signed in, 403 for any other signed-in person. Changing adminPubkeys is
+        the owner's alone: an admin gets 403 and nothing is written (ADR security-auth-exposure/0005).
       requestBody:
         required: true
         content:
@@ -1996,6 +2699,10 @@ paths:
               type: object
               description: Key-value pairs to merge into settings
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Settings updated
           content:
@@ -2007,7 +2714,14 @@ paths:
     get:
       tags: [Settings]
       summary: Get default settings (owner-only)
+      description: >-
+        Owner or admin only (src/middleware/routeAccess.js, then the requireOwner route guard, which also refuses a
+        caller with no session); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Default settings
           content:
@@ -2024,7 +2738,14 @@ paths:
     get:
       tags: [Settings]
       summary: Get settings overrides (owner-only)
+      description: >-
+        Owner or admin only (src/middleware/routeAccess.js, then the requireOwner route guard, which also refuses a
+        caller with no session); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Override settings
           content:
@@ -2041,6 +2762,10 @@ paths:
     delete:
       tags: [Settings]
       summary: Reset a setting key to default (owner-only)
+      description: >-
+        Owner or admin only (src/middleware/routeAccess.js, then the requireOwner route guard, which also refuses a
+        caller with no session); 401 when not signed in, 403 for any other signed-in person. Changing adminPubkeys is
+        the owner's alone: an admin gets 403 and nothing is written (ADR security-auth-exposure/0005).
       parameters:
         - name: keyPath
           in: path
@@ -2049,6 +2774,10 @@ paths:
             type: string
           description: Dot-separated key path
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Setting reset
           content:
@@ -2207,8 +2936,14 @@ paths:
     post:
       tags: [Search]
       summary: Trigger live ingester resync
-      description: Clears dedup map and reconnects to relay.
+      description: >-
+        Clears dedup map and reconnects to relay. Owner, admin or a direct-local caller only
+        (src/middleware/routeAccess.js); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Resync triggered
           content:
@@ -2237,7 +2972,9 @@ paths:
     post:
       tags: [Search]
       summary: Batch upsert WoT scores into profiles index
-      description: 'Scores use suffixed field names: wot_<metric>_<8char>.'
+      description: >-
+        Scores use suffixed field names: wot_<metric>_<8char>. Owner, admin or a direct-local caller only
+        (src/middleware/routeAccess.js); 401 when not signed in, 403 for any other signed-in person.
       requestBody:
         content:
           application/json:
@@ -2249,6 +2986,10 @@ paths:
                   items:
                     type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Scores loaded
           content:
@@ -2297,8 +3038,14 @@ paths:
     delete:
       tags: [Search]
       summary: Delete entire Meilisearch index
-      description: Requires re-ingest afterwards.
+      description: >-
+        Requires re-ingest afterwards. Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401
+        when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Index wiped
           content:
@@ -2334,7 +3081,14 @@ paths:
     post:
       tags: [Search]
       summary: Prune unscored profiles from index
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Pruned
           content:
@@ -2370,6 +3124,9 @@ paths:
     post:
       tags: [Search]
       summary: Backfill profile data for scored profiles
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         content:
           application/json:
@@ -2381,6 +3138,10 @@ paths:
                   items:
                     type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Backfill result
           content:
@@ -2482,6 +3243,9 @@ paths:
     put:
       tags: [Grapevine]
       summary: Save search preferences
+      description: >-
+        Owner or admin only (src/middleware/routeAccess.js, then the requireOwner route guard, which also refuses a
+        caller with no session); 401 when not signed in, 403 for any other signed-in person.
       requestBody:
         required: true
         content:
@@ -2489,6 +3253,10 @@ paths:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Preferences saved
           content:
@@ -2519,7 +3287,9 @@ paths:
     put:
       tags: [User Preferences]
       summary: Save user preferences (shallow merge)
-      description: 'Key fields: pov, rankAuthor, rankRelay, filters, sortConfig, selectedMetrics.'
+      description: >-
+        Key fields: pov, rankAuthor, rankRelay, filters, sortConfig, selectedMetrics. Any signed-in person
+        (src/middleware/routeAccess.js); 401 when not signed in.
       requestBody:
         required: true
         content:
@@ -2527,6 +3297,8 @@ paths:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
         '200':
           description: Preferences saved
           content:
@@ -2541,7 +3313,10 @@ paths:
     post:
       tags: [Property]
       summary: Generate JSON Schema from property tree
-      description: Reads a concept's property tree and generates a JSON Schema, saving it to the JSONSchema node.
+      description: >-
+        Reads a concept's property tree and generates a JSON Schema, saving it to the JSONSchema node. Owner, admin or a
+        direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any other signed-in
+        person.
       requestBody:
         required: true
         content:
@@ -2553,6 +3328,10 @@ paths:
                 concept:
                   type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Schema generated
           content:
@@ -2806,7 +3585,9 @@ paths:
     post:
       tags: [Trusted List]
       summary: Publish a trusted list event
-      description: Signs and publishes kind 30392-30395 Trusted List events to local strfry.
+      description: >-
+        Signs and publishes kind 30392-30395 Trusted List events to local strfry. Owner, admin or a direct-local caller
+        only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any other signed-in person.
       requestBody:
         required: true
         content:
@@ -2814,6 +3595,10 @@ paths:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Event published
           content:
@@ -2828,7 +3613,14 @@ paths:
     get:
       tags: [IO]
       summary: List available export zip files
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Export list
           content:
@@ -2845,6 +3637,9 @@ paths:
     post:
       tags: [IO]
       summary: Create a new export zip
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         required: true
         content:
@@ -2852,6 +3647,10 @@ paths:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Export created
           content:
@@ -2863,6 +3662,9 @@ paths:
     get:
       tags: [IO]
       summary: Download an export zip file
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       parameters:
         - name: filename
           in: path
@@ -2870,6 +3672,10 @@ paths:
           schema:
             type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Zip file
           content:
@@ -2882,7 +3688,9 @@ paths:
     post:
       tags: [IO]
       summary: Upload a zip for import
-      description: Parses manifest from uploaded zip. Multipart file upload.
+      description: >-
+        Parses manifest from uploaded zip. Multipart file upload. Owner, admin or a direct-local caller only
+        (src/middleware/routeAccess.js); 401 when not signed in, 403 for any other signed-in person.
       requestBody:
         required: true
         content:
@@ -2894,6 +3702,10 @@ paths:
                   type: string
                   format: binary
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Import parsed
           content:
@@ -2938,7 +3750,10 @@ paths:
     post:
       tags: [IO]
       summary: Execute an import
-      description: Writes events to strfry, creates Neo4j nodes, wires concepts, and builds graph relationships.
+      description: >-
+        Writes events to strfry, creates Neo4j nodes, wires concepts, and builds graph relationships. Owner, admin or a
+        direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any other signed-in
+        person.
       parameters:
         - name: tempId
           in: path
@@ -2946,6 +3761,10 @@ paths:
           schema:
             type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Import executed
           content:
@@ -2977,7 +3796,14 @@ paths:
     post:
       tags: [Tapestry Key]
       summary: Assign tapestryKey to nodes that lack one
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Keys initialized
           content:
@@ -3006,7 +3832,14 @@ paths:
     post:
       tags: [Tapestry Key]
       summary: Offload a single tag's inline JSON to LMDB
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: JSON offloaded
           content:
@@ -3018,7 +3851,14 @@ paths:
     post:
       tags: [Tapestry Key]
       summary: Offload all inline json tags to LMDB
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: All offloaded
           content:
@@ -3047,6 +3887,9 @@ paths:
     post:
       tags: [Tapestry Key]
       summary: Derive tapestryJSON for all nodes with given label
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       parameters:
         - name: label
           in: path
@@ -3054,6 +3897,10 @@ paths:
           schema:
             type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Derivation result
           content:
@@ -3065,6 +3912,9 @@ paths:
     post:
       tags: [Tapestry Key]
       summary: Derive tapestryJSON for a single node
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       parameters:
         - name: key
           in: path
@@ -3072,6 +3922,10 @@ paths:
           schema:
             type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Derivation result
           content:
@@ -3127,6 +3981,9 @@ paths:
     post:
       tags: [Tapestry Key]
       summary: Write tapestryJSON to LMDB
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       parameters:
         - name: key
           in: path
@@ -3140,6 +3997,10 @@ paths:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Value written
           content:
@@ -3190,12 +4051,19 @@ paths:
     post:
       tags: [Customers]
       summary: Create a new customer (owner-only)
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         content:
           application/json:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Customer created
           content:
@@ -3207,12 +4075,19 @@ paths:
     post:
       tags: [Customers]
       summary: Delete a customer (owner-only)
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         content:
           application/json:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Customer deleted
           content:
@@ -3224,12 +4099,19 @@ paths:
     post:
       tags: [Customers]
       summary: Activate or deactivate a customer (owner-only)
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         content:
           application/json:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Status changed
           content:
@@ -3241,12 +4123,19 @@ paths:
     post:
       tags: [Customers]
       summary: Update customer display name (owner-only)
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         content:
           application/json:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Display name updated
           content:
@@ -3362,6 +4251,41 @@ paths:
                   data:
                     type: object
 
+  /api/about-this-instance:
+    get:
+      tags: [Status]
+      summary: Who runs this instance, and how many customers it has
+      description: |
+        Public. The Owner's pubkey, the Admins' pubkeys, and the number of customers, for the
+        "About this Brainstorm Instance" section on /about. A customer is an account this instance holds an
+        Assistant key for, other than the Owner, an Admin, or an account that is itself an Assistant this
+        instance holds the key for. It never returns a customer's identity or any key material.
+      responses:
+        '200':
+          description: The instance's people and customer count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  ownerPubkey:
+                    type: string
+                    nullable: true
+                    description: Hex pubkey, or null when no owner is configured.
+                  adminPubkeys:
+                    type: array
+                    items:
+                      type: string
+                    description: Hex pubkeys in configured order, the Owner left out.
+                  customerCount:
+                    type: integer
+                    nullable: true
+                    description: Null when the key store could not be read.
+        '500':
+          description: The Owner or the Admins could not be read
+
   /api/debug:
     get:
       tags: [Status]
@@ -3407,6 +4331,9 @@ paths:
     post:
       tags: [Algos]
       summary: Update algorithm config
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       parameters:
         - name: pubkey
           in: query
@@ -3421,6 +4348,10 @@ paths:
           schema:
             type: string
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Config updated
           content:
@@ -3444,7 +4375,14 @@ paths:
     post:
       tags: [Algos]
       summary: Update GrapeRank config
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Config updated
           content:
@@ -3456,7 +4394,14 @@ paths:
     post:
       tags: [Algos]
       summary: Generate GrapeRank scores
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Generation result
           content:
@@ -3468,7 +4413,14 @@ paths:
     post:
       tags: [Algos]
       summary: Generate PageRank scores
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Generation result
           content:
@@ -3480,7 +4432,14 @@ paths:
     post:
       tags: [Algos]
       summary: Calculate hops from owner
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Calculation result
           content:
@@ -3531,7 +4490,14 @@ paths:
     post:
       tags: [NIP-85]
       summary: Create and publish kind 10040 event
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Event created and published
           content:
@@ -3570,7 +4536,13 @@ paths:
     post:
       tags: [Pipeline]
       summary: Trigger negentropy sync
+      description: >-
+        Owner, admin or a direct-local caller only (src/api/strfry/negentropyAccess.js); 401 when not signed in, 403 for any other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not allowed to run this sync
         '200':
           description: Sync result
           content:
@@ -3582,7 +4554,14 @@ paths:
     post:
       tags: [Pipeline]
       summary: Batch transfer events
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Transfer result
           content:
@@ -3594,7 +4573,14 @@ paths:
     post:
       tags: [Pipeline]
       summary: Run reconciliation pipeline
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Reconciliation result
           content:
@@ -3609,14 +4595,141 @@ paths:
     post:
       tags: [Manage]
       summary: Execute a task by name
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         content:
           application/json:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Task result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/scheduled-tasks/create:
+    post:
+      tags: [Manage]
+      summary: Add a scheduled task entry
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
+        '200':
+          description: Entry created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/scheduled-tasks/update:
+    post:
+      tags: [Manage]
+      summary: Update a scheduled task entry by entryId
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
+        '200':
+          description: Entry updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/scheduled-tasks/delete:
+    post:
+      tags: [Manage]
+      summary: Remove a scheduled task entry (refuses an enabled entry without force)
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
+        '200':
+          description: Entry removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/customer-schedule/update:
+    post:
+      tags: [Manage]
+      summary: Set a customer's processing schedule
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
+        '200':
+          description: Schedule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /api/customer-schedule/trigger:
+    post:
+      tags: [Manage]
+      summary: Run a customer's processing now
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
+        '200':
+          description: Run started
           content:
             application/json:
               schema:
@@ -3638,12 +4751,19 @@ paths:
     post:
       tags: [Manage]
       summary: Control a service (start/stop/restart)
+      description: >-
+        Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
+        other signed-in person.
       requestBody:
         content:
           application/json:
             schema:
               type: object
       responses:
+        '401':
+          description: Not signed in
+        '403':
+          description: Signed in, but not the owner or an admin
         '200':
           description: Control result
           content:

@@ -7,7 +7,14 @@
  * main→delegate mapping; for the Owner the instance TA), and no request parameter can change whose state is read or
  * which relays are asked.
  *
- * Today one action is checked, `identification-tags`: the OFFERED taggings that make the handshake between a person and
+ * These actions are checked, side by side: `profile`, `identification-tags`, `outbox-relays`, Scores, Lists and
+ * Concepts, `duty-menu`, and `treasure-map`. A check that throws becomes its action's `check-failed` answer and never
+ * takes another action with it (except identification-tags, whose failure still fails the answer, as it always has).
+ *
+ * `profile` (assistant-profile-checklist #1, ADR 0001): seven items of the Assistant's published profile, computed by
+ * ./profileChecklist.js.
+ *
+ * `identification-tags`: the OFFERED taggings that make the handshake between a person and
  * their assistant (src/lib/identification-tags — today "My Tapestry Assistant" and "My Tapestry Owner"; "My Agent" and
  * "My Human" are listed but parked and never looked up, identification-tags-authorship #1). Each is looked up by its
  * replaceable address — the publisher's
@@ -21,11 +28,41 @@
  * it, or held none and at least one outside relay answered. The action is `done` when every tagging is finished and
  * present, and `pending` — what the Assistant Alert counts — when at least one finished check found a tagging missing.
  *
+ * `outbox-relays` (assistant-outbox-relays ADR 0001): the outbox relays the assistant's newest NIP-65 relay list (kind
+ * 10002) names, looked up on this instance's relay first, then on the relays this instance publishes Assistant profiles
+ * to (lookupNewestReplaceable below; the check itself is src/api/assistant/outboxRelays.js). The checks run side by side,
+ * and a failing outbox check becomes a `check-failed` action instead of failing the answer.
+ *
+ * Scores, Lists and Concepts (assistant-trusted-content-status ADR 0001): `trusted-assertions`, `trusted-lists` and
+ * `dlists`, each done when the viewer's newest Treasure Map gives that category to any Assistant, read through the
+ * Treasure Map page's category rule (src/api/assistant/trustedContent.js), and `shared` ('partly' / 'entirely') when any
+ * of them is not the viewer's own assistant here (assistant-shared-categories #1). Otherwise each is pending with a
+ * reason (`no-map`, `not-assigned`), or unfinished with /setup's lookup reason. It runs beside the others and is
+ * isolated the same way: if it throws, the three answer `check-failed`.
+ *
+ * `duty-menu` (assistant-duty-menu ADR 0001): the Duty Menu this instance offers for the viewer's own Assistant (its
+ * `offer`, built from where this instance publishes each duty), the menu found for that Assistant now (`published`,
+ * read from this instance's relay first, and only when it holds none as duty-menus.md § 8.1 says, assistant-duty-menu
+ * ADR 0002 sub-decision 7) and whether the two have the same rows (`current`). Done when a menu was found and it is
+ * current; unfinished with `no-relay-answered` when neither this instance's relay nor any outside relay answered. The
+ * check is src/api/assistant/dutyMenu.js; it runs beside the others and is isolated the same way: if it throws, it
+ * answers `check-failed`.
+ *
+ * `treasure-map` (assistant-self-map ADR 0001): the duties the viewer's own Treasure Map gives their Assistant and which
+ * are live (`duties`), what that Assistant's self-Map should say (`shouldSay`: only live duties, each at the relay the
+ * Duty Menu's offer gives it), the self-Map found now (`published`, this instance's relay first), and whether the two
+ * match (`current`). "Live" is read from what has landed at the offer's relay: the Assistant's newest Scores against
+ * twice the shortest enabled schedule interval, and its Concept headers. Done when current; unfinished with
+ * `no-relay-answered` or `instance-unanswered`. The check is src/api/assistant/selfMap.js (the rules are
+ * src/lib/self-map); it runs beside the others and is isolated the same way: if it throws, it answers `check-failed`.
+ * `published.event` is the found version itself, and the one field of the answer that may carry a pubkey: the answer
+ * otherwise carries none of the viewer's or the Assistant's (assistant-self-map ADR 0003 Amendment 1).
+ *
  * Read-only: strfry is only scanned, outside relays are only read, and nothing is stored anywhere.
  *
  *   no session          → { success: true, signedIn: false }
  *   no assistant here   → { success: true, signedIn: true, hasAssistant: false, actions: {} }
- *   an assistant        → { success: true, signedIn: true, hasAssistant: true, actions: { 'identification-tags': { … } } }
+ *   an assistant        → { success: true, signedIn: true, hasAssistant: true, actions: { 'identification-tags': { … }, 'outbox-relays': { … }, profile: { … }, 'duty-menu': { … }, 'treasure-map': { … }, … } }
  *   a throw             → 500 { success: false, error: 'Could not check assistant attention' }
  */
 
@@ -39,8 +76,20 @@ const HEX64 = /^[0-9a-f]{64}$/i;
 /** The Relay Settings list this instance reads taggings from outside (ADR tag-federation/0001): opt-in, empty by default. */
 const TAG_RELAY_CATEGORIES = ['aTagFederationRelays'];
 
-/** The action key in the answer's map, as ui/src/pages/assistant/actions.js names it. */
+/** The action keys in the answer's map, as ui/src/pages/assistant/actions.js names them. */
 const IDENTIFICATION_TAGS = 'identification-tags';
+const OUTBOX_RELAYS = 'outbox-relays';
+const PROFILE = 'profile';
+const DUTY_MENU = 'duty-menu';
+const TREASURE_MAP = 'treasure-map';
+
+/** What the answer says for the outbox action when its check threw (assistant-outbox-relays ADR 0001 sub-decision 5). */
+const OUTBOX_CHECK_FAILED = Object.freeze({
+  finished: false, done: false, pending: false, reason: 'check-failed', source: null, createdAt: null, outbox: [], inboxOnlyCount: 0, suggestions: [],
+});
+
+/** What the profile action answers when its check threw (ADR assistant-profile-checklist/0001 sub-decision 6). */
+const PROFILE_CHECK_FAILED = Object.freeze({ finished: false, done: false, pending: false, reason: 'check-failed', items: [] });
 
 /** The real dependencies, required lazily so the module loads in a bare checkout. */
 function defaultDeps() {
@@ -50,6 +99,18 @@ function defaultDeps() {
     readRelay: (url, filter) => require('../_shared/relaySource').readRelayEvents(url, filter),
     readConfiguredRelays: (categories) => require('./profilePublish').readConfiguredRelays(categories),
     getConfigFromFile: (key, fallback) => require('../../utils/config').getConfigFromFile(key, fallback),
+    getConfiguredPublishRelays: () => require('./profilePublish').getConfiguredPublishRelays(),
+    checkOutboxRelays: (input, d) => require('./outboxRelays').checkOutboxRelays(input, d),
+    checkProfile: (input, deps) => require('./profileChecklist').checkProfile(input, deps),
+    // Scores, Lists and Concepts (assistant-trusted-content-status ADR 0001): the server's Map relays, the category rule,
+    // and the check itself, which tests replace.
+    mapDefaultRelays: () => require('../export/nip85/currentMap').defaultRelays(),
+    loadCategoryRule: () => require('./trustedContent').loadCategoryRule(),
+    checkTrustedContent: (input, d) => require('./trustedContent').checkTrustedContent(input, d),
+    // The Duty Menu (assistant-duty-menu ADR 0001 sub-decision 7), which tests replace.
+    checkDutyMenu: (input, d) => require('./dutyMenu').checkDutyMenu(input, d),
+    // Your Assistant's Treasure Map (assistant-self-map ADR 0001 sub-decision 8), which tests replace.
+    checkSelfMap: (input, d) => require('./selfMap').checkSelfMap(input, d),
   };
 }
 
@@ -136,6 +197,42 @@ async function lookupByAddresses({ kind, author, ds, relays }, deps) {
   return out;
 }
 
+/**
+ * The newest event of one replaceable kind by one author (assistant-outbox-relays ADR 0001 sub-decision 2): this
+ * instance's relay first, in one scan; only when it holds none, the given outside relays, all at once, each within the
+ * relay budget. lookupByAddresses' rule for an address, for a kind with no d tag.
+ *
+ * With `everyRelay` (assistant-self-map ADR 0002 Amendment 2), "found nowhere" needs every relay's answer: when none
+ * that answered holds it and one did not answer, it is `outside-unreachable`, since that one may hold it. Without it,
+ * one answer is enough, as every other caller reads it.
+ *
+ * @returns {Promise<{finished: true, event: Object|null, source: 'local'|'relay'|null}
+ *                  |{finished: false, reason: 'local-unreadable'|'no-outside-relays'|'outside-unreachable'}>}
+ */
+async function lookupNewestReplaceable({ kind, author, relays, everyRelay = false }, deps) {
+  const who = String(author || '').toLowerCase();
+  const mine = (e) => e && e.kind === kind && String(e.pubkey || '').toLowerCase() === who;
+
+  let local;
+  try {
+    local = await deps.scanLocal({ kinds: [kind], authors: [author] });
+  } catch {
+    return { finished: false, reason: 'local-unreadable' };
+  }
+  const held = (Array.isArray(local) ? local : []).filter(mine);
+  if (held.length > 0) return { finished: true, event: newest(held), source: 'local' };
+
+  if (!Array.isArray(relays) || relays.length === 0) return { finished: false, reason: 'no-outside-relays' };
+  const filter = { kinds: [kind], authors: [author] };
+  const answers = await Promise.all(relays.map((url) => readWithinBudget(url, filter, deps)));
+  const answered = answers.filter((a) => a && a.status === 'ok');
+  if (answered.length === 0) return { finished: false, reason: 'outside-unreachable' };
+  const found = answered.flatMap((a) => (Array.isArray(a.events) ? a.events : [])).filter(mine);
+  if (found.length > 0) return { finished: true, event: newest(found), source: 'relay' };
+  if (everyRelay && answered.length < relays.length) return { finished: false, reason: 'outside-unreachable' };
+  return { finished: true, event: null, source: null };
+}
+
 /** Where taggings are looked for outside: the tag-federation relays, minus this instance's own. */
 function tagRelays(deps) {
   return outsideOnly(deps.readConfiguredRelays(TAG_RELAY_CATEGORIES), deps);
@@ -204,6 +301,22 @@ async function checkIdentificationTags({ viewer, assistantPubkey }, deps) {
   return evaluateIdentificationTags({ entries });
 }
 
+/**
+ * The three Scores/Lists/Concepts actions from their settled check: its answer, or — when it threw — each one
+ * unfinished with reason `check-failed`, logged (ADR assistant-trusted-content-status/0001 sub-decision 6).
+ */
+function trustedContentActions(settled) {
+  if (settled.status === 'fulfilled') return settled.value;
+  const err = settled.reason;
+  console.error('[assistant/attention] the Scores/Lists/Concepts check failed:', err && err.message ? err.message : err);
+  const { TRUSTED_CONTENT_ACTIONS } = require('./trustedContent');
+  const out = {};
+  for (const [key, category] of Object.entries(TRUSTED_CONTENT_ACTIONS)) {
+    out[key] = { category, finished: false, done: false, pending: false, reason: 'check-failed', source: null, shared: null };
+  }
+  return out;
+}
+
 async function handleAssistantAttention(req, res, deps = {}) {
   const d = { ...defaultDeps(), ...deps };
   const session = req && req.session;
@@ -216,8 +329,48 @@ async function handleAssistantAttention(req, res, deps = {}) {
     const answered = await d.getAssistantPubkeyFor(viewer);
     const assistantPubkey = typeof answered === 'string' && HEX64.test(answered) ? answered.toLowerCase() : null;
     if (!assistantPubkey) return res.json({ success: true, signedIn: true, hasAssistant: false, actions: {} });
-    const identificationTags = await checkIdentificationTags({ viewer, assistantPubkey }, d);
-    return res.json({ success: true, signedIn: true, hasAssistant: true, actions: { [IDENTIFICATION_TAGS]: identificationTags } });
+    // Side by side; one check's failure is its own (assistant-outbox-relays ADR 0001 sub-decision 5;
+    // assistant-profile-checklist ADR 0001 sub-decision 6; assistant-trusted-content-status ADR 0001 sub-decision 6;
+    // assistant-duty-menu ADR 0001 sub-decision 7; assistant-self-map ADR 0001 sub-decision 8). A failing
+    // identification-tags check still fails the answer, as it always has.
+    const [identificationTags, outboxRelays, profile, trustedContent, dutyMenu, selfMap] = await Promise.allSettled([
+      checkIdentificationTags({ viewer, assistantPubkey }, d),
+      Promise.resolve().then(() => d.checkOutboxRelays({ assistantPubkey }, d)),
+      Promise.resolve().then(() => d.checkProfile({ assistantPubkey }, d)),
+      Promise.resolve().then(() => d.checkTrustedContent({ viewer, assistantPubkey }, d)),
+      Promise.resolve().then(() => d.checkDutyMenu({ viewer, assistantPubkey }, d)),
+      Promise.resolve().then(() => d.checkSelfMap({ viewer, assistantPubkey }, d)),
+    ]);
+    if (identificationTags.status === 'rejected') throw identificationTags.reason;
+    if (outboxRelays.status === 'rejected') {
+      const why = outboxRelays.reason;
+      console.error('[assistant/attention] the outbox check failed:', why && why.message ? why.message : why);
+    }
+    if (profile.status === 'rejected') {
+      const err = profile.reason;
+      console.error('[assistant/attention] could not check the assistant profile:', err && err.message ? err.message : err);
+    }
+    if (dutyMenu.status === 'rejected') {
+      const err = dutyMenu.reason;
+      console.error('[assistant/attention] the Duty Menu check failed:', err && err.message ? err.message : err);
+    }
+    if (selfMap.status === 'rejected') {
+      const err = selfMap.reason;
+      console.error('[assistant/attention] the self-Map check failed:', err && err.message ? err.message : err);
+    }
+    return res.json({
+      success: true,
+      signedIn: true,
+      hasAssistant: true,
+      actions: {
+        [IDENTIFICATION_TAGS]: identificationTags.value,
+        [OUTBOX_RELAYS]: outboxRelays.status === 'fulfilled' ? outboxRelays.value : { ...OUTBOX_CHECK_FAILED },
+        [PROFILE]: profile.status === 'fulfilled' ? profile.value : { ...PROFILE_CHECK_FAILED },
+        [DUTY_MENU]: dutyMenu.status === 'fulfilled' ? dutyMenu.value : { ...require('./dutyMenu').DUTY_MENU_CHECK_FAILED },
+        [TREASURE_MAP]: selfMap.status === 'fulfilled' ? selfMap.value : { ...require('./selfMap').SELF_MAP_CHECK_FAILED },
+        ...trustedContentActions(trustedContent),
+      },
+    });
   } catch (err) {
     console.error('[assistant/attention] could not check assistant attention:', err && err.message ? err.message : err);
     return res.status(500).json({ success: false, error: 'Could not check assistant attention' });
@@ -227,9 +380,16 @@ async function handleAssistantAttention(req, res, deps = {}) {
 module.exports = {
   handleAssistantAttention,
   lookupByAddresses,
+  lookupNewestReplaceable,
   checkIdentificationTags,
   evaluateIdentificationTags,
   tagRelays,
+  readWithinBudget,
+  newest,
   TAG_RELAY_CATEGORIES,
   IDENTIFICATION_TAGS,
+  OUTBOX_RELAYS,
+  PROFILE,
+  DUTY_MENU,
+  TREASURE_MAP,
 };

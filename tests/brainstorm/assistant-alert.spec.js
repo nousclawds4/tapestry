@@ -1,6 +1,22 @@
 const { test, expect } = require('@playwright/test');
 const X = require('../../test/helpers/assistantManagementFixtures');
-const { PENDING: ATTENTION_PENDING } = require('../../test/helpers/identificationTagsFixtures');
+const { PENDING: ID_TAGS_PENDING, CHECKED_ACTION: IDTAGS } = require('../../test/helpers/identificationTagsFixtures');
+const { PROFILE_PENDING } = require('../../test/helpers/profileChecklistFixtures');
+const O = require('../../test/helpers/outboxRelaysFixtures');
+const TC = require('../../test/helpers/trustedContentFixtures');
+const DM = require('../../test/helpers/dutyMenuFixtures');
+const SM = require('../../test/helpers/selfMapFixtures');
+// Every checked action pending — Identification Tags (assistant-identification-tags #1), the profile
+// (assistant-profile-checklist #1), Outbox Relays (assistant-outbox-relays #1), Scores, Lists and Concepts
+// (assistant-trusted-content-status #1), and the Duty Menu (assistant-duty-menu #1) — so every action is marked AND
+// counted: the hub's count, its marks and the pill all say every action (X.ACTIONS.length). A checked action counts in
+// the pill only from a finished answer that found something.
+// Re-aimed by assistant-coming-soon #1 (AC-2): the five that say Coming soon are never marked or counted: the
+// counts here are every action the hub can count (X.COUNTED.length).
+const ATTENTION_BASE = O.attentionWith({ idtags: ID_TAGS_PENDING.actions[IDTAGS], outbox: O.OUTBOX.PENDING });
+// Re-aimed by assistant-self-map #1: the Treasure Map card is checked now. SM.withSelfMap adds its answer, pending by default,
+// which marks and counts it as the placeholder was, so the counts below stay as they were.
+const ATTENTION_PENDING = SM.withSelfMap(DM.withDutyMenu(TC.withTrio({ ...ATTENTION_BASE, actions: { ...ATTENTION_BASE.actions, profile: PROFILE_PENDING } })));
 
 /**
  * assistant-management #2: the Assistant Alert — the browser class.
@@ -100,8 +116,8 @@ async function mock(page, { who = CUSTOMER_USER, setup = SETUP_DONE, longName = 
     ? { success: true, classification: who.classification, pubkey: who.pubkey, assistantPubkey: who.assistantPubkey }
     : { success: true, classification: 'unauthenticated', pubkey: null, assistantPubkey: null })));
   // assistant-identification-tags #1: the pill and the hub now read one more shared answer. Answered PENDING (a tagging
-  // missing, check finished) so that every count this class pins stays ten: a checked action counts only from a finished
-  // answer, and the catch-all's failure would read as nine. tests/brainstorm/assistant-attention.spec.js pins the other answers.
+  // missing, check finished) so that every count this class pins is every action (eleven): a checked action counts only from a finished
+  // answer, and the catch-all's failure would read as nine. Re-aimed by assistant-outbox-relays #1: both checked actions pending. tests/brainstorm/assistant-attention.spec.js pins the other answers.
   await page.route('**/api/assistant/attention**', (r) => r.fulfill(json(ATTENTION_PENDING)));
   await page.route('**/api/setup/status**', async (r) => {
     log.setupCalls.push(r.request().url());
@@ -177,7 +193,7 @@ test.describe('The Assistant Alert (assistant-management #2)', () => {
   });
 
   /* ───────── B1 — where and what ───────── */
-  test('B1: beside the avatar menu on every kind of page — or where the menu would be on the developer pages — the pill reads "Manage your Tapestry Assistant · 10 actions need attention" with "Manage Assistant →", and leads to /assistant (AC-1)', async ({ page }) => {
+  test('B1: beside the avatar menu on every kind of page — or where the menu would be on the developer pages — the pill reads "Manage your Tapestry Assistant · 8 actions need attention" with "Manage Assistant →", and leads to /assistant (AC-1)', async ({ page }) => {
     test.setTimeout(120000);
     await page.setViewportSize({ width: 1280, height: 800 });
     await mock(page);
@@ -188,7 +204,7 @@ test.describe('The Assistant Alert (assistant-management #2)', () => {
       await expect(pill, `${p.what}: it leads to the hub`).toHaveAttribute('href', X.HUB);
       const words = squash(await pill.innerText());
       expect(words, `${p.what}: the sentence`).toContain(X.ALERT.sentence);
-      expect(words, `${p.what}: the count`).toContain(`· ${X.countText(10)}`);
+      expect(words, `${p.what}: the count`).toContain(`· ${X.countText(X.COUNTED.length)}`);
       expect(words, `${p.what}: the button`).toContain(X.ALERT.button);
       const where = await pill.evaluate((el) => ({
         parent: el.parentElement ? el.parentElement.className : '',
@@ -286,7 +302,7 @@ test.describe('The Assistant Alert (assistant-management #2)', () => {
     const main = page.locator('main').first();
     await expect(main.getByText(X.countText(n), { exact: true }), 'the hub says the same number').toBeVisible();
     await expect(main.getByText(X.COPY.needsAttention, { exact: true }), 'and marks that many cards').toHaveCount(n);
-    expect(n, 'for now every action needs attention').toBe(10);
+    expect(n, 'every action the hub can count needs attention in this mock (every checked action pending)').toBe(X.COUNTED.length);
   });
 
   /* ───────── B6 — every width ───────── */
@@ -306,7 +322,7 @@ test.describe('The Assistant Alert (assistant-management #2)', () => {
       const part = (text) => pill.getByText(text, { exact: true });
       for (const [what, locator, visible] of [
         ['the sentence', part(X.ALERT.sentence), show.sentence],
-        ['the count', pill.getByText(new RegExp(`^·\\s*${X.countText(10)}$`)), show.count],
+        ['the count', pill.getByText(new RegExp(`^·\\s*${X.countText(X.COUNTED.length)}$`)), show.count],
         ['the mark', part(X.ALERT.mark), true],
         ['the button', part(X.ALERT.button), true],
       ]) {

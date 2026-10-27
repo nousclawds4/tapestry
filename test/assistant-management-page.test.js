@@ -32,6 +32,7 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const X = require('./helpers/assistantManagementFixtures');
+const CS = require('./helpers/comingSoonFixtures');
 
 const REPO = path.resolve(__dirname, '..');
 const ACTIONS_MOD = path.join(REPO, 'ui/src/pages/assistant/actions.js');
@@ -171,9 +172,9 @@ test('D1: the page has three sections, in the approved order: Public Persona, Tr
   assert(j(got) === j(X.SECTIONS), `expected ${j(X.SECTIONS)}, got ${j(got)}`);
 });
 
-test('D2: the ten actions, in the approved order and sections, with their approved titles, addresses and descriptions (AC-1, AC-3)', async () => {
+test('D2: the thirteen actions, in the approved order and sections, with their approved titles, addresses and descriptions (AC-1, AC-3; re-aimed by assistant-outbox-relays #1 AC-1 and assistant-duty-cards #1 AC-1)', async () => {
   const actions = need(await actionsModule(), 'ASSISTANT_ACTIONS');
-  assert(Array.isArray(actions) && actions.length === 10, `expected exactly 10 actions (the ask lists two, six and two), got ${j(actions && actions.length)}`);
+  assert(Array.isArray(actions) && actions.length === 13, `expected exactly 13 actions (the ask listed two, six and two; assistant-outbox-relays #1 adds a third persona card; assistant-duty-cards #1 a fourth and fifth), got ${j(actions && actions.length)}`);
   const wrong = [];
   X.ACTIONS.forEach((want, i) => {
     const got = actions[i] || {};
@@ -191,7 +192,7 @@ test('D2: the ten actions, in the approved order and sections, with their approv
   assert(wrong.length === 0, `story 1 § Copy: ${wrong.join('; ')}`);
 });
 
-test('D3: exactly three descriptions carry a link — the NIP each names, at the approved address — and the other seven carry none (AC-3)', async () => {
+test('D3: exactly four descriptions carry a link — the NIP each names, at the approved address — and the other nine carry none (AC-3; re-aimed by assistant-outbox-relays #1: NIP-65; by assistant-duty-cards #1: two more without)', async () => {
   const mod = await actionsModule();
   const actions = need(mod, 'ASSISTANT_ACTIONS');
   const wrong = [];
@@ -233,7 +234,7 @@ test('D5: the FAQ is the owner\'s five questions and answers, in order — with 
   assert(wrong.length === 0, `story 1 § Copy (the FAQ): ${wrong.join('; ')}`);
 });
 
-test('D6: the count reads "10 actions need attention", and "1 action needs attention" for one (AC-2; the pill says the same, story 2)', async () => {
+test('D6: the count reads "10 actions need attention", "1 action needs attention" for one, and "Nothing needs attention" at zero (AC-2; the pill says the same, story 2; zero re-aimed by assistant-self-map #1)', async () => {
   const countText = need(await actionsModule(), 'attentionCountText');
   assert(typeof countText === 'function', 'attentionCountText must be a function of n');
   for (const n of [10, 1, 2, 0]) {
@@ -245,7 +246,8 @@ test('D7: every action needs attention for a viewer who has an assistant here, a
   const mod = await actionsModule();
   const attention = need(mod, 'assistantAttention');
   const actions = need(mod, 'ASSISTANT_ACTIONS');
-  const allKeys = actions.map((a) => a.key);
+  // Re-aimed by assistant-coming-soon #1 (AC-2): every action but the five that say Coming soon, which are never marked.
+  const allKeys = actions.map((a) => a.key).filter((k) => !CS.KEYS.includes(k));
   const cases = [
     ['a visitor (no user)', null, false],
     ['a signed-in guest with no assistant', { pubkey: 'ee'.repeat(32), classification: 'guest', assistantPubkey: null }, false],
@@ -257,11 +259,11 @@ test('D7: every action needs attention for a viewer who has an assistant here, a
   const wrong = [];
   for (const [who, user, has] of cases) {
     const got = attention(user);
-    const want = { hasAssistant: has, needsAttention: has ? allKeys : [], count: has ? 10 : 0 };
+    const want = { hasAssistant: has, needsAttention: has ? allKeys : [], count: has ? allKeys.length : 0 };
     const shaped = got && { hasAssistant: got.hasAssistant, needsAttention: got.needsAttention, count: got.count };
     if (j(shaped) !== j(want)) wrong.push(`${who}: want ${j(want)}, got ${j(got)}`);
   }
-  assert(wrong.length === 0, `ADR 0001 sub-decision 1 (a scaffold: all ten, for exactly the viewers with an assistant): ${wrong.join('; ')}`);
+  assert(wrong.length === 0, `ADR 0001 sub-decision 1 (with no answer: every action, for exactly the viewers with an assistant): ${wrong.join('; ')}`);
 });
 
 test('D8: every action lives under the hub\'s address, and the profile page is ASSISTANT_PROFILE_PATH, /assistant/profile (AC-3, AC-5)', async () => {
@@ -501,7 +503,7 @@ test('O4: nothing user-facing still sends people to "the My Assistant page (/ass
 
 /* ───────────────────────── H — the live server (a guard) ───────────────────────── */
 
-test('H1: the reachable instance serves the app for all twelve addresses — the hub, the ten action pages and the editor (AC-7; guard)', async () => {
+test('H1: the reachable instance serves the app for all fifteen addresses — the hub, the thirteen action pages and the editor (AC-7; guard; re-aimed by assistant-duty-cards #1)', async () => {
   const addresses = [X.HUB, ...X.ACTIONS.map((a) => a.path), X.EDITOR];
   let first;
   try {

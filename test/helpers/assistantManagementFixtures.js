@@ -9,7 +9,31 @@
  * engineering-team/stories/done/assistant-management/2-the-assistant-alert.md § Copy (approved 2026-09-21), with the
  * display fixes story 1 lists: straight apostrophes, first letters capitalized, "(link to …)" made into the link
  * it asks for, and "follows (kind 3)". Change a word there first, then here.
+ *
+ * Re-aimed 2026-10-08 by assistant-trusted-content-status #1 (its story § Copy, approved 2026-10-08): the first three
+ * Publication of Trusted Content cards are Scores, Lists and Concepts, with their rule as alert criteria and a link to
+ * the Treasure Map page. Keys, addresses, descriptions and NIP links are unchanged. Their words come from
+ * test/helpers/trustedContentFixtures.js.
+ *
+ * Re-aimed 2026-10-11 by assistant-duty-cards #1 (its story § Copy, approved 2026-10-11): Duty Menu and Your
+ * Assistant's Treasure Map close the persona section, after Outbox Relays, as placeholders. Their words come from
+ * test/helpers/dutyCardsFixtures.js.
+ *
+ * Re-aimed 2026-10-11 by assistant-duty-menu #1 (its story AC-4, ADR 0001 sub-decision 6), through
+ * dutyCardsFixtures.js: the Duty Menu card's page is built, so its alert criteria are the ADR's sentence and it has no
+ * planning notes. Its title, address and description are unchanged.
+ *
+ * Re-aimed 2026-10-12 by assistant-coming-soon #1 (its story AC-1, AC-2, approved at Gate A 2026-10-12): Bounties, Pins,
+ * Tags, Notifications and Alerts, and Preferences say Coming soon and are never marked or counted. ACTIONS is still every
+ * card; COUNTED is the cards the hub can mark and count (ACTIONS less those five, test/helpers/comingSoonFixtures.js).
+ * Counts and marks read COUNTED; anything about every card on the page still reads ACTIONS.
  */
+
+const TC = require('./trustedContentFixtures');
+const tc = (key) => TC.CARDS.find((c) => c.key === key);
+const DUTY = require('./dutyCardsFixtures');
+const CS = require('./comingSoonFixtures');
+const dutyCard = ({ section, path, title, text, link, alertCriteria, planningNotes }) => ({ section, path, title, text, link, alertCriteria, planningNotes });
 
 // ─── Addresses (story 1 § Copy; ADR assistant-management/0001) ───────────────────────────────
 const HUB = '/assistant';
@@ -21,6 +45,8 @@ const NIP_LINKS = {
   trustedAssertions: 'https://github.com/nostr-protocol/nips/blob/master/85.md',
   trustedLists: 'https://nostrhub.io/naddr1qvzqqqrcvypzpef89h53f0fsza2ugwdc3e54nfpun5nxfqclpy79r6w8nxsk5yp0qqxhgun4wd6x2epdd35hxarn9c5yqp',
   decentralizedLists: 'https://nostrhub.io/naddr1qvzqqqrcvypzpef89h53f0fsza2ugwdc3e54nfpun5nxfqclpy79r6w8nxsk5yp0qqfkgetrv4h8gunpd35h5ety94kxjum5wvzg04gg',
+  // assistant-outbox-relays #1 (story § Copy; ADR 0001 sub-decision 6).
+  relayList: 'https://github.com/nostr-protocol/nips/blob/master/65.md',
 };
 
 // ─── Sections, in order (story 1 AC-1; keys from ADR 0001 sub-decision 1) ──────────────────
@@ -33,7 +59,8 @@ const SECTIONS = [
 const NOT_YET_DEFINED = 'Not yet defined.';
 
 /**
- * The ten actions, in order. `text` is the description as a reader sees it (links as their words); `link` is the
+ * The thirteen actions, in order (ten from assistant-management #1; Outbox Relays from assistant-outbox-relays #1; Duty
+ * Menu and Your Assistant's Treasure Map from assistant-duty-cards #1). `text` is the description as a reader sees it (links as their words); `link` is the
  * one NIP link inside it, or null; `alertCriteria` / `planningNotes` are null where the owner gave none.
  */
 const ACTIONS = [
@@ -56,32 +83,47 @@ const ACTIONS = [
     alertCriteria: 'If any of the required Taggings are missing. Taggings that you will use on your Assistant include: "My Tapestry Assistant", "My Agent"; Taggings that your Assistant will use on you: "My Tapestry Owner" and "My Owner". More may be added later when we flesh this out in detail.',
     planningNotes: null,
   },
+  // The eleventh action, the third persona card (assistant-outbox-relays #1 AC-1 and § Copy).
+  {
+    section: 'persona',
+    path: '/assistant/outbox-relays',
+    title: 'Outbox Relays',
+    text: 'Let other clients and apps know where to find the events your Assistant publishes. Your Assistant lists its outbox relays in a relay list (kind 10002), according to NIP-65.',
+    link: { text: 'NIP-65', href: NIP_LINKS.relayList },
+    alertCriteria: "If your Assistant's relay list (kind 10002) names no outbox relay.",
+    planningNotes: null,
+  },
+  // The twelfth and thirteenth actions, the fourth and fifth persona cards (assistant-duty-cards #1 AC-1 and § Copy).
+  ...DUTY.CARDS.map(dutyCard),
   {
     section: 'trusted-content',
     path: '/assistant/trusted-assertions',
-    title: 'Trusted Assertions',
+    title: tc('trusted-assertions').title,
     text: 'Enable Tapestry to broadcast trust scores using NIP-85 Trusted Assertions, curated by your trusted and extended community. This includes trust scores for pubkeys as well as for other categories of content. From a technical standpoint, this means your Assistant will publish kinds 3038x events on your behalf.',
     link: { text: 'NIP-85 Trusted Assertions', href: NIP_LINKS.trustedAssertions },
-    alertCriteria: null,
+    alertCriteria: tc('trusted-assertions').alertCriteria,
     planningNotes: null,
+    editLink: TC.MAP_LINK,
   },
   {
     section: 'trusted-content',
     path: '/assistant/trusted-lists',
-    title: 'Trusted Lists',
+    title: tc('trusted-lists').title,
     text: 'Enable Tapestry to broadcast lists, curated by your trusted and extended community. This includes Trusted Lists of pubkeys as well as Trusted Lists of other categories of content. From a technical standpoint, this means your Assistant will publish kinds 3039x events on your behalf, according to the Trusted Lists NIP.',
     link: { text: 'Trusted Lists NIP', href: NIP_LINKS.trustedLists },
-    alertCriteria: null,
+    alertCriteria: tc('trusted-lists').alertCriteria,
     planningNotes: null,
+    editLink: TC.MAP_LINK,
   },
   {
     section: 'trusted-content',
     path: '/assistant/dlists',
-    title: 'Decentralized Lists',
+    title: tc('dlists').title,
     text: 'Enable your Tapestry Assistant to manage Decentralized Lists in a way that is more detailed than Trusted Lists. From a technical standpoint, this means your Assistant will publish kinds 39998 and 39999 events on your behalf according to the Decentralized Lists NIP.',
     link: { text: 'Decentralized Lists NIP', href: NIP_LINKS.decentralizedLists },
-    alertCriteria: null,
+    alertCriteria: tc('dlists').alertCriteria,
     planningNotes: null,
+    editLink: TC.MAP_LINK,
   },
   {
     section: 'trusted-content',
@@ -176,8 +218,13 @@ const COPY = {
   settingsCardButton: '🤖 Edit Assistant Profile',
 };
 
+/** The cards the hub can mark and count: every card but the five that say Coming soon (assistant-coming-soon #1 AC-2). */
+const COUNTED = ACTIONS.filter((a) => !CS.PATHS.includes(a.path));
+
 /** The count line on the hub, and inside the pill (story 1 § Copy; story 2 § Copy). */
 function countText(n) {
+  // Re-aimed by assistant-self-map #1 (story AC-5; the owner's answer to its open question 2): zero has its own words.
+  if (n === 0) return 'Nothing needs attention';
   return n === 1 ? '1 action needs attention' : `${n} actions need attention`;
 }
 
@@ -195,6 +242,6 @@ const ALERT = {
 };
 
 module.exports = {
-  HUB, PROFILE_PAGE, EDITOR, NIP_LINKS, SECTIONS, ACTIONS, FAQ, COPY, NOT_YET_DEFINED, countText,
+  HUB, PROFILE_PAGE, EDITOR, NIP_LINKS, SECTIONS, ACTIONS, COUNTED, FAQ, COPY, NOT_YET_DEFINED, countText,
   EDITOR_PAGE_PHRASE, LEGACY_PANEL_SENTENCE, LEGACY_PANEL_LINK_TEXT, ALERT,
 };

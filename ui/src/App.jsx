@@ -112,6 +112,7 @@ import BrainstormAbout from './pages/BrainstormAbout';
 import BrainstormAboutSearch from './pages/BrainstormAboutSearch';
 import BrainstormSkill from './pages/BrainstormSkill';
 import DevelopersHub from './pages/developers/Hub';
+import InformationForAgents from './pages/InformationForAgents';
 import DevelopersNip50 from './pages/developers/Nip50';
 import DevelopersOpenRanking from './pages/developers/OpenRanking';
 import DevelopersTrustedAssertions from './pages/developers/TrustedAssertions';
@@ -124,12 +125,21 @@ import DictionaryItemPage from './pages/dictionary/Item';
 import DictionaryNewConceptPage from './pages/dictionary/NewConcept';
 import DictionaryEditConceptPage from './pages/dictionary/EditConcept';
 import MyAssistantsPage from './pages/assistants/Index';
+import ManageTreasureMapPage from './pages/treasure-map/Index';
+import TreasureMapAdvancedPage from './pages/treasure-map/Advanced';
 import AssistantManagementPage from './pages/assistant/Index';
 import EditAssistantProfilePage from './pages/assistant/EditProfile';
 import AssistantActionPage from './pages/assistant/ActionPage';
 import IdentificationTagsPage from './pages/assistant/IdentificationTags';
+import OutboxRelaysPage from './pages/assistant/OutboxRelays';
+import ProfileChecklistPage from './pages/assistant/ProfileChecklist';
+import DutyMenuPage from './pages/assistant/DutyMenu';
+import AssistantTreasureMapPage from './pages/assistant/AssistantTreasureMap';
+import ScoresPage from './pages/assistant/Scores';
 import { ASSISTANT_ACTIONS } from './pages/assistant/actions';
-import { ASSISTANT_MANAGEMENT_PATH, MY_ASSISTANT_PATH, MY_ASSISTANTS_PATH } from './config/avatarMenuLinks';
+import {
+  ASSISTANT_MANAGEMENT_PATH, MY_ASSISTANT_PATH, MY_ASSISTANTS_PATH, MANAGE_TREASURE_MAP_PATH, TREASURE_MAP_ADVANCED_PATH,
+} from './config/avatarMenuLinks';
 import Tag from './pages/Tag';
 import Tags from './pages/Tags';
 import Pins from './pages/Pins';
@@ -138,9 +148,16 @@ import BrainstormFeed from './pages/BrainstormFeed';
 import BrainstormEvent from './pages/BrainstormEvent';
 import NotFound from './pages/NotFound';
 // The action pages that are built, by action key; every other action routes to the placeholder
-// (assistant-identification-tags #2, ADR 0002 sub-decision 1).
+// (assistant-identification-tags #2, ADR 0002 sub-decision 1; Outbox Relays: assistant-outbox-relays #2, ADR 0002; the
+// profile's checklist: assistant-profile-checklist #2, ADR 0002; the Duty Menu: assistant-duty-menu #1, ADR 0001; Scores:
+// assistant-scores #1, ADR 0001).
 const ACTION_PAGES = {
+  profile: <ProfileChecklistPage />,
   'identification-tags': <IdentificationTagsPage />,
+  'outbox-relays': <OutboxRelaysPage />,
+  'duty-menu': <DutyMenuPage />,
+  'treasure-map': <AssistantTreasureMapPage />,
+  'trusted-assertions': <ScoresPage />,
 };
 
 const router = createBrowserRouter([
@@ -221,6 +238,12 @@ const router = createBrowserRouter([
     element: <BrainstormSkill />,
   },
   {
+    // "The Technology Behind Brainstorm": a prompt for the builder's own AI agent, pointing at the plain-text
+    // briefing the server serves at /information-for-agents.md (information-for-agents #1).
+    path: '/information-for-agents',
+    element: <InformationForAgents />,
+  },
+  {
     path: '/feed',
     element: <BrainstormFeed />,
   },
@@ -295,6 +318,17 @@ const router = createBrowserRouter([
     element: <MyAssistantsPage />,
   },
   {
+    // Manage your Treasure Map, view-only, in the Brainstorm design's styling; the Brainstorm menus' My Treasure Map
+    // (manage-treasure-map #1, ADR 0001). The Tapestry menu keeps the TA Treasure Map page.
+    path: MANAGE_TREASURE_MAP_PATH,
+    element: <ManageTreasureMapPage />,
+  },
+  {
+    // Its Advanced management placeholder (manage-treasure-map #1, ADR 0001 sub-decision 6).
+    path: TREASURE_MAP_ADVANCED_PATH,
+    element: <TreasureMapAdvancedPage />,
+  },
+  {
     // The Assistant Management page (assistant-management #1, ADR 0001).
     path: ASSISTANT_MANAGEMENT_PATH,
     element: <AssistantManagementPage />,
@@ -305,7 +339,7 @@ const router = createBrowserRouter([
     path: MY_ASSISTANT_PATH,
     element: <EditAssistantProfilePage />,
   },
-  // The ten action pages under /assistant: one route per ASSISTANT_ACTIONS entry — the action's own page where one
+  // The action pages under /assistant: one route per ASSISTANT_ACTIONS entry — the action's own page where one
   // is built (ACTION_PAGES, keyed by action key), the placeholder otherwise (ADR assistant-identification-tags/0002).
   ...ASSISTANT_ACTIONS.map((action) => ({ path: action.path, element: ACTION_PAGES[action.key] ?? <AssistantActionPage action={action} /> })),
   {
@@ -551,6 +585,7 @@ const router = createBrowserRouter([
           { path: 'uuids', handle: { crumb: 'Concept UUIDs' } },
           { path: 'firmware', handle: { crumb: 'Firmware' } },
           { path: 'auditing', handle: { crumb: 'Auditing Tools' } },
+          { path: 'assistant-duties', handle: { crumb: 'Assistant Duties' } },
           { path: '*', element: <Navigate to="/tapestry/settings/relays" replace /> },
         ],
       },

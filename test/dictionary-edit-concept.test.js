@@ -348,13 +348,14 @@ test('E12: the route is registered with the adoption routes, and no auth list ga
   const m = mod();
   assert(m.ROUTE === '/api/dictionaries/concepts/edit', m.ROUTE);
   assert(/require\('\.\/editConcept'\)\.register\(app\);/.test(code(src(ADOPTION_INDEX))), 'registered');
-  const auth = src(AUTH_JS);
-  for (const list of ['ownerOnlyEndpoints', 'customerOrOwnerEndpoints']) {
-    const block = auth.match(new RegExp(`const ${list} = \\[([\\s\\S]*?)\\]`));
-    assert(block, `${list} must still be readable in auth.js`);
-    const hit = [...block[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).find((e) => m.ROUTE.includes(e));
-    assert(!hit, `${list} entry ${hit} would gate the route`);
-  }
+  // Re-aimed for security-auth-exposure #8 (ADR 0005): the auth middleware's hand-kept lists are gone; the route table
+  // decides access. The route is an allowlisted signed-in action (the author's own concept header), so it must resolve
+  // to 'signed-in' — the owner's decision is every signed-in person, admins included.
+  const TABLE = path.join(ROOT, 'src/middleware/routeAccess.js');
+  assert(fs.existsSync(TABLE), 'src/middleware/routeAccess.js does not exist yet (ADR 0005 Decision 1)');
+  delete require.cache[require.resolve(TABLE)];
+  const access = require(TABLE).resolveRouteAccess('POST', m.ROUTE);
+  assert(access === 'signed-in', `ADR 0005: ${m.ROUTE} must resolve to 'signed-in'; got '${access}'`);
   assert(!/getOwnerAssistantKeys|getOwnerAssistantPubkey/.test(code(src(MODULE))), 'no owner-key helper');
 });
 
@@ -427,7 +428,8 @@ test('S3: saving: the version loaded, the server\'s conflict answer, the Assista
 test('S4: a firmware concept warns that a reinstall undoes the edit, from the row\'s own header only', () => {
   const s = flat(code(src(PAGE_JSX)));
   assert(/\{\(firmware \|\| entry\?\.firmwareHeader\) && \(/.test(s) && /A firmware reinstall rebuilds its header from the built-in definition/.test(s), 'the warning');
-  assert(/fetch\(`\/api\/dictionaries\/concepts\/firmware\?coord=\$\{encodeURIComponent\(coord\)\}`\)/.test(s),
+  assert(/import \{ scan, useFirmware \} from '\.\.\/dictionaries\/sharedHeader';/.test(s)
+    && /fetch\(`\/api\/dictionaries\/concepts\/firmware\?coord=\$\{encodeURIComponent\(coord\)\}`\)/.test(flat(code(src(path.join(UI, 'pages/dictionaries/sharedHeader.js'))))),
     'from the address, so a header that isn\'t a Dictionary row is warned of too (review 1, S2)');
   const idx = flat(code(src(ADOPTION_INDEX)));
   assert(/app\.get\('\/api\/dictionaries\/concepts\/firmware', handleConceptFirmware\);/.test(idx)

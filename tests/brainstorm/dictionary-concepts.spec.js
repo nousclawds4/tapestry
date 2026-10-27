@@ -109,6 +109,31 @@ const { test, expect } = require('@playwright/test');
  *         out, or someone else's header, the page says why it can't edit.
  *   D36 — a concept the server finds by name keeps its singular name; a name another concept has is
  *         refused with a link to it; the graph's and the broadcast's outcomes are each said once.
+ *
+ * Re-Sync (test/dictionary-resync-concept.test.js holds the rule and the endpoint):
+ *
+ *   D38 — Re-Sync sits beside Edit on the reader's own wired header (not signed out, not on a
+ *         self-shared one); its panel warns of the overwrite and lists the tags removed and added; Re-Sync
+ *         names both versions, and the entry says what happened.
+ *   D39 — already in sync is said so, with nothing to press; an unreachable community relay is said so,
+ *         with Try again.
+ *   D40 — a header that changed meanwhile: nothing saved, the panel stays open and says so; a shared
+ *         header whose names the server won't sign can't be re-synced, and the page says why.
+ *   D41 — no state crosses entries (the panel's link to another concept opens it afresh); Cancel after a
+ *         saved but undelivered Re-Sync shows the saved version, without a "try again" it can't offer.
+ *
+ * A DList's own look (test/dictionary-github-account.test.js holds the rules):
+ *
+ *   D42 — the GitHub Accounts DList's entry shows GitHub's mark and one row per account (avatar, login,
+ *         the filer's description, "+1 more" for a second filer); search finds a row by any of its
+ *         filers; the merged row opens its earliest filing, numbered as its row, naming the other filer.
+ *   D43 — the V4V Songs DList (test/dictionary-v4v-song.test.js; brief: opinionated-views Appendix B): one
+ *         row per song (artwork, title, artist, duration, "+1 more"); no audio host is contacted before
+ *         play; a row's play button plays without opening the row, one song at a time, with no referrer;
+ *         a song that can't play says so; the item page's head, player, release and artist lists and
+ *         Podcast Index link; the page's own referrer policy comes back once no player is shown. A song's page
+ *         reads only its release's and artist's items (`match`), never the whole list, so it is numbered only
+ *         when opened from the table; a failed read gets one notice.
  */
 
 const OWNER = '1'.repeat(64);
@@ -299,6 +324,39 @@ async function mockEdit(page, { base = EDIT_BASE, assistant = CUST_TA, changed =
     if (body.description) tags.push(['description', body.description]);
     tags.push(...body.properties, ...base.tags.filter((t) => t[0] === 'b'));
     return json(r, { success: true, coord: EDIT_COORD, graph, event: { ...base, id: '8c'.repeat(32), pubkey: assistant, created_at: base.created_at + 1, tags } });
+  });
+  return asked;
+}
+
+/** The shared concept EDIT_BASE is wired to (FOREIGN), as it is now: renamed, described, with a field-type. */
+const SHARED_FOREIGN = {
+  id: 'd1'.repeat(32), kind: 39998, pubkey: 'f'.repeat(64), created_at: 1700000500, content: '', sig: 'e2'.repeat(64),
+  tags: [['d', 'shared-thing'], ['names', 'shared thing', 'shared things'], ['description', 'A shared thing.'],
+    ['required', 'name'], ['field-type', 'name', 'text'], ['b', FOREIGN, 'pointer']],
+};
+
+/**
+ * Re-Sync's reads and write, on top of mockStack, mockEntry and mockEdit: the shared header on this relay
+ * (unless `sharedLocal` is false) and the community relay (unless `communityDown`), and the endpoint,
+ * which signs as `assistant`. Returns the requests' bodies.
+ */
+async function mockResync(page, { shared = SHARED_FOREIGN, sharedLocal = true, communityDown = false, assistant = CUST_TA } = {}) {
+  const json = (r, body, status = 200) => r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  const asked = [];
+  await page.route('**/api/strfry/scan**', (r) => {
+    const filter = JSON.parse(new URL(r.request().url()).searchParams.get('filter') || '{}');
+    if ((filter.authors || [])[0] === shared.pubkey && (filter['#d'] || [])[0] === shared.tags[0][1]) {
+      return json(r, { success: true, events: sharedLocal ? [shared] : [] });
+    }
+    return r.fallback();
+  });
+  await page.route('**/api/relay/external**', (r) => (communityDown
+    ? json(r, { success: false, events: [], error: 'Could not read wss://dcosl.brainstorm.world', unreachable: ['wss://dcosl.brainstorm.world'] })
+    : json(r, { success: true, events: [shared] })));
+  await page.route('**/api/dictionaries/concepts/resync', (r) => {
+    const body = JSON.parse(r.request().postData() || '{}');
+    asked.push(body);
+    return json(r, { success: true, coord: EDIT_COORD, graph: 'none', event: { ...EDIT_BASE, id: '5f'.repeat(32), pubkey: assistant, created_at: EDIT_BASE.created_at + 1 } });
   });
   return asked;
 }
@@ -692,8 +750,8 @@ test.describe('/dictionary — the same dictionary in the design’s styling', (
     await link.click();
     await expect(page.getByRole('heading', { level: 1, name: 'item 03' })).toBeVisible();
     await expect(page.getByText('Item 3 in cat breed')).toBeVisible();
-    await expect(page.getByText('item 03 is one of the items the owner’s trusted community has filed under cat breed.')).toBeVisible();
-    await expect(page.locator('.dict-filed-by-name')).toHaveText('Trusty');
+    await expect(page.getByText(/is one of the/), 'no "one of the ⟨plural⟩" sentence: the head numbers it (owner, 2026-10-04)').toHaveCount(0);
+    await expect(page.locator('.dict-item-filer-name')).toHaveText('Trusty');
     await expect(page.getByRole('link', { name: /View Nostr profile/ })).toHaveAttribute('href', `/user/${TRUSTED_FILER}`);
     await page.getByRole('button', { name: 'Raw Nostr event' }).click();
     await expect(page.locator('#dict-item-raw .dict-json')).toContainText('["name","item 03"]');
@@ -1214,6 +1272,442 @@ test.describe('/dictionary — the same dictionary in the design’s styling', (
     await g.getByLabel('Description').fill('Changed.');
     await g.getByRole('button', { name: 'Save changes' }).click();
     await expect(g.getByText('Saved here. External publishing is off for this deployment, so it was not sent onward. This instance’s graph wasn’t fully updated, so the control panel may show the old version, or an incomplete one.')).toBeVisible();
+  });
+
+  test('D38: Re-Sync beside Edit: the warning, the tags removed and added, and both versions named', async ({ page }) => {
+    await mockStack(page, { session: CUSTOMER });
+    await mockEntry(page);
+    await mockEdit(page);
+    const asked = await mockResync(page);
+    await page.goto(`${PAGE}/${encodeURIComponent(EDIT_COORD)}`);
+    const row = page.locator('.dict-entry-titlerow');
+    await expect(row.getByRole('link', { name: 'Edit' })).toBeVisible();
+    const open = row.getByRole('button', { name: 'Re-Sync' });
+    await expect(open).toHaveClass(/dict-pill-btn--quiet/);
+    await open.click();
+    const panel = page.getByRole('region', { name: 'Re-Sync' });
+    await expect(panel.getByRole('note').first()).toContainText('Re-Sync completely overwrites this concept’s header');
+    await expect(panel.getByRole('note').first()).toContainText('shared thing');
+    const removed = panel.getByRole('list', { name: 'Tags removed' });
+    const added = panel.getByRole('list', { name: 'Tags added' });
+    await expect(removed).toContainText('["names","customer thing","customer things"]');
+    await expect(removed).toContainText('["description","A thing."]');
+    await expect(added).toContainText('["names","shared thing","shared things"]');
+    await expect(added).toContainText('["field-type","name","text"]');
+    await expect(removed, 'the b-tag is the same, so it isn’t listed').not.toContainText('"b"');
+    await panel.getByRole('button', { name: 'Re-Sync' }).click();
+    await expect(page.getByText('Re-synced from shared thing. Saved here. External publishing is off for this deployment, so it was not sent onward.')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Re-Sync' })).toHaveCount(0);
+    expect(asked).toEqual([{ coord: EDIT_COORD, basedOn: EDIT_BASE.id, copyFrom: SHARED_FOREIGN.id }]);
+
+    // Signed out: no Re-Sync. A self-shared header of the reader's: Edit, but nothing to re-sync from.
+    const out = await page.context().newPage();
+    await mockStack(out);
+    await mockEntry(out);
+    await mockEdit(out);
+    await out.goto(`${PAGE}/${encodeURIComponent(EDIT_COORD)}`);
+    await expect(out.locator('.dict-entry-title')).toBeVisible();
+    await expect(out.getByRole('button', { name: 'Re-Sync' })).toHaveCount(0);
+    const self = await page.context().newPage();
+    await mockStack(self, { session: CUSTOMER });
+    await mockEntry(self);
+    await mockEdit(self, { base: { ...EDIT_BASE, tags: [['d', EDIT_D], ['names', 'customer thing', 'customer things'], ['b', EDIT_COORD, 'pointer']] } });
+    await self.goto(`${PAGE}/${encodeURIComponent(EDIT_COORD)}`);
+    await expect(self.locator('.dict-entry-titlerow').getByRole('link', { name: 'Edit' })).toBeVisible();
+    await expect(self.getByRole('button', { name: 'Re-Sync' })).toHaveCount(0);
+  });
+
+  test('D39: already in sync is said so; an unreachable community relay is said so, with Try again', async ({ page }) => {
+    await mockStack(page, { session: CUSTOMER });
+    await mockEntry(page);
+    const synced = { ...EDIT_BASE, tags: [['d', EDIT_D], ['names', 'shared thing', 'shared things'], ['description', 'A shared thing.'],
+      ['required', 'name'], ['field-type', 'name', 'text'], ['b', FOREIGN, 'pointer']] };
+    await mockEdit(page, { base: synced });
+    const asked = await mockResync(page);
+    await page.goto(`${PAGE}/${encodeURIComponent(EDIT_COORD)}`);
+    await page.locator('.dict-entry-titlerow').getByRole('button', { name: 'Re-Sync' }).click();
+    const panel = page.getByRole('region', { name: 'Re-Sync' });
+    await expect(panel.getByText('Already in sync: a Re-Sync would change nothing.')).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Re-Sync' })).toBeDisabled();
+    await panel.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('region', { name: 'Re-Sync' })).toHaveCount(0);
+    expect(asked).toHaveLength(0);
+
+    const down = await page.context().newPage();
+    await mockStack(down, { session: CUSTOMER });
+    await mockEntry(down);
+    await mockEdit(down);
+    await mockResync(down, { sharedLocal: false, communityDown: true });
+    await down.goto(`${PAGE}/${encodeURIComponent(EDIT_COORD)}`);
+    await down.locator('.dict-entry-titlerow').getByRole('button', { name: 'Re-Sync' }).click();
+    const p2 = down.getByRole('region', { name: 'Re-Sync' });
+    await expect(p2.getByRole('alert')).toContainText('Couldn’t reach the community relay to read the shared concept’s header');
+    await expect(p2.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await expect(p2.getByRole('button', { name: 'Re-Sync' })).toBeDisabled();
+  });
+
+  test('D40: a changed header keeps the panel open and says nothing was saved; names that can’t be copied are named', async ({ page }) => {
+    await mockStack(page, { session: CUSTOMER });
+    await mockEntry(page);
+    await mockEdit(page);
+    await mockResync(page);
+    await page.route('**/api/dictionaries/concepts/resync', (r) => r.fulfill({
+      status: 409, contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'changed', event: EDIT_BASE, error: 'changed' }),
+    }));
+    await page.goto(`${PAGE}/${encodeURIComponent(EDIT_COORD)}`);
+    await page.locator('.dict-entry-titlerow').getByRole('button', { name: 'Re-Sync' }).click();
+    const panel = page.getByRole('region', { name: 'Re-Sync' });
+    await panel.getByRole('list', { name: 'Tags added' }).waitFor();
+    await panel.getByRole('button', { name: 'Re-Sync' }).click();
+    await expect(panel.getByRole('status').filter({ hasText: 'This concept changed after this page read it, so nothing was saved.' })).toBeVisible();
+    await expect(panel.getByRole('list', { name: 'Tags added' })).toContainText('["field-type","name","text"]');
+
+    const bad = await page.context().newPage();
+    await mockStack(bad, { session: CUSTOMER });
+    await mockEntry(bad);
+    await mockEdit(bad);
+    await mockResync(bad, { shared: { ...SHARED_FOREIGN, tags: SHARED_FOREIGN.tags.map((t) => (t[0] === 'names' ? ['names', 'shared \u202Egniht', 'shared things'] : t)) } });
+    await bad.goto(`${PAGE}/${encodeURIComponent(EDIT_COORD)}`);
+    await bad.locator('.dict-entry-titlerow').getByRole('button', { name: 'Re-Sync' }).click();
+    const p2 = bad.getByRole('region', { name: 'Re-Sync' });
+    await expect(p2.getByRole('alert')).toContainText("The names and description a Re-Sync would write can’t be used as they are: A name can't contain text-direction controls.");
+    await expect(p2.getByRole('button', { name: 'Re-Sync' })).toBeDisabled();
+  });
+
+  test('D41: nothing of one entry reaches another; Cancel after an undelivered Re-Sync says what was saved', async ({ page }) => {
+    await mockStack(page, { session: CUSTOMER });
+    await mockEntry(page);
+    await mockEdit(page);
+    await mockResync(page);
+    const other = coordOf(CUST_TA, 'cat');
+    await page.route('**/api/dictionaries/concepts/resync', (r) => r.fulfill({
+      status: 409, contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'name-taken', coord: other, error: 'taken' }),
+    }));
+    await page.goto(`${PAGE}/${encodeURIComponent(EDIT_COORD)}`);
+    await page.locator('.dict-entry-titlerow').getByRole('button', { name: 'Re-Sync' }).click();
+    const panel = page.getByRole('region', { name: 'Re-Sync' });
+    await panel.getByRole('list', { name: 'Tags added' }).waitFor();
+    await panel.getByRole('button', { name: 'Re-Sync' }).click();
+    await panel.getByRole('link', { name: 'Open that concept' }).click();
+    await expect(page).toHaveURL(new RegExp(`/dictionary/${encodeURIComponent(other)}$`));
+    await expect(page.locator('.dict-entry-title')).toHaveText('cat');
+    await expect(page.getByRole('region', { name: 'Re-Sync' })).toHaveCount(0);
+    await expect(page.getByText('nothing was saved')).toHaveCount(0);
+
+    // External publishing on, and a community relay that refuses: saved here, not delivered.
+    const u = await page.context().newPage();
+    await mockStack(u, { session: CUSTOMER });
+    await mockEntry(u);
+    await mockEdit(u);
+    await mockResync(u);
+    await u.route('**/api/publish-policy', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, allowExternalPublish: true }) }));
+    await u.addInitScript(() => {
+      window.WebSocket = class {
+        constructor(url) { this.url = url; this.readyState = 0; setTimeout(() => { this.readyState = 3; this.onerror?.({}); this.onclose?.({ code: 1006, reason: '' }); }, 5); }
+        send() {}
+        close() { this.readyState = 3; }
+        addEventListener(type, fn) { this[`on${type}`] = fn; }
+        removeEventListener() {}
+      };
+      window.WebSocket.CONNECTING = 0; window.WebSocket.OPEN = 1; window.WebSocket.CLOSING = 2; window.WebSocket.CLOSED = 3;
+    });
+    await u.goto(`${PAGE}/${encodeURIComponent(EDIT_COORD)}`);
+    await u.locator('.dict-entry-titlerow').getByRole('button', { name: 'Re-Sync' }).click();
+    const p2 = u.getByRole('region', { name: 'Re-Sync' });
+    await p2.getByRole('list', { name: 'Tags added' }).waitFor();
+    await p2.getByRole('button', { name: 'Re-Sync' }).click();
+    await expect(p2.getByRole('status').filter({ hasText: "didn't reach the community relay" })).toBeVisible();
+    await p2.getByRole('button', { name: 'Cancel' }).click();
+    await expect(u.getByRole('region', { name: 'Re-Sync' })).toHaveCount(0);
+    await expect(u.getByText('Re-synced from shared thing. Saved on this instance, but it didn’t reach the community relay.')).toBeVisible();
+    await expect(u.getByText('try again')).toHaveCount(0);
+  });
+
+  test('D42: the GitHub Accounts entry lists one row per account, and its item page agrees', async ({ page }) => {
+    await mockStack(page);
+    const json = (r, body, status = 200) => r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    const SHARED_GH = '39998:b83a28b7e4e5d20bd960c5faeb6625f95529166b8bdb045d42634a2f35919450:github-accounts';
+    const coord = coordOf(OWNER_TA, 'github-account');
+    const A = '6'.repeat(64);
+    const B = '7'.repeat(64);
+    const filing = (n, author, login, description) => ({
+      id: String(n).padStart(64, '0'), address: `39999:${author}:${login}-${n}`, kind: 39999, author, name: `${login}-${n}`,
+      createdAt: n, description, properties: { 'github-username': login },
+    });
+    const items = [filing(1, A, 'wds4', 'David Strayhorn'), filing(2, A, 'vitorpamplona', null), filing(3, B, 'VitorPamplona', null)];
+    const entry = {
+      coord, name: 'GitHub Account', plural: 'GitHub Accounts', description: 'A list of github handles/accounts', author: OWNER_TA,
+      targets: [SHARED_GH], selfDeclared: false, isFirmware: false, firmwareHeader: false, itemCount: 0, sharedCoord: SHARED_GH, gum: 2,
+    };
+    // GitHub is never reached: its API answers 404 and the avatars fall back to initials.
+    await page.route('https://api.github.com/**', (r) => json(r, { message: 'Not Found' }, 404));
+    await page.route('https://github.com/**', (r) => r.fulfill({ status: 404, body: '' }));
+    await page.route('**/api/dictionaries/concepts**', (r) => (new URL(r.request().url()).pathname.endsWith('/items')
+      ? json(r, { success: true, items, keptCount: 3, truncated: false, filerCount: 2, totalCount: 3, pov: { branch: 'house', fellBackToHouse: false } })
+      : json(r, { success: true, metric: 'gum1', authors: [OWNER, OWNER_TA], entries: [entry], pov: { branch: 'house', cutoff: 0.01 } })));
+    await page.route('**/api/profiles**', (r) => json(r, { success: true, profiles: { [A]: { name: 'Avi' }, [B]: { name: 'Vinney' } } }));
+    await page.route('**/api/strfry/scan**', (r) => {
+      const filter = JSON.parse(new URL(r.request().url()).searchParams.get('filter') || '{}');
+      if ((filter.kinds || []).includes(39998)) {
+        return json(r, { success: true, events: [{ id: 'e'.repeat(64), kind: 39998, pubkey: OWNER_TA, created_at: 1, content: '', tags: [['d', 'github-account'], ['names', 'GitHub Account', 'GitHub Accounts'], ['b', SHARED_GH, 'pointer']] }] });
+      }
+      if ((filter.kinds || []).includes(39999)) {
+        const it = items.find((x) => x.address === `39999:${filter.authors[0]}:${filter['#d'][0]}`);
+        return json(r, { success: true, events: it ? [{ id: it.id, kind: 39999, pubkey: it.author, created_at: it.createdAt, content: '', tags: [['d', it.name], ['z', SHARED_GH], ['github-username', it.properties['github-username']]] }] : [] });
+      }
+      return json(r, { success: true, events: [] });
+    });
+    await page.goto(`${PAGE}/${encodeURIComponent(coord)}`);
+    await expect(page.getByRole('heading', { level: 1, name: 'GitHub Account' })).toBeVisible();
+    await expect(page.locator('.dict-entry-titlerow .dict-entry-mark')).toBeVisible();
+    const card = page.locator('.dict-items');
+    await expect(card.locator('.dict-items-count')).toHaveText('2 items');
+    const rows = card.locator('.dict-items-row--link');
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0).locator('.dict-items-item-link')).toHaveText('wds4');
+    await expect(rows.nth(0).locator('.dict-gh-item-desc')).toHaveText('David Strayhorn');
+    await expect(rows.nth(0).locator('.dict-gh-avatar--none'), 'an avatar that can\'t load is the initial').toHaveText('W');
+    await expect(rows.nth(1).locator('.dict-items-item-link'), 'two filings of one login, in any case, are one row').toHaveText('vitorpamplona');
+    await expect(rows.nth(1).locator('.dict-items-by')).toHaveText('Avi');
+    await expect(rows.nth(1).locator('.dict-items-more')).toContainText('+1 more');
+    await page.getByRole('button', { name: /Search & sort/ }).click();
+    await page.getByPlaceholder('Search items').fill('vinney');
+    await expect(rows, 'a row is found by any of its filers').toHaveCount(1);
+    await rows.nth(0).locator('.dict-items-item-link').click();
+    await expect(page.getByRole('heading', { level: 1, name: 'vitorpamplona' })).toBeVisible();
+    await expect(page.getByText('Item 2 in GitHub Account')).toBeVisible();
+    await expect(page.getByText('GitHub has no account named vitorpamplona. It may have been renamed or deleted.')).toBeVisible();
+    await expect(page.locator('.dict-item-filer-name')).toHaveText('Avi');
+    await expect(page.locator('.dict-item-filer').filter({ hasText: 'Also filed by' }).getByRole('link', { name: 'Vinney' }))
+      .toHaveAttribute('href', `/user/${B}`);
+    await expect(page.getByRole('link', { name: 'View on GitHub' })).toHaveAttribute('href', 'https://github.com/vitorpamplona');
+  });
+
+  test('D43: the V4V Songs entry lists one row per song that plays in place, and its item page plays it', async ({ page }) => {
+    await mockStack(page);
+    const json = (r, body, status = 200) => r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    const H = '39998:77599c5c4a7ba08456679d812a414037f4b01c975fb4f577187df11d189f80d3:b504f5a8-949f-4d31-ad14-8afcebde2b34';
+    const coord = coordOf(OWNER_TA, 'v4v-song');
+    const A = '6'.repeat(64);
+    const B = '7'.repeat(64);
+    const R1 = 'c187122d-fb21-5980-a241-c1ab558a9287';
+    const R2 = '8cf26a77-bb10-5db1-8cae-a90343e32b6b';
+    const op3 = (guid, file) => `https://op3.dev/e,pg=${guid}/https://media.example/track/${file}.mp3`;
+    // [n, filer, title, artist, release, track ID, duration, url, artwork]
+    const SONGS = [
+      [1, A, 'Donde No Llega el Comercio', 'Musica Ancap', R1, 'a1', '219', op3(R1, 'a1'), 'https://art.example/a1.jpg'],
+      [2, A, 'Segunda', 'Musica Ancap', R1, 'b1', '3725', 'https://media.example/track/missing.mp3', 'https://art.example/b1.jpg'],
+      [3, B, 'Donde No Llega el Comercio', 'Musica Ancap', R1, 'a1', '219', op3(R1, 'a1'), 'https://art.example/a1.jpg'],
+      [4, B, 'Tercera', 'MUSICA ANCAP', R2, 'c1', '59', op3(R2, 'c1'), 'https://art.example/missing.jpg'],
+    ];
+    const idOf = (n) => String(n).repeat(64);
+    const items = [
+      ...SONGS.map(([n, author, title, artist, guid, t, duration, url, artwork]) => ({
+        id: idOf(n), address: null, kind: 9999, author, name: title, title, createdAt: n, description: null,
+        properties: { t, artist, url, duration, feedId: guid === R1 ? '7769268' : '7769267', feedGuid: guid, artwork },
+      })),
+      { id: idOf(5), address: null, kind: 9999, author: B, name: 'Not a song', title: 'Not a song', createdAt: 5, description: null, properties: {} },
+      // A song filed with neither a release nor an artist: anyone may publish one.
+      { id: idOf(6), address: null, kind: 9999, author: A, name: 'Bare', title: 'Bare', createdAt: 6, description: null, properties: { url: 'https://media.example/track/bare.mp3' } },
+    ];
+    const eventOf = (it) => ({
+      id: it.id, kind: 9999, pubkey: it.author, created_at: it.createdAt, content: '',
+      tags: [['z', H], ['title', it.title], ...Object.entries(it.properties), ['alt', `Song: ${it.title} by ${it.properties.artist}`]],
+    });
+    const entry = {
+      coord, name: 'V4V Song', plural: 'V4V Songs', description: 'Value-for-value enabled music tracks from Podcast Index', author: OWNER_TA,
+      targets: [H], selfDeclared: false, isFirmware: false, firmwareHeader: false, itemCount: 0, sharedCoord: H, gum: 2,
+    };
+    // The Items read, as the server answers it: with `match`, only the items with a matching property (trimmed, any case).
+    let itemsFail = false;
+    const itemsAsked = [];
+    await page.route('**/api/dictionaries/concepts**', (r) => {
+      const u = new URL(r.request().url());
+      if (!u.pathname.endsWith('/items')) {
+        return json(r, { success: true, metric: 'gum1', authors: [OWNER, OWNER_TA], entries: [entry], pov: { branch: 'house', cutoff: 0.01 } });
+      }
+      const match = u.searchParams.getAll('match');
+      itemsAsked.push(match);
+      if (itemsFail) return json(r, { success: false, error: 'scan timed out' }, 500);
+      const pairs = match.map((m) => [m.slice(0, m.indexOf(':')), m.slice(m.indexOf(':') + 1).trim().toLowerCase()]);
+      const kept = pairs.length ? items.filter((it) => pairs.some(([n, v]) => (it.properties[n] || '').trim().toLowerCase() === v)) : items;
+      return json(r, { success: true, items: kept, keptCount: kept.length, truncated: false, filerCount: 2, totalCount: 5, pov: { branch: 'house', fellBackToHouse: false } });
+    });
+    await page.route('**/api/profiles**', (r) => json(r, { success: true, profiles: { [A]: { name: 'Avi' }, [B]: { name: 'Vinney' } } }));
+    await page.route('**/api/strfry/scan**', (r) => {
+      const filter = JSON.parse(new URL(r.request().url()).searchParams.get('filter') || '{}');
+      if ((filter.kinds || []).includes(39998)) {
+        return json(r, { success: true, events: [{ id: 'e'.repeat(64), kind: 39998, pubkey: OWNER_TA, created_at: 1, content: '', tags: [['d', 'v4v-song'], ['names', 'V4V Song', 'V4V Songs'], ['b', H, 'pointer']] }] });
+      }
+      const it = (filter.ids || []).length ? items.find((x) => x.id === filter.ids[0]) : null;
+      return json(r, { success: true, events: it ? [eventOf(it)] : [] });
+    });
+    // The outside world: OP3 counts the play and (here) answers with the file itself, since a routed redirect's
+    // second request isn't routed; one file and one cover are missing.
+    const contacted = [];
+    const seen = async (r) => contacted.push({ url: r.request().url(), referer: await r.request().headerValue('referer') });
+    const wav = (() => {
+      const n = 4 * 8000;
+      const b = Buffer.alloc(44 + n, 128);
+      b.write('RIFF', 0); b.writeUInt32LE(36 + n, 4); b.write('WAVE', 8); b.write('fmt ', 12); b.writeUInt32LE(16, 16);
+      b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22); b.writeUInt32LE(8000, 24); b.writeUInt32LE(8000, 28);
+      b.writeUInt16LE(1, 32); b.writeUInt16LE(8, 34); b.write('data', 36); b.writeUInt32LE(n, 40);
+      return b;
+    })();
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+    await page.route('https://op3.dev/**', async (r) => { await seen(r); return r.fulfill({ status: 200, contentType: 'audio/wav', body: wav }); });
+    await page.route('https://media.example/**', async (r) => {
+      await seen(r);
+      return r.request().url().includes('missing') ? r.fulfill({ status: 404, body: '' }) : r.fulfill({ status: 200, contentType: 'audio/wav', body: wav });
+    });
+    await page.route('https://art.example/**', async (r) => {
+      await seen(r);
+      return r.request().url().includes('missing') ? r.fulfill({ status: 404, body: '' }) : r.fulfill({ status: 200, contentType: 'image/png', body: png });
+    });
+    await page.route('https://probe.example/**', async (r) => { await seen(r); return r.fulfill({ status: 204, body: '' }); });
+    const audioHosts = () => contacted.filter((c) => /^https:\/\/(op3\.dev|media\.example)\//.test(c.url));
+    const probe = async () => {
+      const before = contacted.length;
+      await page.evaluate(() => fetch('https://probe.example/p', { mode: 'no-cors' }).catch(() => null));
+      await expect.poll(() => contacted.length).toBeGreaterThan(before);
+      return contacted.filter((c) => c.url.startsWith('https://probe.example/')).pop().referer;
+    };
+
+    const entryPath = `${PAGE}/${encodeURIComponent(coord)}`;
+    await page.goto(entryPath);
+    await expect(page.getByRole('heading', { level: 1, name: 'V4V Song' })).toBeVisible();
+    await expect(page.locator('.dict-entry-titlerow .dict-entry-mark')).toBeVisible();
+    const card = page.locator('.dict-items');
+    await expect(card.locator('.dict-items-count')).toHaveText('5 items');
+    const rows = card.locator('.dict-items-row--link');
+    await expect(rows).toHaveCount(5);
+    await expect(rows.nth(0).locator('.dict-items-item-link'), 'two filings of one song are one row').toHaveText('Donde No Llega el Comercio');
+    await expect(rows.nth(0).locator('.dict-v4v-item-artist')).toHaveText('Musica Ancap');
+    await expect(rows.nth(0).locator('.dict-v4v-item-time')).toHaveText('3:39');
+    await expect(rows.nth(0).locator('.dict-items-more')).toContainText('+1 more');
+    await expect(rows.nth(1).locator('.dict-v4v-item-time')).toHaveText('1:02:05');
+    await expect(rows.nth(2).locator('.dict-v4v-art--none'), 'a cover that can\'t load is a music note').toBeVisible();
+    await expect(rows.nth(3).locator('.dict-items-item-link'), 'an item that isn\'t a song is a plain row').toHaveText('Not a song');
+    await expect(rows.nth(3).locator('.dict-v4v-play')).toHaveCount(0);
+    await expect(page.getByText('Cover art is loaded from each song’s host by your browser, and pressing play loads the song from its host.')).toBeVisible();
+    await expect.poll(() => contacted.filter((c) => c.url.startsWith('https://art.example/')).length).toBeGreaterThan(0);
+    expect(audioHosts(), 'no audio host is contacted before play').toEqual([]);
+    expect(contacted.every((c) => c.referer === null), 'the artwork is fetched with no referrer').toBe(true);
+
+    // A row plays in place, telling the device what's playing; starting another pauses it.
+    const play1 = rows.nth(0).locator('.dict-v4v-play');
+    await expect(play1).toHaveAccessibleName('Play Donde No Llega el Comercio by Musica Ancap');
+    await play1.click();
+    await expect(play1).toHaveAccessibleName('Pause Donde No Llega el Comercio');
+    expect(new URL(page.url()).pathname, 'pressing play doesn\'t open the row').toBe(entryPath);
+    await expect.poll(() => [...new Set(audioHosts().map((c) => c.url))]).toEqual([op3(R1, 'a1')]);
+    expect(audioHosts().every((c) => c.referer === null), `no referrer to the audio hosts: ${JSON.stringify(audioHosts())}`).toBe(true);
+    expect(await page.evaluate(() => [navigator.mediaSession.metadata?.title, navigator.mediaSession.metadata?.artist]), 'the device is told what\'s playing')
+      .toEqual(['Donde No Llega el Comercio', 'Musica Ancap']);
+    const play3 = rows.nth(2).locator('.dict-v4v-play');
+    await play3.click();
+    await expect(play3).toHaveAccessibleName('Pause Tercera');
+    await expect(play1, 'one song at a time').toHaveAccessibleName('Play Donde No Llega el Comercio by Musica Ancap');
+    expect(await probe(), 'while a player is shown, the page sends no referrer').toBe(null);
+    const play2 = rows.nth(1).locator('.dict-v4v-play');
+    await play2.click();
+    await expect(play2).toHaveAccessibleName(/^Couldn’t play this song: its host didn’t answer\./);
+    expect(new URL(page.url()).pathname).toBe(entryPath);
+
+    // The song's page: head, player, the release's other song, more by the artist, the link, the Nostr record.
+    await page.getByRole('button', { name: /Search & sort/ }).click();
+    await page.getByPlaceholder('Search items').fill('vinney');
+    await expect(rows, 'a song is found by any of its filers').toHaveCount(3);
+    const heard = audioHosts().length;
+    let asked = itemsAsked.length;
+    await rows.nth(0).locator('.dict-items-item-link').click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Donde No Llega el Comercio' })).toBeVisible();
+    await expect(page.locator('.dict-v4v-artist')).toHaveText('Musica Ancap');
+    await expect(page.getByText('Item 1 in V4V Song')).toBeVisible();
+    await expect(page.locator('.dict-v4v-time')).toHaveText('Duration 3:39');
+    const player = page.locator('audio.dict-v4v-audio');
+    await expect(player).toHaveAttribute('preload', 'none');
+    await expect(player).toHaveAttribute('controls', '');
+    expect(await player.getAttribute('autoplay')).toBe(null);
+    await expect(page.getByText('Playing loads the song from its host.')).toBeVisible();
+    const release = page.getByRole('region', { name: 'From this release' });
+    await expect(release.locator('.dict-items-item-link')).toHaveText(['Segunda']);
+    await expect(page.getByRole('region', { name: 'More by Musica Ancap' }).locator('.dict-items-item-link')).toHaveText(['Tercera']);
+    await expect(page.getByRole('link', { name: 'This release on Podcast Index' })).toHaveAttribute('href', 'https://podcastindex.org/podcast/7769268');
+    await expect(page.locator('.dict-item-filer-name')).toHaveText('Avi');
+    await expect(page.locator('.dict-item-filer').filter({ hasText: 'Also filed by' }).getByRole('link', { name: 'Vinney' })).toHaveAttribute('href', `/user/${B}`);
+    await expect(page.getByText(/\b(pay|sats|boost|zap)\b/i)).toHaveCount(0);
+    expect(audioHosts().length, 'the page\'s player contacts no audio host before play').toBe(heard);
+    expect(itemsAsked.slice(asked), 'the song\'s page asks only for its release and its artist, never the whole list')
+      .toEqual([[`feedGuid:${R1}`, 'artist:Musica Ancap']]);
+    asked = itemsAsked.length;
+
+    // A song whose host doesn't answer: the page keeps everything, says so, and links to the file.
+    await page.setViewportSize({ width: 1100, height: 600 });
+    await release.locator('.dict-items-item-link').click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Segunda' })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.scrollY), 'another song opened from a list starts at its top').toBe(0);
+    await expect(page.getByText('Filed under V4V Song'), 'opened from a list, unnumbered: a number needs every row').toBeVisible();
+    await expect(page.getByText(/^Item \d+ in/)).toHaveCount(0);
+    expect(itemsAsked.length, 'the same release and artist: no new read').toBe(asked);
+    await page.locator('audio.dict-v4v-audio').evaluate((a) => a.play().catch(() => null));
+    await expect(page.getByText('Couldn’t play this song: its host didn’t answer.')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'The song’s file' })).toHaveAttribute('href', 'https://media.example/track/missing.mp3');
+
+    // Opened from a row whose Items read then fails: the row's place stands, and the lists say what failed.
+    await page.locator('.dict-back').click();
+    await expect(rows.first()).toBeVisible();
+    itemsFail = true;
+    await rows.nth(0).locator('.dict-items-item-link').click();
+    await expect(page.getByRole('heading', { level: 1, name: 'Donde No Llega el Comercio' })).toBeVisible();
+    await expect(page.getByText('Couldn’t read the entry’s Items (scan timed out), so this page can’t list the release’s other songs or more by the artist.')).toBeVisible();
+    await expect(page.getByText('Item 1 in V4V Song')).toBeVisible();
+    await expect(page.getByText(/can’t say where the (item|song) stands/)).toHaveCount(0);
+    await expect(page.locator('.dict-v4v-list')).toHaveCount(0);
+    itemsFail = false;
+
+    // A direct visit to a song: its release's and artist's items only; unnumbered, it is "Filed under".
+    asked = itemsAsked.length;
+    await page.goto(`${entryPath}/items/${idOf(4)}`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Tercera' })).toBeVisible();
+    await expect(page.getByText('Filed under V4V Song')).toBeVisible();
+    await expect(page.getByRole('region', { name: 'More by MUSICA ANCAP' }).locator('.dict-items-item-link'))
+      .toHaveText(['Donde No Llega el Comercio', 'Segunda']);
+    expect(itemsAsked.slice(asked), 'never the whole list').toEqual([[`feedGuid:${R2}`, 'artist:MUSICA ANCAP']]);
+    // That read failing: one notice, for what the page can't say and can't list.
+    itemsFail = true;
+    await page.reload();
+    await expect(page.getByRole('heading', { level: 1, name: 'Tercera' })).toBeVisible();
+    await expect(page.getByText('Couldn’t read the entry’s Items (scan timed out), so this page can’t say where the song stands in them, or list the release’s other songs or more by the artist.')).toBeVisible();
+    await expect(page.locator('.dict-notice', { hasText: 'Couldn’t read the entry’s Items' })).toHaveCount(1);
+    itemsFail = false;
+    // An item of this DList that isn't a song keeps the generic page, numbered by the whole read as the table numbers it.
+    asked = itemsAsked.length;
+    await page.goto(`${entryPath}/items/${idOf(5)}`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Not a song' })).toBeVisible();
+    await expect(page.getByText('Item 4 in V4V Song')).toBeVisible();
+    expect(itemsAsked.slice(asked)).toEqual([[]]);
+    // A song with neither a release nor an artist asks for its own url: still never the whole list.
+    asked = itemsAsked.length;
+    await page.goto(`${entryPath}/items/${idOf(6)}`);
+    await expect(page.getByRole('heading', { level: 1, name: 'Bare' })).toBeVisible();
+    await expect(page.getByText('Filed under V4V Song')).toBeVisible();
+    await expect(page.locator('.dict-v4v-list')).toHaveCount(0);
+    await expect(page.getByText(/These lists show/)).toHaveCount(0);
+    expect(itemsAsked.slice(asked), 'its own url, never an empty match').toEqual([['url:https://media.example/track/bare.mp3']]);
+    await expect(page.getByText(/not by anyone .* community trusts/), 'its own trusted filing came back through its url').toHaveCount(0);
+
+    // Once no player is shown, the page's own referrer policy is back: moving within the app, not reloading.
+    await page.locator('.dict-back').click();
+    await expect(page.getByRole('heading', { level: 1, name: 'V4V Song' })).toBeVisible();
+    await expect(page.locator('.dict-v4v-play').first()).toBeVisible();
+    expect(await probe(), 'the entry\'s rows are players too').toBe(null);
+    await page.locator('.dict-back').click();
+    await expect(page).toHaveURL(new RegExp(`${PAGE}$`));
+    await expect(page.locator('.dict-v4v-play')).toHaveCount(0);
+    expect(await probe(), 'with no player shown, the browsers\' default policy').toBe(`${new URL(page.url()).origin}/`);
   });
 
   test('D31: the page and the finder say what they can’t do', async ({ page }) => {

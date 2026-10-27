@@ -1,6 +1,24 @@
 const { test, expect } = require('@playwright/test');
 const X = require('../../test/helpers/assistantManagementFixtures');
-const { PENDING: ATTENTION_PENDING } = require('../../test/helpers/identificationTagsFixtures');
+const { PENDING: ID_TAGS_PENDING, CHECKED_ACTION: IDTAGS } = require('../../test/helpers/identificationTagsFixtures');
+const { PROFILE_PENDING } = require('../../test/helpers/profileChecklistFixtures');
+const O = require('../../test/helpers/outboxRelaysFixtures');
+const TC = require('../../test/helpers/trustedContentFixtures');
+const DM = require('../../test/helpers/dutyMenuFixtures');
+const SM = require('../../test/helpers/selfMapFixtures');
+const CS = require('../../test/helpers/comingSoonFixtures');
+const SC = require('../../test/helpers/scoresFixtures');
+// Every checked action pending — Identification Tags (assistant-identification-tags #1), the profile
+// (assistant-profile-checklist #1), Outbox Relays (assistant-outbox-relays #1), Scores, Lists and Concepts
+// (assistant-trusted-content-status #1), and the Duty Menu (assistant-duty-menu #1) — so every action is marked AND
+// counted: the hub's count, its marks and the pill all say every action (X.ACTIONS.length). A checked action counts in
+// the pill only from a finished answer that found something.
+// Re-aimed by assistant-coming-soon #1 (AC-1, AC-2): the five that say Coming soon are never marked or counted, so the
+// marks and counts here are every action the hub can count (X.COUNTED.length), and the five carry the Coming soon pill.
+const ATTENTION_BASE = O.attentionWith({ idtags: ID_TAGS_PENDING.actions[IDTAGS], outbox: O.OUTBOX.PENDING });
+// Re-aimed by assistant-self-map #1: the Treasure Map card is checked now. SM.withSelfMap adds its answer, pending by default,
+// which marks and counts it as the placeholder was, so the counts below stay as they were.
+const ATTENTION_PENDING = SM.withSelfMap(DM.withDutyMenu(TC.withTrio({ ...ATTENTION_BASE, actions: { ...ATTENTION_BASE.actions, profile: PROFILE_PENDING } })));
 
 /**
  * assistant-management #1: the Assistant Management page, its FAQ and ten placeholder action pages, and the
@@ -112,8 +130,8 @@ async function mock(page, { who = null, authDelayMs = 0, setup = SETUP_DONE } = 
       : { success: true, classification: 'unauthenticated', pubkey: null, assistantPubkey: null }));
   });
   // assistant-identification-tags #1: the pill and the hub now read one more shared answer. Answered PENDING (a tagging
-  // missing, check finished) so that every count this class pins stays ten: a checked action counts only from a finished
-  // answer, and the catch-all's failure would read as nine. tests/brainstorm/assistant-attention.spec.js pins the other answers.
+  // missing, check finished) so that every count this class pins is every action (eleven): a checked action counts only from a finished
+  // answer, and the catch-all's failure would read as nine. Re-aimed by assistant-outbox-relays #1: both checked actions pending. tests/brainstorm/assistant-attention.spec.js pins the other answers.
   await page.route('**/api/assistant/attention**', (r) => r.fulfill(json(ATTENTION_PENDING)));
   await page.route('**/api/setup/status**', (r) => r.fulfill(json(setup)));
   await page.route('**/api/assistant/status**', (r) => r.fulfill(json(editorStatus(who && who.assistantPubkey))));
@@ -182,7 +200,7 @@ test.describe('The Assistant Management page (assistant-management #1)', () => {
   });
 
   /* ───────── B1 — a viewer with an assistant ───────── */
-  test('B1: a viewer with an assistant sees the page — kicker, heading, three sections, ten cards in order — every card marked "Needs attention", and "10 actions need attention" (AC-1, AC-2)', async ({ page }) => {
+  test('B1: a viewer with an assistant sees the page — kicker, heading, three sections, thirteen cards in order — every card marked "Needs attention" but the five that say Coming soon, and "8 actions need attention" (AC-1, AC-2; re-aimed by assistant-outbox-relays #1, assistant-duty-cards #1 and assistant-coming-soon #1)', async ({ page }) => {
     await mock(page, { who: CUSTOMER_USER });
     const main = await open(page, X.HUB);
     await expect(page.getByRole('heading', { name: 'Page not found' }), 'AC-1: /assistant is the hub, not "Page not found"').toHaveCount(0);
@@ -208,12 +226,14 @@ test.describe('The Assistant Management page (assistant-management #1)', () => {
       }
     }
 
-    await expect(main.getByText(X.COPY.needsAttention, { exact: true }), 'AC-2: one visible "Needs attention" mark per card').toHaveCount(10);
+    await expect(main.getByText(X.COPY.needsAttention, { exact: true }), 'AC-2: one visible "Needs attention" mark per card the hub can count').toHaveCount(X.COUNTED.length);
+    await expect(main.getByText(CS.COPY.pill, { exact: true }), 'and a Coming soon pill on each of the five').toHaveCount(CS.CARDS.length);
     for (const a of X.ACTIONS) {
       const link = main.locator(`a[href="${a.path}"]`);
-      expect(squash(await textOf(link)), `a screen reader hears the "${a.title}" card as needing attention`).toBe(`${X.COPY.needsAttentionSrPrefix} ${a.title}`);
+      const prefix = CS.PATHS.includes(a.path) ? squash(CS.COPY.srPrefix) : X.COPY.needsAttentionSrPrefix;
+      expect(squash(await textOf(link)), `a screen reader hears the "${a.title}" card with "${prefix}"`).toBe(`${prefix} ${a.title}`);
     }
-    await expect(main.getByText(X.countText(10), { exact: true }), 'AC-2: the count line').toBeVisible();
+    await expect(main.getByText(X.countText(X.COUNTED.length), { exact: true }), 'AC-2: the count line').toBeVisible();
     const text = await textOf(main);
     expect(text, 'no sign-in line for a signed-in viewer').not.toContain(X.COPY.signedOutLine);
     expect(text, 'no no-assistant line for a viewer who has one').not.toContain(X.COPY.noAssistantLine);
@@ -260,7 +280,7 @@ test.describe('The Assistant Management page (assistant-management #1)', () => {
     }
     expect(rendered, 'precondition: the hub rendered while sign-in was still resolving').toBe(true);
     expect([...seen], 'shown while sign-in was resolving').toEqual([]);
-    await expect(page.locator('main').first().getByText(X.countText(10), { exact: true }), 'once sign-in resolves, the marks and the count arrive').toBeVisible({ timeout: 10000 });
+    await expect(page.locator('main').first().getByText(X.countText(X.COUNTED.length), { exact: true }), 'once sign-in resolves, the marks and the count arrive').toBeVisible({ timeout: 10000 });
   });
 
   /* ───────── B5 — every card is a link ───────── */
@@ -353,16 +373,29 @@ test.describe('The Assistant Management page (assistant-management #1)', () => {
     expect(await faqState(toggle), 'closed again on a fresh load').toBe('closed');
   });
 
-  /* ───────── B8 — the ten placeholder pages ───────── */
+  /* ───────── B8 — the placeholder pages (every action whose page is not built) ───────── */
   for (const a of X.ACTIONS) {
-    test(`B8 ${a.path}: a placeholder page with the title, "Placeholder page.", the description, the alert criteria${a.planningNotes ? ', the planning notes' : ''}${a.editLink ? ', a link to the editor' : ''} and a way back (AC-5)`, async ({ page }) => {
+    // Re-aimed by assistant-coming-soon #1 (AC-3): the five that say Coming soon say "Coming soon." in place of "Placeholder page.".
+    const line = CS.PATHS.includes(a.path) ? CS.COPY.pageLine : X.COPY.placeholder;
+    test(`B8 ${a.path}: a placeholder page with the title, "${line}", the description, the alert criteria${a.planningNotes ? ', the planning notes' : ''}${a.editLink ? ', a link to the editor' : ''} and a way back (AC-5)`, async ({ page }) => {
       // assistant-identification-tags #2 builds this action's page; tests/brainstorm/assistant-identification-tags-page.spec.js pins it.
       if (a.path === '/assistant/identification-tags') test.skip(true, 'no longer a placeholder (assistant-identification-tags #2)');
+      // assistant-profile-checklist #2 builds the profile's page; tests/brainstorm/assistant-profile-checklist-page.spec.js pins it.
+      if (a.path === '/assistant/profile') test.skip(true, 'no longer a placeholder (assistant-profile-checklist #2)');
+      // assistant-outbox-relays #2 builds this action's page; tests/brainstorm/assistant-outbox-relays.spec.js pins it.
+      if (a.path === '/assistant/outbox-relays') test.skip(true, 'no longer a placeholder (assistant-outbox-relays #2)');
+      // assistant-duty-menu #1 builds this action's page; tests/brainstorm/assistant-duty-menu.spec.js pins it.
+      if (a.path === DM.PATH) test.skip(true, 'no longer a placeholder (assistant-duty-menu #1)');
+      // assistant-self-map #1 builds this action's page; tests/brainstorm/assistant-self-map.spec.js pins it.
+      if (a.path === SM.PATH) test.skip(true, 'no longer a placeholder (assistant-self-map #1)');
+      // assistant-scores #1 builds this action's page; tests/brainstorm/assistant-scores.spec.js pins it.
+      if (a.path === SC.PATH) test.skip(true, 'no longer a placeholder (assistant-scores #1)');
       await mock(page, { who: CUSTOMER_USER });
       const main = await open(page, a.path);
       await expect(page.getByRole('heading', { name: 'Page not found' }), `${a.path} is a page`).toHaveCount(0);
       await expect(main.getByRole('heading', { level: 1 }), 'the heading is the action\'s title').toHaveText(a.title);
-      await expect(main.getByText(X.COPY.placeholder, { exact: true }), 'it says it is a placeholder').toBeVisible();
+      await expect(main.getByText(line, { exact: true }), 'it says it is a placeholder, or that it is coming soon').toBeVisible();
+      if (line !== X.COPY.placeholder) await expect(main.getByText(X.COPY.placeholder, { exact: true }), 'not "Placeholder page."').toHaveCount(0);
       expect(squash(await main.innerText()), 'the description').toContain(a.text);
       if (a.link) {
         const link = main.getByRole('link', { name: a.link.text, exact: true });
@@ -380,8 +413,9 @@ test.describe('The Assistant Management page (assistant-management #1)', () => {
       }
       await expect(main.getByRole('link', { name: X.COPY.backToHub, exact: true }), 'the way back').toHaveAttribute('href', X.HUB);
       const toEditor = main.locator(`a[href="${X.EDITOR}"]`);
-      if (a.editLink) await expect(main.getByRole('link', { name: a.editLink.text, exact: true }), 'the profile page links to the editor').toHaveAttribute('href', X.EDITOR);
-      else await expect(toEditor, 'only the profile page links to the editor').toHaveCount(0);
+      // Re-aimed by assistant-trusted-content-status #1: Scores, Lists and Concepts link to the Treasure Map page.
+      if (a.editLink) await expect(main.getByRole('link', { name: a.editLink.text, exact: true }), 'the page\'s one link').toHaveAttribute('href', a.editLink.to);
+      if (!a.editLink || a.editLink.to !== X.EDITOR) await expect(toEditor, 'only the profile page links to the editor').toHaveCount(0);
     });
   }
 
@@ -413,7 +447,7 @@ test.describe('The Assistant Management page (assistant-management #1)', () => {
   });
 
   /* ───────── B11 — direct loads ───────── */
-  test('B11: all twelve addresses load when typed in, and again when refreshed — never "Page not found" (AC-7)', async ({ page }) => {
+  test('B11: all fifteen addresses load when typed in, and again when refreshed — never "Page not found" (AC-7)', async ({ page }) => {
     test.setTimeout(180000);
     await mock(page, { who: CUSTOMER_USER });
     for (const address of [X.HUB, ...X.ACTIONS.map((a) => a.path), X.EDITOR]) {

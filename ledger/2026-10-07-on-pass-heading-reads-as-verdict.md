@@ -1,0 +1,26 @@
+# The review template's "On PASS" heading is read as the verdict, so a CHANGES_REQUESTED review lints as PASS-final
+
+**Id:** 2026-10-07-on-pass-heading-reads-as-verdict
+**Type:** meta
+**Opened:** 2026-10-07 (manage-treasure-map book close, retro; first seen at story 2's review 1)
+**Status:** OPEN
+**Done:** —
+
+`scripts/lib/review-verdict.awk` takes the **last** `PASS` / `CHANGES_REQUESTED` token on a heading or bold line as a
+review's verdict. `engineering-team/templates/review-checklist.md` ends with `## On PASS (same commit)` *after*
+`## Verdict`, so a review written to the template and ending CHANGES_REQUESTED reads as PASS-final, and harness-lint L1
+reports "review is PASS-final but story status is 'Approved'". manage-treasure-map #2's review 1 hit it: its commit
+went lint-red until the not-applicable section was deleted (`80168e3`). Reviewers either delete the section by hand on
+every CHANGES_REQUESTED, or lint lies.
+
+**Fix shape.** Rename the template's heading so it carries no verdict token (for example `## Close-out on a pass`, as
+the my-assistants reviews already did by hand), or move it above `## Verdict`; and add a lint fixture: a template-shaped
+CHANGES_REQUESTED review must read `CR`.
+
+**Third occurrence, 2026-10-09 (book `assistant-outbox-relays`, story 3 review round 2).** The reviewer ended round 2's
+section with an `### On PASS` heading after a CHANGES_REQUESTED verdict; harness-lint L1 reported the story as
+"PASS-final but status 'Approved'" until the heading was renamed (`### Story status and completion (round 2)`).
+
+**Fourth occurrence, 2026-10-11 (book `duty-menus-and-self-maps`, story 2 review round 1, `72d34d23`).** A reviewer agent wrote the review to the template, so `## On PASS (same commit)` followed the CHANGES_REQUESTED verdict. The commit went lint-red (L1, "PASS-final but status 'Approved'") until the heading was renamed `## Close-out on a pass (same commit)` in the next commit.
+
+**Pointer:** `engineering-team/audits/manage-treasure-map/audit.md` § 7.

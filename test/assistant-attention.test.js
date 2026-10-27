@@ -13,6 +13,21 @@
  * 1-two-authored-tags-and-two-parked-taggings.md, its ADR 0001 and plan): each offered definition has its own author,
  * My Agent and My Human are parked, and the answer carries the two offered rows only. L2, L3, U3–U14 and U18 pin it.
  *
+ * Re-aimed 2026-10-09 by assistant-profile-checklist #1 (its story, ADR 0001 and plan): the profile action is checked too
+ * (CHECKED_ACTIONS includes it), so the pill counts one placeholder fewer; the handler also runs the profile check, which
+ * fakes() stubs so these suites stay about Identification Tags. C2 and C3 pin it; test/assistant-profile-check.test.js pins
+ * the profile.
+ *
+ * Re-aimed 2026-10-08 by assistant-trusted-content-status #1 (its story, ADR 0001 and plan): Scores, Lists and Concepts
+ * are checked too, and the handler runs their check, which reads the viewer's Treasure Map; fakes() stubs it so these
+ * suites stay about Identification Tags (and never read a relay U3 says is not read). C2 and C3 already derive the
+ * placeholders from CHECKED_ACTIONS; test/assistant-trusted-content.test.js pins the three.
+ *
+ * Re-aimed 2026-10-11 by assistant-duty-menu #1 (its story, ADR 0001 and plan): the handler runs a fifth check, the Duty
+ * Menu's, which reads the viewer's Map, two relay lists and outside relays; fakes() stubs it (checkDutyMenu) so U3's and
+ * the other tests' scan and read counts stay about Identification Tags. C2 and C3 derive the placeholders from
+ * CHECKED_ACTIONS, so they need no change; test/assistant-duty-menu-check.test.js pins the Duty Menu.
+ *
  * Classes:
  *   L — the shared library src/lib/identification-tags (pure CommonJS): the list (offered and parked), each
  *       definition's author and address, the d-tag composer, the polarity reader.                                            [AC-1, AC-3]
@@ -32,12 +47,21 @@
  * Everything except R FAILS against the current code: src/lib/identification-tags, src/api/assistant/attention.js,
  * ui/src/utils/assistantAttention.js and ui/src/context/AssistantAttentionContext.jsx do not exist; assistantAttention
  * takes one argument and answers no alertCount; the picker has no assistantPhase; /api/assistant/attention answers 404.
+ *
+ * Re-aimed 2026-10-13 by assistant-self-map #4 (ADR assistant-self-map/0003 Amendment 1): U16 drops
+ * actions['treasure-map'].published.event, the found kind 10040 itself and the one field the answer may carry a pubkey
+ * in, before it checks that the answer carries neither the viewer's nor the assistant's pubkey.
  */
 
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const X = require('./helpers/identificationTagsFixtures');
+const DUTY_MENU_ANSWER = require('./helpers/dutyMenuFixtures').ANSWERS.DONE;
+// Re-aimed by assistant-self-map #1 (ADR 0001 sub-decision 8): the self-Map check joins the answer; stubbed here, as the
+// Duty Menu's is, so this suite's reads stay its own. test/assistant-self-map-check.test.js drives the real one.
+const SELF_MAP_ANSWER = require('./helpers/selfMapFixtures').ANSWERS.DONE;
+const CS = require('./helpers/comingSoonFixtures');
 
 const REPO = path.resolve(__dirname, '..');
 const LIB_DIR = path.join(REPO, 'src/lib/identification-tags');
@@ -219,6 +243,17 @@ function fakes(opts = {}) {
       return (opts.configured || [DCOSL]).slice();
     },
     getConfigFromFile: (key, dflt) => (opts.config && Object.prototype.hasOwnProperty.call(opts.config, key) ? opts.config[key] : dflt),
+    // The profile check (assistant-profile-checklist ADR 0001), stubbed: this suite is about Identification Tags.
+    checkProfile: async () => ({ finished: true, done: true, pending: false, items: [] }),
+    // assistant-outbox-relays ADR 0001 § Implementation notes 2: the outbox check is injected, so these identification-tags
+    // tests never see its scan or its relay reads (test/assistant-outbox-check.test.js drives the real one).
+    checkOutboxRelays: async () => ({ finished: true, done: true, pending: false, reason: null, source: 'local', createdAt: 1, outbox: ['wss://fixture.example'], inboxOnlyCount: 0, suggestions: [] }),
+    // Scores, Lists and Concepts (assistant-trusted-content-status ADR 0001), stubbed for the same reason.
+    checkTrustedContent: async () => ({}),
+    // The duty-menu check (assistant-duty-menu ADR 0001 sub-decision 7), stubbed whether or not it has landed: it reads
+    // the viewer's Map, two relay lists and outside relays, which this suite's scan and read counts must not see.
+    checkDutyMenu: async () => DUTY_MENU_ANSWER,
+    checkSelfMap: async () => SELF_MAP_ANSWER,
   };
   return { deps, calls };
 }
@@ -547,9 +582,13 @@ test('U15: no query parameter changes the answer or the relays asked — the ans
   assert(!asked.includes(OTHER) && !asked.includes('evil'), `a query parameter reached a lookup: ${asked}`);
 });
 
-test('U16: the answer carries no viewer or assistant pubkey (AC-2)', async () => {
+test('U16: the answer carries no viewer or assistant pubkey (AC-2) — the raw Treasure Map, actions[\'treasure-map\'].published.event, aside: the one field that may (assistant-self-map ADR 0003 Amendment 1)', async () => {
   const { body } = await answer({ local: [...allOffered(), ...offeredDefinitions()] });
-  const s = show(body);
+  // The one exception: the found kind 10040 itself, whole, which names its author (ADR 0003 Amendment 1).
+  const rest = JSON.parse(JSON.stringify(body || null));
+  const tm = rest && rest.actions && rest.actions['treasure-map'];
+  if (tm && tm.published && typeof tm.published === 'object') delete tm.published.event;
+  const s = show(rest);
   assert(!s.includes(VIEWER) && !s.includes(ASSISTANT), `the answer must carry neither the viewer\'s nor the assistant\'s pubkey: ${s}`);
 });
 
@@ -587,11 +626,11 @@ test('C1: summarizeAttention — a signed-in answer is answered with its actions
   }
 });
 
-test('C2: CHECKED_ACTIONS names exactly the identification-tags action, and every checked key is a real action (ADR 0001 sub-decision 6)', async () => {
+test('C2: CHECKED_ACTIONS includes the identification-tags action, and every checked key is a real action (ADR 0001 sub-decision 6; the profile and Outbox Relays joined it with assistant-profile-checklist #1 and assistant-outbox-relays #1)', async () => {
   const mod = await actionsModule();
-  assert(sameJson(mod.CHECKED_ACTIONS, [ACTION]), `CHECKED_ACTIONS: want ${show([ACTION])}, got ${show(mod.CHECKED_ACTIONS)}`);
+  assert(Array.isArray(mod.CHECKED_ACTIONS) && mod.CHECKED_ACTIONS.includes(ACTION), `CHECKED_ACTIONS must include ${show(ACTION)}, got ${show(mod.CHECKED_ACTIONS)}`);
   const keys = mod.ASSISTANT_ACTIONS.map((a) => a.key);
-  assert(mod.CHECKED_ACTIONS.every((k) => keys.includes(k)), 'every checked key is one of the ten actions');
+  assert(mod.CHECKED_ACTIONS.every((k) => keys.includes(k)), 'every checked key is one of the actions');
 });
 
 test('C3: the two readings — with no answer a checked action is marked but not counted; done unmarks and uncounts it; pending marks and counts; unfinished marks only; placeholders always both (AC-5)', async () => {
@@ -599,15 +638,20 @@ test('C3: the two readings — with no answer a checked action is marked but not
   const attention = mod.assistantAttention;
   const summarize = (await uiUtil()).summarizeAttention;
   const user = { pubkey: 'cc'.repeat(32), classification: 'customer', assistantPubkey: 'c1'.repeat(32) };
-  const all = mod.ASSISTANT_ACTIONS.map((a) => a.key);
+  // Re-aimed by assistant-coming-soon #1 (AC-2): the five that say Coming soon are never marked or counted, so `all` is
+  // every other action, and the placeholders below are the ones still counted (Your Assistant's Treasure Map).
+  const all = mod.ASSISTANT_ACTIONS.map((a) => a.key).filter((k) => !CS.KEYS.includes(k));
   const nine = all.filter((k) => k !== ACTION);
+  // The placeholders: every action without a check (re-aimed by assistant-profile-checklist #1, which checks the profile).
+  // These answers carry no profile action, so the profile is marked and not counted, like any checked action unanswered.
+  const placeholders = all.filter((k) => !mod.CHECKED_ACTIONS.includes(k)).length;
   const cases = [
-    ['no answer (undefined)', undefined, all, 9],
-    ['not answered (failed)', summarize(null), all, 9],
-    ['checking (phase only)', { phase: 'checking', answered: false, actions: {} }, all, 9],
-    ['done', summarize(X.DONE), nine, 9],
-    ['pending', summarize(X.PENDING), all, 10],
-    ['unfinished', summarize(X.UNFINISHED), all, 9],
+    ['no answer (undefined)', undefined, all, placeholders],
+    ['not answered (failed)', summarize(null), all, placeholders],
+    ['checking (phase only)', { phase: 'checking', answered: false, actions: {} }, all, placeholders],
+    ['done', summarize(X.DONE), nine, placeholders],
+    ['pending', summarize(X.PENDING), all, placeholders + 1],
+    ['unfinished', summarize(X.UNFINISHED), all, placeholders],
   ];
   const wrong = [];
   for (const [label, att, wantMarked, wantAlert] of cases) {
@@ -748,7 +792,8 @@ test('R1: the publisher still composes the d-tag the library and the server look
 
 test('R2: assistantAttention(user) with no answer still marks every action for a viewer with an assistant and none for anyone else (assistant-management #1 D7 holds)', async () => {
   const mod = await actionsModule();
-  const all = mod.ASSISTANT_ACTIONS.map((a) => a.key);
+  // Re-aimed by assistant-coming-soon #1 (AC-2): every action but the five that say Coming soon.
+  const all = mod.ASSISTANT_ACTIONS.map((a) => a.key).filter((k) => !CS.KEYS.includes(k));
   const withOne = mod.assistantAttention({ pubkey: 'cc'.repeat(32), classification: 'customer', assistantPubkey: 'c1'.repeat(32) });
   assert(sameJson({ hasAssistant: withOne.hasAssistant, needsAttention: withOne.needsAttention, count: withOne.count }, { hasAssistant: true, needsAttention: all, count: all.length }), `got ${show(withOne)}`);
   const without = mod.assistantAttention(null);

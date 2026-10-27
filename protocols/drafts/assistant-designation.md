@@ -1,7 +1,7 @@
 > **Repo metadata — not part of the spec text.**
 > **Status:** 📝 pre-NIP
 > **Canonical:** not yet published
-> **Sources:** `docs/B_TAG_AFFILIATION_DESIGN_HANDOFF.md` (D7, D8); `community-reference` ADRs 0029 (the `b` type registry — the inherit-typed delegation path), 0030 (TA-authored header seeding), 0031 (this spec); `curated-dlist-update` ADR 0001 (the curated header's `pointer` link and curation copies). Companion to upstream **NIP-85** (Trusted Assertions, kind 10040 — Vitor Pamplona), which this spec does not modify.
+> **Sources:** `docs/B_TAG_AFFILIATION_DESIGN_HANDOFF.md` (D7, D8); `community-reference` ADRs 0029 (the `b` type registry — the inherit-typed delegation path), 0030 (TA-authored header seeding), 0031 (this spec); `curated-dlist-update` ADR 0001 (the curated header's `pointer` link and curation copies); `duty-menus-and-self-maps` ADR 0003 with Amendment A1 (§ Authorship: a TA's own self-Map; § Relationship to NIP-85: a triple naming its own author); `duty-menus-and-self-maps` ADR 0004 (§ Relationship to NIP-85 and § Per-DList curation entries: which headers the blanket entry covers, a d-tag that is never empty, and the keys `39999:dlist-header` and `39999:duty-menu`, which name no header, as Treasure Maps §§ 4.5 and 4.6 say); `duty-menus-and-self-maps` ADR 0005 (§ Curation copies: what an assistant does with its copies when curation stops, which § Per-DList curation entries' Revocation follows). Companion to upstream **NIP-85** (Trusted Assertions, kind 10040 — Vitor Pamplona), which this spec does not modify.
 
 ---
 
@@ -29,13 +29,13 @@ NIP-85's kind `10040` is a **user-signed, replaceable** event (one per author pu
 ["<kind>:<assertionType>", "<providerPubkey>", "<relayURL>"]
 ```
 
-Each triple delegates: "for events of `<kind>` and assertion-type `<assertionType>`, the provider I designate is `<providerPubkey>`, found at `<relayURL>`." The deployed Tapestry use carries `30382:*` rows (kind-30382 Trust Assertions — rank, followers, and so on). This spec adds a row in the `39998` (DList-header) kind:
+Each triple delegates: "for events of `<kind>` and assertion-type `<assertionType>`, the provider I designate is `<providerPubkey>`, found at `<relayURL>`." A triple whose provider is the event's own author is the exception: it designates no one (Authorship, below; [Treasure Maps](./treasure-maps.md) § 9). The deployed Tapestry use carries `30382:*` rows (kind-30382 Trust Assertions — rank, followers, and so on). This spec adds a row in the `39998` (DList-header) kind:
 
 ```
 ["39998:dlist-header", "<TA-pubkey>", "<relayURL>"]
 ```
 
-— "for my kind-39998 DList headers, the authoring provider is `<TA-pubkey>`, fetchable at `<relayURL>`." The provider pubkey (element 2) **is** the user's Tapestry Assistant pubkey; reading it is how an independent client discovers a user's TA from their npub alone, with no out-of-band deployment knowledge.
+— "for my DList headers, the authoring provider is `<TA-pubkey>`, fetchable at `<relayURL>`." Which headers that covers, those declared as kind-39999 items included, is for [Treasure Maps](./treasure-maps.md) § 4.5 to say. The provider pubkey (element 2) **is** the user's Tapestry Assistant pubkey; reading it is how an independent client discovers a user's TA from their npub alone, with no out-of-band deployment knowledge.
 
 A reader who understands only NIP-85 (or only the deployed `30382:*` rows) ignores a `39998:*` or `39999:*` row; it breaks nothing.
 
@@ -49,7 +49,7 @@ A reader who understands only NIP-85 (or only the deployed `30382:*` rows) ignor
 
 - **Blanket scope.** One entry designates the TA for *all* the user's concept/DList-header authorship; it names no individual list. Per-list empowerment is a separate entry in the same families — see [Per-DList curation entries](#per-dlist-curation-entries) below — and the two are kept distinguishable by the reserved word `dlist-header`, which no per-DList entry may use as its d-tag.
 - **Revocation and replacement.** The entry is revoked or re-pointed by republishing the (replaceable, user-signed) kind-10040 event — the same revocability posture as the `b` tag. There is **no expiry field**.
-- **Authorship.** The 10040 event is signed by the **user**, so the designation is a user-authorized delegation: the user attests "this pubkey authors my headers on my behalf." A TA cannot designate itself.
+- **Authorship.** The 10040 event is signed by the **user**, so the designation is a user-authorized delegation: the user attests "this pubkey authors my headers on my behalf." A TA cannot designate itself on anyone else's behalf. Its own kind 10040 may name itself, as a self-Map ([Treasure Maps](./treasure-maps.md) § 9.2); such entries report what it publishes and designate no one.
 
 ## Per-DList curation entries
 
@@ -61,7 +61,7 @@ A second entry family lets the Map's owner empower their Tapestry Assistant to *
 | provider (element 2) | the owner's **Tapestry Assistant pubkey** — the header's author |
 | relay (element 3) | a relay where the assistant-authored header and its items can be fetched |
 
-**Reconstruction.** The curated header's address is `<kind>:<assistant pubkey>:<d-tag>` — the kind from the key, the pubkey from element 2, the d-tag from the key. Readers split the assertion key at the **first** colon only; everything after it is the d-tag, which may itself contain colons.
+**Reconstruction.** The curated header's address is `<kind>:<assistant pubkey>:<d-tag>` — the kind from the key, the pubkey from element 2, the d-tag from the key. Readers split the assertion key at the **first** colon only; everything after it is the d-tag, which may itself contain colons and is never empty: a kind and a colon alone (`39998:`, `39999:`) is not a key, and `39999:dlist-header` and `39999:duty-menu` name no header ([Treasure Maps](./treasure-maps.md) §§ 4.5 and 4.6).
 
 **Meaning.** The owner empowers the named assistant to author and maintain that header on their behalf; the header is the owner's curation of the community DList its `b` tag names. **Authorization is read from the Map; composition is read from the header.**
 
@@ -81,7 +81,7 @@ A writer MUST publish the header before the Map entry that addresses it, so the 
 
 **Relay hint.** A Tapestry instance writing the entry fills element 3 from `settings.aRelays.aDListRelays[0]` (runtime-resolved via `/api/relays`; default `wss://dcosl.brainstorm.world`), the empty string when unconfigured — the three-element shape is preserved.
 
-**Revocation.** Republishing the Map without the entry revokes the empowerment. The header and its `b` remain on relays; there is no expiry field.
+**Revocation.** Republishing the Map without the entry revokes the empowerment. The header and its `b` remain on relays, and so do the assistant's curation copies ([Curation copies](#curation-copies), When curation stops); there is no expiry field.
 
 **Precedence.** For kind-39998 headers the dual-author precedence rule below is unchanged: a personally-signed `39998:<owner>:<d-tag>` governs over the assistant's; the per-DList entry names which assistant header stands in when the owner has none. For a 39999-declared header the entry names the assistant's header directly — no lookup is needed to find it — and personal-versus-assistant precedence is **not yet defined** (open until the Decentralized Lists NIP settles 39999-declared headers; `dlist-curation` ADR 0003).
 
@@ -106,6 +106,8 @@ An empowered assistant curates by **copying**: it files its own copies of the co
 **Pointing back.** A copy of a kind-`39999` original carries `["q", "39999:<author>:<d>", "<relay>"]` — the original's address, which survives its author's edits. Every copy carries `["q", "<id of the version copied>", "<relay>", "<author>"]` — the exact version it copied, in the [NIP-18](https://github.com/nostr-protocol/nips/blob/master/18.md) `q` form. The original's author is named in that fourth element, never by an added `p` tag: in a DList item, a `p` names an item. An original is **already copied** into a curated list when an item filed under that list's header by the header's author carries a `q` whose value is the original's address (kind-`39999` originals) or its event id (other kinds). A reader merging items across related lists — discovery walks, [Stamping](./stamping.md)'s exhaustive query strategy — treats a copy and its original as one item. *(Non-normative: because `q` is relay-indexed, "which curated lists hold a copy of this item" is a single `#q` query.)*
 
 **Removal.** A copy is removed by a [NIP-09](https://github.com/nostr-protocol/nips/blob/master/09.md) deletion request from its assistant, naming the copy by address, by event id and by kind: `["a", "39999:<assistant>:<copy d>"]`, `["e", "<copy event id>"]`, `["k", "39999"]`. The original becomes a candidate again. No reason for the removal is recorded anywhere; whether the original is copied again is decided afresh.
+
+**When curation stops.** An assistant stops curating a list when it stops keeping the list's copies up to date, whatever the reason: the Map entry that empowers it was removed (Revocation, above), its service ended, its key was retired, or it can no longer publish. Its copies then stay on relays, as the header and its `b` do: it sends no deletion request for them, and it copies or deletes nothing more for that list until it curates the list again, which it may do only while a Map entry empowers it (above). Deleting the copies it no longer accepts (Removal) is the curation method's work while the assistant curates, never a step of stopping. An assistant that keeps curating has not stopped, even if it removes its own report that it curates the list (a self-entry, [Treasure Maps](./treasure-maps.md) § 9.2).
 
 **When the original changes.** When a kind-`39999` original is **edited**, the copy is unchanged; its assistant may refresh it at the same address — the copy's `d` derives from the original's address, which an edit keeps — re-copying the carried tags and `content` and replacing the version `q`. An original of any other kind is referenced by its event id, so an edited version is a new event and, to the curation method, a new original. When the original is **downvoted or disputed**, the curation method decides again. When the original **cannot be found**, the copy stays.
 
@@ -143,6 +145,8 @@ When the curation method no longer accepts it, her assistant deletes the copy:
   "content": ""
 }
 ```
+
+If instead, while Fido's copy stands, Alice republishes her Map without `["39998:dogs", …]`, curation stops: the header, its `b` and every copy, Fido's among them, stay on relays, no deletion request is sent for them, and her assistant copies and deletes nothing more for the list.
 
 ## Dual-author lookup and precedence
 

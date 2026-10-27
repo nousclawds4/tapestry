@@ -71,5 +71,25 @@ The fix shape holds, and it covers endpoint paths moved into a helper as well as
 - **The lesson:** function signatures and call shapes are literals too. Grep `test/` for a helper's
   name before changing its signature or its internal routing.
 
+
+**And again, 2026-10-11 (`assistant-duty-cards` #1).** The ADR's re-aim list and the test plan both came from a grep of
+`test/` for literal action counts. Two browser specs that pinned the hub by value were missed, and the first green
+browser run found them at Implementation:
+- `tests/brainstorm/assistant-outbox-relays.spec.js` B1: the persona section has exactly 3 cards;
+- `tests/brainstorm/assistant-attention.spec.js` B1–B5: the hub's and the pill's counts as literals (10, 11, 9, 5).
+
+Both went back to Test Design as `test:` commits, recorded in the test plan's § Verification. **The lesson again:**
+the re-aim grep must cover `tests/brainstorm/` as well as `test/`, and look for counts by value (`toHaveCount(3)`,
+`marks: 10`), not only for the fixture's names. The attention spec still pins its counts as literals, so it will need
+the same edit for every new hub card; deriving them from the fixture would end that.
+
+**Recurred 2026-10-12 (`assistant-coming-soon` #1, J3; book-close retro §7 #6).** Gate A's re-aim list came from a
+Node-only dry run: apply the rule change, run the suites, revert. It named the 10 Node re-aims exactly but missed two
+browser tests that assert the old behaviour by value. `assistant-trusted-content.spec.js` TC1 strips only the
+screen-reader prefixes it knows, and `assistant-shared-categories.spec.js` SC2 took its amber reference from Bounties'
+Needs attention pill. J3's browser run found both. `assistant-attention.spec.js` B1–B5's literal counts were moved by
+hand again (`assistant-duty-cards` audit §6). Technique: when a change alters rendered text or marks, run the
+browser specs in the dry run too.
+
 **Pointer:** `engineering-team/stories/done/assistant-profile/4-my-assistant-page.test-plan.md`, the opening
 "Re-aims" section (and the story 3 test plan's, `3-one-default-assistant-profile.test-plan.md:43-47`).

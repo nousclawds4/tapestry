@@ -8,6 +8,13 @@ import { usePov } from '../../context/PovContext';
 import { classifyBValue } from '../../utils/bDisposition';
 import { conceptCurator } from '../../utils/treasureMap';
 import DictIcon from './DictIcon';
+import { GithubItemCell, GithubMark } from '../dictionary/GithubAccount';
+import { githubRows, isGithubAccounts } from '../dictionary/github';
+import { MusicNote, V4vItemCell } from '../dictionary/V4vSong';
+import { isV4vSongs, v4vRows } from '../dictionary/v4v';
+import ResyncPanel from './ResyncPanel';
+import { scan } from './sharedHeader';
+import { wiredTarget } from '@tapestry/concept-header-copy';
 import {
   CONCEPTS_DICTIONARY_PATH, controlPanelItemPath, coordParts, displayName, itemsPovLine, overrideBadge, safeDecode,
   useConceptDictionary, useConceptItems, useDictionaryPerson,
@@ -49,12 +56,8 @@ const itemsFaqAnswer = (signedIn) => (signedIn
   ? 'Your trusted, extended community. Anyone can file an item under this concept, but this list only shows items filed by people your community trusts: those ranked above your verified cutoff, from your point of view. Items you or your Assistant filed always show. The list is read fresh each time you open this page. Coming in a later version: the more trusted people file the same item, the more firmly it belongs, and you will be able to add or exclude items yourself, with your choice always winning.'
   : 'The owner’s trusted, extended community. Anyone can file an item under this concept, but this list only shows items filed by people the community trusts: those ranked above the verified cutoff, from the point of view in use. Items the owner or the owner’s Assistant filed always show. The list is read fresh each time this page opens. Coming in a later version: the more trusted people file the same item, the more firmly it belongs, and the Dictionary’s owner will be able to add or exclude items by hand, with their choice always winning.');
 
-export async function scan(filter) {
-  const resp = await fetch(`/api/strfry/scan?filter=${encodeURIComponent(JSON.stringify(filter))}`);
-  const json = await resp.json();
-  if (!resp.ok || json.success === false) throw new Error(json.error || `HTTP ${resp.status}`);
-  return json.events || json.data || [];
-}
+// This instance's relay: the shared read (./sharedHeader.js), re-exported for the pages that take it from here.
+export { scan };
 
 const tagValue = (ev, name, idx = 1) => {
   const t = (ev?.tags || []).find((x) => x[0] === name);
@@ -64,10 +67,13 @@ const tagValue = (ev, name, idx = 1) => {
 /** The newest event at the coordinate (the HeaderEvent page's read). A null coord reads nothing. */
 export function useHeaderEvent(coord) {
   const [state, setState] = useState({ event: null, error: null, done: false });
+  const [version, setVersion] = useState(0);
   useEffect(() => {
     if (!coord) { setState({ event: null, error: null, done: true }); return undefined; }
     let cancelled = false;
-    setState({ event: null, error: null, done: false });
+    // A reload of the same address keeps the version shown until the new one arrives, so nothing that
+    // depends on it blinks out; another address starts empty.
+    setState((st) => ({ event: version > 0 && st.coord === coord ? st.event : null, error: null, done: false, coord }));
     const { kind, pubkey, d } = coordParts(coord);
     (async () => {
       try {
@@ -76,14 +82,14 @@ export function useHeaderEvent(coord) {
         }
         const events = await scan({ kinds: [Number(kind)], authors: [pubkey], '#d': [d] });
         const newest = events.reduce((a, b) => (!a || b.created_at > a.created_at ? b : a), null);
-        if (!cancelled) setState({ event: newest, error: newest ? null : 'No event found at this coordinate.', done: true });
+        if (!cancelled) setState({ event: newest, error: newest ? null : 'No event found at this coordinate.', done: true, coord });
       } catch (err) {
-        if (!cancelled) setState({ event: null, error: err.message, done: true });
+        if (!cancelled) setState({ event: null, error: err.message, done: true, coord });
       }
     })();
     return () => { cancelled = true; };
-  }, [coord]);
-  return state;
+  }, [coord, version]);
+  return { ...state, reload: () => setVersion((v) => v + 1) };
 }
 
 /** One b value, said plainly. */
@@ -148,7 +154,7 @@ export default function DictionaryConceptEntry() {
  */
 export function ConceptEntryBody({
   listHref = CONCEPTS_DICTIONARY_PATH, listLabel = 'Concepts', profileBase = '/tapestry/users', itemHref = controlPanelItemPath,
-  editHref = null,
+  editHref = null, resync = false, dlistViews = false,
 }) {
   const { coord: rawCoord } = useParams();
   const coord = safeDecode(rawCoord);
@@ -156,16 +162,18 @@ export function ConceptEntryBody({
   const navigate = useNavigate();
   // A notice arrives once: keep it for this visit, and take it out of the history entry so a reload or
   // a Back to this entry doesn't say it again.
-  const [notice] = useState(() => (typeof location.state?.notice === 'string' ? location.state.notice : null));
+  const [notice, setNotice] = useState(() => (typeof location.state?.notice === 'string' ? location.state.notice : null));
   useEffect(() => {
     if (typeof location.state?.notice !== 'string') return;
     const { notice: _said, ...rest } = location.state;
     navigate(`${location.pathname}${location.search}`, { replace: true, state: Object.keys(rest).length ? rest : null });
   }, [location, navigate]);
-  const passed = location.state?.entry?.coord === coord ? location.state : null;
+  // After a Re-Sync the row passed from the list is out of date: read the Dictionary instead.
+  const [fresh, setFresh] = useState(false);
+  const passed = !fresh && location.state?.entry?.coord === coord ? location.state : null;
   const { povParams } = usePov();
   const person = useDictionaryPerson();
-  const { data, error } = useConceptDictionary(person, povParams, { enabled: !passed });
+  const { data, error, reload: reloadDictionary } = useConceptDictionary(person, povParams, { enabled: !passed });
 
   const entry = passed ? passed.entry : (data?.entries || []).find((e) => e.coord === coord) || null;
   const metric = passed ? passed.metric : data?.metric;
@@ -178,6 +186,12 @@ export function ConceptEntryBody({
   const shared = useHeaderEvent(sharedCoord && !sharedIsSelf ? sharedCoord : null);
   const sharedEvent = sharedIsSelf ? header.event : shared.event;
   const items = useConceptItems({ coord, shared: sharedCoord, person, povParams, enabled: settled });
+  // A DList with a look of its own (`dlistViews`, /dictionary only), recognised by its shared concept: the
+  // GitHub Accounts DList lists one row per account (githubRows), with its avatar and login; the V4V Songs
+  // DList, one row per song (v4vRows), with its artwork, a play button, its artist and its duration.
+  const headerB = (header.event?.tags || []).filter((t) => t && t[0] === 'b' && typeof t[1] === 'string').map((t) => t[1]);
+  const githubList = dlistViews && isGithubAccounts([coord, sharedCoord, ...(entry?.targets || []), ...headerB]);
+  const v4vList = dlistViews && isV4vSongs([coord, sharedCoord, ...(entry?.targets || []), ...headerB]);
   // Strict: a Map no relay could be asked for is unreadable, never "none" (my-assistants ADR 0003 Amendment 1).
   const map = useTreasureMap(person.loading ? null : person.account, { strict: true });
 
@@ -196,8 +210,10 @@ export function ConceptEntryBody({
   const [faqShown, setFaqShown] = useState(false);
   const [faqOpen, setFaqOpen] = useState(false);
 
-  const all = useMemo(() => (items.data?.items || []).map((it, i) => ({ ...it, n: i + 1 })), [items.data]);
-  const filers = useMemo(() => [...new Set(all.map((it) => it.author))], [all]);
+  const all = useMemo(() => (githubList ? githubRows(items.data?.items)
+    : v4vList ? v4vRows(items.data?.items)
+      : (items.data?.items || []).map((it, i) => ({ ...it, n: i + 1 }))), [items.data, githubList, v4vList]);
+  const filers = useMemo(() => [...new Set(all.flatMap((it) => it.filers || [it.author]))], [all]);
 
   const profiles = useProfiles([...new Set([author, sharedAuthor, curator?.pubkey, ...filers].filter(Boolean))]);
   const whose = person.signedIn ? 'your' : 'the owner’s';
@@ -215,11 +231,18 @@ export function ConceptEntryBody({
     return p && typeof p === 'object' && typeof p.nip05 === 'string' && p.nip05 ? p.nip05 : null;
   };
 
-  // The keyword matches the item's name and who filed it, as the design's search does.
+  // The keyword matches the item's name and who filed it, as the design's search does; an account, its
+  // login, the filer's description and every filer; a song, its title, its artist and every filer. A→Z
+  // sorts accounts by login, songs by title.
   const needle = q.trim().toLowerCase();
-  let shown = needle ? all.filter((it) => `${it.name} ${nameOf(it.author)}`.toLowerCase().includes(needle)) : all;
+  const label = (it) => (githubList && it.login) || (v4vList && it.song?.title) || it.name;
+  const haystack = (it) => (githubList
+    ? `${label(it)} ${it.description || ''} ${(it.filers || [it.author]).map(nameOf).join(' ')}`
+    : v4vList && it.song ? `${label(it)} ${it.song.artist || ''} ${(it.filers || [it.author]).map(nameOf).join(' ')}`
+      : `${it.name} ${nameOf(it.author)}`);
+  let shown = needle ? all.filter((it) => haystack(it).toLowerCase().includes(needle)) : all;
   if (sort !== 'none') {
-    shown = [...shown].sort((a, b) => (sort === 'az' ? 1 : -1) * a.name.localeCompare(b.name, undefined, { numeric: true }));
+    shown = [...shown].sort((a, b) => (sort === 'az' ? 1 : -1) * label(a).localeCompare(label(b), undefined, { numeric: true }));
   }
   const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
   const pg = Math.min(pageNo, pages - 1);
@@ -245,6 +268,19 @@ export function ConceptEntryBody({
 
   // Edit: only a signed-in reader, only on a header their own Assistant wrote (it signs the new version).
   const canEdit = Boolean(editHref && person.signedIn && author && author === person.assistant);
+  // Re-Sync: the same, on a header wired to another one (there is a shared concept to rebuild it from).
+  const canResync = Boolean(resync && canEdit && ev && ev.pubkey === author && wiredTarget(ev));
+  const [resyncOpen, setResyncOpen] = useState(false);
+  const [resyncNote, setResyncNote] = useState(null);
+  const closeResync = () => { setResyncOpen(false); setResyncNote(null); };
+  const resyncStale = (message) => { setResyncNote(message); header.reload(); };
+  const resynced = (message) => {
+    closeResync();
+    setNotice(message);
+    setFresh(true);
+    header.reload();
+    reloadDictionary();
+  };
 
   const curatorWhy = !curator ? null
     : curator.why === 'assigned' ? `Assigned to this Concept on ${whose} Treasure Map`
@@ -271,6 +307,8 @@ export function ConceptEntryBody({
       {/* What happened just before arriving here (Create New Concept's broadcast outcome), said once. */}
       {notice && <p className="dict-notice dict-notice--ok" role="status">{notice}</p>}
       <div className="dict-entry-titlerow">
+        {githubList && <span className="dict-entry-mark" aria-hidden="true"><GithubMark size={30} /></span>}
+        {v4vList && <span className="dict-entry-mark" aria-hidden="true"><MusicNote size={30} /></span>}
         <h1 className="dict-entry-title">{singular}</h1>
         {canEdit && (
           <Link
@@ -281,9 +319,25 @@ export function ConceptEntryBody({
             <DictIcon name="edit" /> Edit
           </Link>
         )}
+        {canResync && (
+          <button
+            type="button" className="dict-pill-btn dict-pill-btn--quiet dict-entry-edit" aria-expanded={resyncOpen}
+            onClick={() => (resyncOpen ? closeResync() : setResyncOpen(true))}
+            title="Rebuild this concept’s header from the shared concept it is wired to"
+          >
+            <DictIcon name="sync" /> Re-Sync
+          </button>
+        )}
       </div>
       <p className="dict-entry-sub text-muted">{plural ? `Plural: ${plural}` : 'No plural name'}</p>
       {description && <p className="dict-lede">{description}</p>}
+      {/* Re-Sync's warning and summary of changes, under the concept it would change. */}
+      {canResync && resyncOpen && (
+        <ResyncPanel
+          key={ev.id} coord={coord} header={ev} assistant={person.assistant} note={resyncNote}
+          onCancel={closeResync} onDone={resynced} onStale={resyncStale}
+        />
+      )}
 
       {settled && !entry && (
         <p className="dict-notice">
@@ -349,16 +403,27 @@ export function ConceptEntryBody({
                 key={it.address || it.id} className="dict-items-row dict-items-row--link" role="row"
                 onClick={(e) => {
                   // The row is a convenience for the mouse; the name is the link. A modified click (new tab),
-                  // a click on a link, or the end of a text selection is left to the browser.
-                  if (e.target.closest('a') || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                  // a click on a link, or the end of a text selection is left to the browser, and a button
+                  // in the row (a song's play) does its own job.
+                  if (e.target.closest('a, button, audio') || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                   if (window.getSelection && String(window.getSelection()).length > 0) return;
                   navigate(to, { state });
                 }}
               >
                 <span className="dict-items-n" role="cell">{it.n}</span>
-                <span className="dict-items-item" role="cell"><Link to={to} state={state} className="dict-items-item-link">{it.name}</Link></span>
+                <span className="dict-items-item" role="cell">
+                  {githubList && it.login ? <GithubItemCell row={it} to={to} state={state} />
+                    : v4vList && it.song ? <V4vItemCell row={it} to={to} state={state} />
+                      : <Link to={to} state={state} className="dict-items-item-link">{it.name}</Link>}
+                </span>
                 <span role="cell" className="dict-items-by-cell">
                   <Link to={`${profileBase}/${it.author}`} title={npubOf(it.author)} className="dict-items-by">{nameOf(it.author)}</Link>
+                  {it.filers?.length > 1 && (
+                    <span className="dict-items-more" title={`Also filed by ${it.filers.slice(1).map(nameOf).join(', ')}`}>
+                      <span aria-hidden="true"> +{it.filers.length - 1} more</span>
+                      <span className="bs-sr-only">, also filed by {it.filers.slice(1).map(nameOf).join(', ')}</span>
+                    </span>
+                  )}
                 </span>
               </div>
             );
@@ -386,11 +451,13 @@ export function ConceptEntryBody({
         <p className="dict-pov text-muted">
           {itemsPovLine(items.data.pov)}
           {items.data.truncated
-            ? ` Showing the first ${all.length.toLocaleString()} of ${items.data.keptCount.toLocaleString()} items.`
+            ? ` Showing the first ${(items.data.items || []).length.toLocaleString()} of ${items.data.keptCount.toLocaleString()} items.`
             : ''}
           {setAside > 0
             ? ` ${setAside.toLocaleString()} more filed by people below the verified cutoff ${setAside === 1 ? 'is' : 'are'} not shown.`
             : ''}
+          {githubList ? ' Avatars are loaded from GitHub by your browser.' : ''}
+          {v4vList ? ' Cover art is loaded from each song’s host by your browser, and pressing play loads the song from its host.' : ''}
         </p>
       )}
 

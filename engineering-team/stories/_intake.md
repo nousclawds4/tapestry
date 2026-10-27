@@ -1813,6 +1813,8 @@ If this holds, the following are reachable unauthenticated from the internet on 
 
 ## 2026-07-21 — Security: gate authenticated-non-owner access to admin mutations (security-auth-exposure phase 2)
 
+**PICKED UP** 2026-10-10 → book `engineering-team/audits/admin-action-owner-check/book.md`, story `security-auth-exposure` #8 (`engineering-team/stories/security-auth-exposure/8-admin-action-sweep.md`, Done; shipped everywhere 2026-10-11; book Closed 2026-10-11). The whole entry moves there, addenda included; see the last addendum.
+
 **Origin:** the post-fix regression audit of 2026-07-21 (after the `run-query` client-caller regression). The audit confirmed **0 active regressions** from the security changes, but surfaced a concrete instance of a **pre-existing** gap: `POST /api/strfry/wipe` had no owner check and could be triggered by a **logged-in non-owner** to wipe the local relay (it execs `strfry delete --filter='{}'`). That one instance was **closed this session** (`7873f156` — `isOwner || localTrusted → 403` gate + `test/strfry-wipe-owner-gate.test.js` + hid the button; shipped staging/prod/tags). This entry scopes the **class** it was one instance of. Operator explicitly asked to scope it as a follow-up.
 
 **The gap (pre-existing; deferred at the security-auth-exposure book close — audit §5–6 / prd-seed §7 Q4):**
@@ -1843,6 +1845,12 @@ Default-deny (security-auth-exposure story 2) rejects **unauthenticated** mutati
 **References:** `engineering-team/audits/security-auth-exposure/audit.md` §5–6 + `prd-seed.md` §7 Q4; this session's `src/api/strfry/wipe.js` (in-handler template) + `test/strfry-wipe-owner-gate.test.js`; `src/middleware/auth.js` (default-deny + `req.localTrusted`); the ~19 existing `requireOwner` routes as the pattern to extend; `src/api/admin/index.js` (`requireOwnerOnly` vs `requireOwnerOrAdmin` distinction).
 
 **Addendum (2026-09-30, `tagging-edges` #4 Planning):** two more members of the exposed set, not named above, both already described in public docs (`docs/TAGGING_EDGES_HANDOFF.md` §2.3; ADR `tagging-edges/0002` § Context, "Who can reach what"). The owner placed `POST /api/streaming-etl/control` (start / stop / restart of the follows `stream-consumer`) here. The Product Owner adds `POST /api/scheduled-tasks/create`, `/update` and `/delete`, which are open the same way. The Settings page shows both sets of controls only to the owner and admins, so owner-or-admin is a *proposed* guard for this sweep's Architecture to decide. `tagging-edges` stories 4 and 5 change neither.
+
+**Addendum (2026-10-10, book `negentropy-sync-access`):** `security-auth-exposure` story 6 put `/api/run-task`, `/api/scheduled-tasks/create`, `/update`, `/delete` and `/api/customer-schedule/update`, `/trigger` on the middleware's owner-only list (PR #840, in production). Stories 5 and 7 closed two bypasses of the middleware's own checks (capitalized paths, HEAD requests). The rest of this class is still open, including `streaming-etl/control` named above. The owner decided to sweep it exhaustively as its own story rather than hotfix members one by one; that story is the next step for this entry.
+
+**Addendum (2026-10-10, story 7 review):** the inventory covers GET routes too, not only POST/PUT/PATCH/DELETE. The middleware's owner-only list matches POST only, and at least one owner-only path is served by a GET that can perform an action (`security-auth-exposure` story 7, Out of scope; book `negentropy-sync-access` decision 11). A GET that starts heavy work belongs in the same inventory.
+
+**Addendum (2026-10-10, picked up):** promoted to book `engineering-team/audits/admin-action-owner-check/book.md` (human-gated, acceptance frame) and story `security-auth-exposure` #8, `engineering-team/stories/security-auth-exposure/8-admin-action-sweep.md` (Draft). The story states the scope by class: every route that changes state or starts heavy work, under any method (GET and HEAD included) and however its path is spelled, inside or outside the API prefix. It is refused to everyone except the owner, admins and direct-local callers unless the owner puts it on an explicit allowlist. It also asks for a test that fails when a new action arrives without a guard or an allowlist entry. The owner's questions (what signed-in people keep, what the UI shows, task reads, release shape, admin vs owner) are in the story's Open questions. From here on, the inventory with route names lives in the Architecture phase and is committed only with its fixes. Further addenda here should describe members by class, not by name.
 
 ## 2026-07-28 — Harness story proposal: Direction-mode blinding rebuild (OPEN.md #117, #119)
 
@@ -2671,6 +2679,8 @@ Team** first.
 
 ## 2026-09-21 — The Assistant Management page, the rest of the way: real "needs attention" answers and the ten action pages (feature; deferred at intake)
 
+**PICKED UP** (partial) 2026-10-09 → `engineering-team/audits/assistant-profile-checklist/book.md` — the profile action page (`/assistant/profile`, the checklist) and its real "needs attention" answer. Eight actions and the DMs remain.
+
 **PICKED UP** (partial) 2026-09-22 → `engineering-team/audits/assistant-identification-tags/book.md` — the identification-tags action page and its real "needs attention" answer (item 1 for that action, item 2 for that page). The other nine pages, their answers, and the DMs stay open. **Book closed 2026-09-22** (on `feat/assistant-identification-tags`, unmerged at the close); nine actions and the DMs remain.
 
 **Origin:** the owner's ask behind book `assistant-management`
@@ -2711,3 +2721,251 @@ how the hub orders or groups actions as the list grows past ten ("8 or 9 (and gr
 
 **Classification:** feature. The per-action checks can follow the `/setup` status pattern (Standard,
 all phases). Each action page leans **Product Team** first, as the `/setup` step pages do.
+
+---
+
+## 2026-10-03 — The V4V Songs item page and rows in Tapestry's Dictionary, built from its view brief (feature)
+
+**PICKED UP** 2026-10-04 → built directly on `staging`, as the GitHub Accounts views were (fa6d37b, with 1b696ff for the brief; reviewed by a fresh Reviewer: review 1 CHANGES_REQUESTED, answered in deb7f11; review 2 PASS). Record: `docs/DICTIONARY_PAGE_HANDOFF.md` (the 2026-10-04 bullet). The brief's findings: `protocols/drafts/opinionated-views.md` Appendix B § Changes (2026-10-04). Loose ends: ledger rows `2026-10-04-*`.
+
+**Origin:** the Opinionated Views session of 2026-10-03, which wrote `protocols/drafts/opinionated-views.md` and its two view briefs: Appendix A (GitHub Accounts, from Tapestry's build) and Appendix B (V4V Songs, written before any build).
+
+**Raw request (verbatim, 2026-10-03):**
+
+> Giving V4V Songs the same treatment as GitHub Accounts is an excellent idea; it will help the rest of the team understand the big picture.
+
+> Let's include only playback. We can consider payments on a future version.
+
+**The plan the owner accepted:** write the brief first, then build Tapestry's V4V Songs views *from the brief alone*. That is how Brainstorm's team will use a brief, so the build doubles as a test of the brief. Anything the build needed that Appendix B didn't say is a finding: fix the brief, and note it in its Changes.
+
+**Scope:** the item page, and the Items table rows on `/dictionary/:coord`, for items of the V4V Songs DList (bound by its shared concept, opinionated-views § 4.2). Playback only: no payments, no lightning mark (Appendix B § Not in this version).
+
+**What exists to build on:** the GitHub Accounts views (`ui/src/pages/dictionary/github.js`, `GithubAccount.jsx`, `Item.jsx`; rows in `ui/src/pages/dictionaries/ConceptEntry.jsx` behind `dlistViews`); `docs/DICTIONARY_PAGE_HANDOFF.md` § "Adding the next DList"; tests `test/dictionary-github-account.test.js` as the pattern.
+
+**Environment:** the session that wrote the brief couldn't reach `staging.brainstorm.world` or `dcosl.brainstorm.world` (egress policy). The owner has since allowed both in the Default Cloud Environment, so a new session can smoke-test on staging.
+
+**Classification:** feature, with a settled design (the brief). Standard; a direct build like GitHub Accounts' is the precedent.
+
+## 2026-10-08 — The Treasure Map cards: a Needs attention pill, and a details panel per card (feature)
+
+**PICKED UP** 2026-10-08 at intake → book `engineering-team/audits/treasure-map-card-details/book.md`, epic
+`treasure-map-card-details`, stories 1–2. **Strictness:** Light (trial) — workflows/light-profile.md (the owner's
+choice).
+
+**Raw request (verbatim, 2026-10-08):**
+
+> First: on the Assistant Management page, http://localhost:7778/assistant or https://staging.brainstorm.world/assistant, there is a "Needs attention" pill that is displayed when we want to prompt the user to take an action. I would like to us a similarly styled pill on the Treasure Map page, in each of the panels for the three categories: Scores, Lists, and Concepts, when there is no Assistant who is assigned for that category.
+>
+> Second: I would like the ability to toggle a "show details" panel below each of the three category panels (Scores, Lists, and Concepts), that shows the details of the existing assignments for that category.
+
+**Classification:** two features, page-only (no event shape, auth default, schema, dependency or routing change), so
+the Light Feature lane: Gate A → J1 → J2 → J3 → Gate B per story. The owner's four intake decisions are recorded in the
+book. Asked in the same session as the Concepts `39998`+`39999` hotfix (ledger row
+`2026-10-08-concepts-assignment-adds-39999`), and "before shipping to staging", so the book's branch carries that
+hotfix too.
+
+## 2026-10-10 — Emit and read the `o` tag (feature; parked until the pre-NIP settles)
+
+**Origin:** the DList Auxiliary Events session of 2026-10-09 and 2026-10-10. It graduated worksheet W25 into
+`protocols/drafts/dlist-auxiliary-events.md` and added the core-node rule to `protocols/drafts/tapestry-concepts.md`
+§ Core nodes of a concept. The owner asked for documents only; no code was requested. This entry records what a
+build would touch, so the next session doesn't have to re-derive it.
+
+**What a build would do:**
+
+1. **Emit** `["o", "<header a-tag>", "<role>"]` on new core nodes. Sites: `handleCreateConcept`
+   (`src/api/normalize/index.js`, core-node d-tags at `:1286`–`:1567`) and `handleNormalizeSkeleton` (same file, from
+   `:210`). Firmware core nodes get it through the `handleCreateConcept` change, because the firmware install calls
+   create-concept (`src/firmware/install.js:171`); they then need a reinstall (AGENTS.md §6). Role tables already
+   exist: `coreNodeTypeToRel` (`src/firmware/install.js:272-281`) and `coreNodeFirmwareMappings`
+   (`src/api/normalize/index.js:1702-1710`).
+2. **Read.** Derive each role's core-node wiring edge from `o` at ingest, per `coreNodeTypeToRel`. Two don't follow
+   the `IS_THE_<ROLE>_FOR` pattern: `superset` is `IS_THE_CONCEPT_FOR`, pointing header → superset, and
+   `core-nodes-graph` is `IS_THE_CORE_GRAPH_FOR`. Derive **only from events signed by the author of the header the
+   `o` coordinate names** (DList Auxiliary Events § 6, Derived relationships; acceptance condition); which of a
+   person's and their Assistant's headers governs is a read-time question, not an ingest one. A third party's `o` derives nothing; it is
+   found with `#o` and ranked per point of view. Where a core node's `o` and `word.coreMemberOf` disagree, derive
+   nothing.
+3. **View briefs** with a DList category carry `o` (Opinionated Views § 7.2), but only when § 7 itself goes ahead
+   (it is "proposed, phase 2").
+4. **At ratification** (the docs-mode half): BIBLE §9 names the emitters, §6 says which `o` tags produce wiring,
+   §21 gets an "o tag" glossary row, plus a changelog line.
+
+**Hazards to fold in:**
+
+- OPEN.md row 230: `/api/normalize/skeleton` resolves its header by name with `LIMIT 1`, no author filter and no
+  `ORDER BY` (`src/api/normalize/index.js:221`). An `o`-aware skeleton path must resolve by uuid, or name plus author.
+- Not yet recorded elsewhere: `CORE_NODES_CYPHER` (`src/lib/conceptCoreNodes.js:17-49`) reads each role with an
+  `OPTIONAL MATCH` on the wiring edge, no author filter, and `LIMIT 1` with no `ORDER BY`. That is safe only while one
+  node per role is wired. An ingest that wired third-party `o` events would break it, which is one more reason for
+  the author gate in item 2.
+- Related bug: ledger row `2026-10-10-core-node-dtags-ignore-header-dtag` (the `concept-graph` header tag can name an
+  address where nothing exists).
+
+**Classification:** feature; parked. When picked up: `/plan-feature` (Standard) and an ADR under
+`engineering-team/decisions/<epic>/`, with the pre-NIP's core-node rule ratified into the BIBLE in docs-mode.
+
+## 2026-10-11 — Customers' Assistants publish Lists (feature; deferred at intake)
+
+**Origin:** book `assistant-duty-menu`, story 1's approval (2026-10-11). Asked whether a customer's Duty Menu should
+offer Lists, though today only the instance's Tapestry Assistant signs them, the owner answered:
+
+> Act as if the customer's menu does publish Lists. Our plan is to build support for it, even if we haven't yet.
+
+So every Assistant's Duty Menu on this instance offers Lists (assistant-duty-menu #1 AC-2), and this entry tracks the
+promise behind it.
+
+**What is true today** (found at that intake): Trusted Lists (kinds `30392`–`30394`) are built and signed only with
+the instance's Tapestry Assistant key, to this instance's relay; kind `30395` is built nowhere. A customer's or an
+admin's own Assistant signs none. The hub's Lists card already tells every viewer that "your Assistant will publish
+kinds 3039x events on your behalf".
+
+**Until it is built:** a person who gives Lists to their own Assistant on this instance gets a Map entry whose relay
+holds no Lists signed by that Assistant. A reader that looks there finds nothing.
+
+**Classification:** feature, Standard (all five phases). When picked up: `/plan-feature`. Check it against the Show
+and Tell philosophy (`design-philosophies/show-and-tell.md`), since a customer's Lists are built from other people's
+activity.
+
+## 2026-10-11 — Scores, Lists and Concepts: Done, but shared (feature)
+
+**PICKED UP** 2026-10-11 at intake → book `engineering-team/audits/assistant-shared-categories/book.md`, epic
+`assistant-shared-categories`, story 1. **Strictness:** Light (trial) — workflows/light-profile.md (the owner's
+choice).
+
+**Raw request:** quoted verbatim in the book. In short, a category the Treasure Map gives to another Assistant (alone
+or beside the person's Tapestry Assistant here) should be done on `/assistant`, with a quiet Shared pill and a line
+to move it, and not counted by the hub's count line or the top-bar pill. It replaces `assistant-trusted-content-status`
+book Decision 1.
+
+**Classification:** feature, page and one read-only check (no event shape, auth default, schema, dependency or
+routing change), so the Light Feature lane: Gate A → J1 → J2 → J3 → Gate B.
+
+## 2026-10-11 — Duty Menus and Self-Maps in code: publish and read them, and the /treasure-map changes (feature; specs ratified 2026-10-13)
+
+**PICKED UP** (partial) 2026-10-12 → book `engineering-team/audits/assistant-duty-menu/book.md` (closed). What it
+delivered:
+- step 1's Nous constant (`src/lib/nous.js`) and the menu lookup (§ 8.1, local-first);
+- step 2's Duty Menu for each Assistant key, published by the person's button and naming this instance's own relay;
+- the Duty Menu hub page and its real check.
+
+Still open: self-Maps and the Your Assistant's Treasure Map page, the `/treasure-map` changes (step 3), the readers
+and the counting rule (step 4), the § 3 relay reconciliation (ledger `2026-10-11-nip85-home-relay-without-copy`),
+and Q6.
+
+**PICKED UP** (partial) 2026-10-12 → book `engineering-team/audits/assistant-self-map/book.md` (open), epic
+`assistant-self-map`. It takes:
+- step 2's self-Map half: a self-Map for each Assistant key here, turned on by the person and then kept true by the
+  instance;
+- the Your Assistant's Treasure Map page and its real check;
+- from step 3, only the per-card Active and "Standby ready" badges;
+- from step 4, the counting rule in this instance's own counters, and ledger row
+  `2026-10-11-self-entry-reads-as-another-assistant`.
+
+Still open after it:
+- step 3's element-3 fill and the "Make preferred" swap;
+- step 4's read-time fallback in the readers;
+- the § 3 relay reconciliation;
+- Q6.
+
+- **Origin:** `docs/DUTY_MENUS_AND_SELF_MAPS_DESIGN_HANDOFF.md` §§ 6–8 (✅ SUPERSEDED: its design is in `protocols/`;
+  its code is not built). The book `duty-menus-and-self-maps` ratified the specs and left code to "a separate book,
+  opened after this one".
+- **What a build would do** (handoff § 8's engineering steps, as the specs now read):
+  1. Nous' header coordinate as one shared constant; reader helpers for menu lookup (Duty Menus § 8.1), self-Map
+     lookup (Treasure Maps § 9.2), resolution (Duty Menus § 6.2), and the read-time fallback (Treasure Maps § 3).
+  2. A Duty Menu and a self-Map for each of this instance's Assistant keys, the TA and customer keys, naming the
+     relays the insights really go to, and kept true as Treasure Maps § 9.2 says (each self-entry naming the relay its
+     menu gives its key; narrower keys where a key is only partly published; narrowing before a new duty lands
+     elsewhere; a move published before the old relay stops; Lists retracted when stopped, not when moved). Reconcile
+     `BRAINSTORM_NIP85_HOME_RELAY`, `aTrustedAssertionRelays` and the router presets first.
+  3. `/treasure-map` (handoff § 6):
+     - element 3 filled per Treasure Maps § 3 and Duty Menus § 6.2 step 5;
+     - relays read only from the Assistant being assigned (OPEN.md row 188);
+     - per-card Not offered / Offered / Active, and "Standby ready" for a confirmed Alternate;
+     - the "Make preferred" swap.
+  4. Readers:
+     - the read-time fallback in `useTrustWeights.js`, `BrainstormSearch.jsx`, `BrainstormSettings.jsx`,
+       `nip50-proxy/src/wot-pipeline.js` and the house-POV setup;
+     - the counting rule (Treasure Maps § 9.2) in `get-nip85-participation-data.js`,
+       `get-all-10040-authors-locally.js` and `public/pages/about-trusted-assertions.html`.
+  5. **Handoff Q6, NosFabrica adoption:** who asks NosFabrica to publish menus and self-Maps for Brainstorm's keys,
+     and when. Open.
+- **Replaces, does not add:** the two placeholder cards the `assistant-duty-cards` book put on the Assistant
+  Management hub, Duty Menu (`/assistant/duty-menu`) and Your Assistant's Treasure Map (`/assistant/treasure-map`).
+  Their open product questions are `engineering-team/audits/assistant-duty-cards/prd-seed.md` § 7, all five: is
+  "always marked" right until they are built; when is each card done; read-only or act; who sees a person's Duty Menu;
+  "Your" or "My". These lean Product Team first.
+  - One constraint from the specs: a self-Map never lists a duty its Assistant does not publish at the relay it names
+    (Treasure Maps § 9.2). So prd-seed § 7's suggested "done" for the Treasure Map card ("once the self-Map lists every
+    duty the person's own Map gives this Assistant") cannot be met wherever the menu leaves part of a key unoffered.
+- **Related:** ledger row `2026-10-10-external-assistant-relay-left-empty`. Its stopgap (reuse a relay the Map gives
+  an external Assistant in the same category) is a guess that Duty Menus § 6.2 step 5 forbids. Filling this instance's
+  own Assistant from Relay Settings conforms where Relay Settings names the relay it really publishes those insights
+  to (step 2's reconciliation): Treasure Maps § 3 lets a client of the service that runs an Assistant read the
+  Assistant's menu from that service's own record. The readers' fix is Treasure Maps § 3's fallback, whose last step,
+  the Assistant's kind 10002 write relays, works before anyone publishes menus.
+- **Before or with it:** Nous publishes the header (outside the repo); a BIBLE pointer section when code ships (handoff
+  § 8). Story 4's key-grammar answers, which readers' key matching follows, are settled (Treasure Maps §§ 4.5, 4.6
+  and 6; book `duty-menus-and-self-maps`, closed 2026-10-13). Ledger row `2026-10-12-treasure-map-concept-key-readers`
+  lists the shipped readers that still take some Concept keys otherwise.
+- **Classification:** feature, Standard. The two hub pages lean Product Team first (prd-seed § 7); the readers and
+  publishers go straight to engineering.
+
+## 2026-10-12 — The Duty Menu and Outbox Relays name the internal Docker relay address, so Scores and Lists drop out (bug)
+
+**PICKED UP** 2026-10-12 at intake → book `engineering-team/audits/duty-menu-public-relay/book.md`, epic
+`duty-menu-public-relay`, story 1. **Strictness:** Light (trial) — workflows/light-profile.md (the owner's choice),
+Bug lane.
+
+**Raw report (verbatim, 2026-10-12):**
+
+> I just tried publishing the duty menu for my Assistant, logged into staging as straycat. I see that 39998 and 39999 are indicated as being offered and that are now published. However, it says nothing about Trusted Assertions or Trusted Lists, and those should also be on the Duty Menu. Can you tell me why TAs and TLs have not been included?
+
+**Diagnosis (same session; corrected at Gate B, 2026-10-12):** the tapestry container's `RELAY_URL` defaults to
+`ws://localhost:7777` (`docker/entrypoint.sh:9`). The first diagnosis cited `docker-compose.yml:82`'s
+`ws://tapestry:80/relay`, which is the nostr-search-api container's setting. Either way it is the internal
+address, which becomes `BRAINSTORM_RELAY_URL`. ADR assistant-duty-menu/0001 sub-decision 2 takes the instance's own
+relay from that setting when its host is public. `localhost` isn't, so Scores and Lists get no row, and Concepts fall
+back to the DList relay. The menu published on staging (Assistant `8e901369…`) has only `39998` and `39999` at
+`wss://dcosl.brainstorm.world`. Production uses the same compose file. The Outbox Relays page's "this instance's own
+relay" suggestion uses the same rule (`outboxRelays.js` `outboxSuggestions`).
+
+## 2026-10-12 — The hub's unbuilt cards say Coming soon and stop counting (feature)
+
+**PICKED UP** 2026-10-12 at intake → book `engineering-team/audits/assistant-coming-soon/book.md`, epic
+`assistant-coming-soon`, story 1. **Strictness:** Light (trial) — workflows/light-profile.md (the owner's choice).
+
+**Raw request:** quoted verbatim in the book. In short, Bounties, Pins, Tags, Notifications and Alerts, and
+Preferences on `/assistant` should say "Coming soon", like the background image panel on `/assistant/profile`, and
+not count toward the actions that need attention. Their pages' "Placeholder page." line becomes "Coming soon." too.
+Your Assistant's Treasure Map card is left as it is.
+
+**Classification:** feature, client-only page change (no event shape, auth default, schema, dependency or routing
+change), so the Light Feature lane: Gate A → J1 → J2 → J3 → Gate B.
+
+## 2026-10-13 — Should customer identities stay public? (product / security decision)
+
+**Raw request:** none; raised at the Architecture gate of `about-this-instance` #1 and queued with the operator's
+approval ("Yes to all three", 2026-10-13).
+
+**What was found.** `GET /api/get-customers` is a public read (`src/middleware/routeAccess.js`, `PUBLIC_READ`): visitors
+who are not signed in get every active customer's pubkey, name, display name, directory and comments. Only signed-in
+people who are neither customers nor the owner's side are refused (the customer-or-owner quirk,
+`src/middleware/auth.js`, carried by ADR `security-auth-exposure/0005` and left to a product call). `GET
+/api/assistant/roster` joins those pubkeys to their Assistant pubkeys for visitors too. Both follow ADR
+`author-scoped-inspection/0001` ("customers public (`get-customers`)"), so this is a recorded decision, not an
+accident; but the operator's 2026-10-13 framing assumed customers were private.
+
+**Added at Implementation (2026-10-13).** It is not only those two endpoints: the app shell's `AssistantRosterProvider`
+(`ui/src/App.jsx`, around every page) fetches `/api/assistant/roster` on **every page load**, signed in or not. Every
+visitor's browser therefore receives the customers' account and Assistant pubkeys on every page. Narrowing the roster
+means changing that shared provider, or what it asks for, as well as the two endpoints.
+
+**The question for the owner.** Keep customer identities public, or narrow `get-customers` (and the roster's
+customer rows) to the owner's side and the customer themselves? Consumers to check before narrowing: the
+scheduled-tasks panel's customer picker (ADR `task-queue-scheduler/0021`), the roster's "Mine" resolution, and any
+page that names customers. The `directory` and `comments` fields are worth a look even if identities stay public.
+
+**Classification:** product / security decision first; any change after it is a feature or security story under
+Standard (all phases).

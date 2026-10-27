@@ -3,7 +3,10 @@
 > **Status:** 📝 pre-NIP (internal wire format; consumed by our own readers + federation today).
 > **Sources:** the Trusted List publishers (`src/api/trustedList/`), the pinned-tag TL work
 > (`pin-a-tag` ADRs, kind-30392), the tag-applicability lists (`tag-applicability` ADR 0001), the
-> note Trusted List (`event-tagging` ADR 0016). Companion to upstream **[NIP-85: Trusted
+> note Trusted List (`event-tagging` ADR 0016); and `duty-menus-and-self-maps` ADR 0004
+> (§ Treasure-Map advertisement: the `39998`/`39999` families, read as Treasure Maps §§ 4.5 and 4.6
+> say) and ADR 0005 (§ Common wire shape: the retraction marker means that a list is no longer
+> maintained at its `d`). Companion to upstream **[NIP-85: Trusted
 > Assertions](https://nips.nostr.com/85)** (Vitor Pamplona) — this spec does not modify NIP-85; it
 > defines the *list* analog and binds its kinds to NIP-85's subject-type convention.
 
@@ -68,9 +71,12 @@ A Tapestry TL (any kind in the family) carries:
   The pinned-tag note TL (below) carries `["a", "39999:<tagAuthor>:<slug>"]` (find every note TL for a
   tag, across observers: `{kinds:[30393], "#a":[coord]}`) and `["p", <observer>]` (find every note TL for
   an observer: `#p`). These are metadata, **not members** — the note TL's members remain its `e` tags.
-- `["status", "retracted"]` on an **empty-membership replacement** — the retraction convention: a
-  list that no longer has members (or is being migrated off a kind) is replaced in place by an empty
-  event carrying this marker, rather than deleted.
+- `["status", "retracted"]` on an **empty-membership replacement** — the retraction convention. A
+  publisher that stops maintaining a list at its `d`, for any reason (it retires the list, hands it off,
+  migrates it off a kind, or moves it to another `d`), replaces it in place with an empty event carrying
+  this marker, rather than deleting it. The marker means only that the list is no longer maintained
+  there: a list its publisher still maintains is published with its members, even when it has none,
+  and never carries the marker.
 - `content` — optional JSON echo of the members with their computed values.
 
 Signer: the deployment's **Tapestry Assistant**, resolved at runtime (never hardcoded; see CLAUDE.md).
@@ -100,10 +106,13 @@ bare-kind entry** (ADR `tl-treasure-map/0001`):
 - **Shape.** `["<TL-kind>", <pubkey>, <relay>]` — the first element is the decimal TL kind as a
   string, with **no `:name` suffix**. Parse rule: split the first element on `:` — a single
   all-digits segment is a generic TL entry; two segments are NIP-85 kind:metric (`3038x`) or a
-  named TL entry (`3039x`, reserved below). The `39998`/`39999` families — the blanket Tapestry
-  Assistant designation and per-DList curation entries — are specified in
-  [assistant-designation.md](./assistant-designation.md); for those, readers split the first element
-  at the **first** colon and treat the remainder as an opaque d-tag.
+  named TL entry (`3039x`, reserved below). The `39998`/`39999` families are Concept keys, not
+  Trusted List entries: the bare kinds `39998` and `39999`, specified in
+  [Treasure Maps](./treasure-maps.md) § 4.5, and the blanket Tapestry Assistant designation and
+  per-DList curation entries, specified in [assistant-designation.md](./assistant-designation.md).
+  What each covers is for Treasure Maps §§ 4.5 and 4.6 to say. For a key with a d-tag, readers
+  split the first element at the **first** colon and treat the remainder as an opaque d-tag, never
+  empty: a kind and a colon alone (`39998:`, `39999:`) is not a key.
 - **Meaning.** The advertised pubkey publishes the Map owner's Trusted Lists of that kind —
   lists computed under the owner's point of view — discoverable at the relay hint. One entry
   delegates *all* lists of the kind; list names are not enumerated.
