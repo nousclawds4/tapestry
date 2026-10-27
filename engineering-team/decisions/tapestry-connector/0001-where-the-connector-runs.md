@@ -25,9 +25,9 @@ The Tapestry connector gives the team's Claudes the protocol and its list tools 
 
 ### Option A — Inside Loom's connector
 
-The connector's tools and topics join Loom's existing connector as their own group, behind a level of their own.
+The connector's tools and topics join Loom's existing connector as their own group, behind a permission of their own.
 
-- **Pros.** Sign-in, OAuth for Claude chat, levels, guide topics, the request budget and the deploy all exist already. A teammate who connected Loom picks one more level instead of adding a second connector. The audience is the same.
+- **Pros.** Sign-in, OAuth for Claude chat, levels, guide topics, the request budget and the deploy all exist already. A teammate who connected Loom ticks one more box instead of adding a second connector. The audience is the same.
 - **Cons.** Loom grows past its task board. The code lands in Loom's repo, beside the work on Loom's own features, and a Loom outage takes both down. A public version has to move out.
 
 ### Option B — Brainstorm-UI, with a server added
@@ -53,9 +53,10 @@ A stdio server run with `npx`.
 
 ## Decision
 
-We chose **Option A**: v1 runs inside Loom's existing connector, as its own tool group behind its own level. The two hard parts of a team-only remote connector are sign-in that knows the team and OAuth that Claude chat accepts, and both exist only in Loom. The list code is portable enough to be used from a pinned build.
+We chose **Option A**: v1 runs inside Loom's existing connector, as its own tool group behind a permission of its own. The two hard parts of a team-only remote connector are sign-in that knows the team and OAuth that Claude chat accepts, and both exist only in Loom. The list code is portable enough to be used from a pinned build.
 
-- **One connector.** The address stays Loom's. Tools and topics are named `tapestry_…`. A person grants the Tapestry level on Loom's consent page, beside the board's two levels.
+- **One connector.** The address stays Loom's. Tools and topics are named `tapestry_…`.
+- **A scope of its own, not a third level.** Loom's two levels, "Read and propose" and "Work the board", are nested rungs a person picks one of. Tapestry access cuts across both, so it is a separate scope (`tapestry`). The person ticks it on Loom's consent page beside the level they pick, and it works with either level. Each Tapestry tool checks for the scope itself, and its refusal names the scope.
 - **The same rules, pinned.** Brainstorm-UI builds its list modules into one ES module at a known commit, and Loom imports that file and records the commit it came from. Moving to a newer commit is a pull request. The connector never keeps its own copy of the rules.
 - **Sources read when asked.** Each topic is read from GitHub at request time, from the branch its source names, cached for minutes, under Loom's request budget.
 - **Built to move out.** The tools live in a folder of their own in Loom and call no board code. They reach Loom only through its sign-in, its guide machinery and its GitHub client, so they can leave whole.
@@ -71,6 +72,7 @@ We chose **Option A**: v1 runs inside Loom's existing connector, as its own tool
   - Loom's job grows from the task board to the team's tools, and so does its blast radius.
   - The build stories land in Loom's repo and are sequenced with the work on Loom's own features.
   - Brainstorm-UI keeps a build target that other code depends on, so changing its list modules' exports is a change to a contract.
+  - A connection made before the scope exists carries no Tapestry access. Its person reconnects to tick it.
 - **New debt and follow-ups.**
   - A Brainstorm-UI story to build the list modules as one ES module, and to check that build in its CI.
   - A pinned commit to keep current.
@@ -81,9 +83,11 @@ We chose **Option A**: v1 runs inside Loom's existing connector, as its own tool
 ## Implementation notes
 
 - **Loom.**
-  - A folder for the connector's tools, for example `server/tapestry/`.
-  - A third scope beside the board's two, named on the consent page, with the tools registered behind it in the connector's tool list.
+  - A folder for the connector's tools, for example `server/tapestry/`. Loom's shared connector files change by a registration line in its tool list and a line in the server's instructions, so work on Loom's own connector features and this work rebase cleanly.
+  - The `tapestry` scope: added to the scopes Loom's OAuth supports, to the consent page as a box beside the level, and to the pages that show a connection. The board's level check reads only `loom:work`, so it is unchanged.
   - A topic config listing each source: repo, path, branch, and how it splits into topics. `BIBLE.md` splits by its `##` sections, and the protocol drafts and specs by file.
+  - Topics from sources other than Loom's own CLAUDE.md need a loader of their own and a test of their own. Loom's guide reads only CLAUDE.md today, and its tests hold every topic to a section there.
+  - Every request-time GitHub read goes through Loom's GitHub client, so it counts against the shared request budget Loom already tracks.
 - **Brainstorm-UI.**
   - A build target, such as Vite's library mode, that writes the list modules and the config they read as one ES module, with env supplied by the caller.
   - A test that the built module's `listCheck` gives the same results as the source's own, on its existing fixtures.
