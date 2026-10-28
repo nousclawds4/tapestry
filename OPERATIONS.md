@@ -308,16 +308,18 @@ The app publishes signed events to public relays by default. A per-deployment op
 
 ### 9.1. `gh` CLI defaults to the upstream fork
 
-This local checkout has two remotes:
+A checkout may carry these remotes:
 - `origin` → `nousclawds4/tapestry` (our fork, and what we actually push to, since the move of 2026-10-23)
 - `upstream` → `Pretty-Good-Freedom-Tech/brainstorm` (the original project)
 
 Some checkouts also carry the pre-move repo as a remote, `nous-clawds4` → `nous-clawds4/tapestry`.
-- **It is not the deploy target.** The droplets deploy from `nousclawds4/tapestry`.
-- **Its GitHub Actions still run.** Its deploy workflows fire on pushes to `staging`, `main`, `feat/tags` and
-  `feature-magic-carpet`, so never push those branches to it. Feature branches may be mirrored there.
-- **PR numbers restarted at #1** on `nousclawds4/tapestry`. Earlier PR links in this file point at the old repo, where
-  those PRs live.
+- **It is not the deploy target.** The droplets are meant to follow `nousclawds4/tapestry`.
+- **It keeps its GitHub Actions and its deploy secrets.** Its deploy workflows fire on pushes to the long-lived deploy
+  branches in `scripts/long-lived-branches.txt`, the archived `feat/communities` and `feat/curate` included, so never push
+  those branches to it. Feature branches may be mirrored there.
+- **PR numbers restarted at #1** on `nousclawds4/tapestry`. Earlier PR references in this file, links and bare `#N`
+  alike, are the old repo's, where those PRs live.
+- **`gh repo set-default`** is stored per checkout. One made before the move still names the old repo; re-run it.
 
 `gh repo view --json nameWithOwner` returns the upstream, so `gh pr create`, `gh pr list`, `gh issue ...` all silently target the wrong repo and either fail or return empty.
 

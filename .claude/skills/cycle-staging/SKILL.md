@@ -28,8 +28,10 @@ Check the remote layout first (`git remote -v`) — it varies per checkout. Some
 When an `upstream` remote exists, `gh` resolves the repo to it by default, so commands silently target the wrong repo. **Always pass `--repo nousclawds4/tapestry` on every `gh` command in this skill**, regardless of layout — it's harmless on single-remote checkouts and load-bearing on two-remote ones.
 
 **The old repo.** Until 2026-10-23 the deploy target was `nous-clawds4/tapestry` (with a hyphen). Some checkouts still
-carry it as a second remote, `nous-clawds4`. It is not wired to the droplets, but its GitHub Actions still run, and its
-deploy workflows fire on pushes to `staging`, `main`, `feat/tags` and `feature-magic-carpet`.
+carry it as a second remote, `nous-clawds4`. The droplets are meant to follow the new repo, but the old one keeps its
+GitHub Actions and its deploy secrets. Its deploy workflows fire on pushes to the long-lived deploy branches in
+`scripts/long-lived-branches.txt`: `staging`, `main`, `feat/tags` and `feature-magic-carpet`, and also the archived
+`feat/communities` and `feat/curate`.
 - **Never push those branches to it.** A push there can start an out-of-band deploy that skips the safe-to-merge check.
 - **Feature branches may be mirrored there**, to keep the two in sync.
 - **PR numbers restarted at #1** on `nousclawds4/tapestry`. Name the repo when you cite a PR (`nousclawds4/tapestry#N`).

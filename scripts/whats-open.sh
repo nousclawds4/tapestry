@@ -299,10 +299,10 @@ if [ -f "$KEEPLIST" ]; then
   keep_branches=$(grep -vE '^\s*(#|$)' "$KEEPLIST" | awk '{print $1}')
   keep_pattern="origin/(HEAD|$(echo "$keep_branches" | paste -sd'|' - | sed 's/|/|/g'))"
 fi
-git branch -r --no-merged origin/main 2>/dev/null \
+git branch -r --list 'origin/*' --no-merged origin/main 2>/dev/null \
   | grep -vE "^\s*${keep_pattern}\$" \
   | sed 's/^/  /' | head -40
-[ -z "$(git branch -r --no-merged origin/main 2>/dev/null | grep -vE "^\s*${keep_pattern}\$")" ] && echo "  (none)"
+[ -z "$(git branch -r --list 'origin/*' --no-merged origin/main 2>/dev/null | grep -vE "^\s*${keep_pattern}\$")" ] && echo "  (none)"
 
 if [ -f "$KEEPLIST" ]; then
   hr "Held by design (scripts/long-lived-branches.txt) — drift check vs origin"
