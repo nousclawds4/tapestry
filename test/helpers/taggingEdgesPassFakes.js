@@ -41,7 +41,11 @@
  *   scheduledJobId(entryId, millis) 'repeat:sched:<entryId>:<millis>' (the entry id may contain ':')
  *   millisOf(jobId)                 the digits after a scheduled id's last ':' as a number, else null
  *   jobKeyOf(job)                   job.id, or '<id>@<timestamp>' for the legacy fixed id
- *   jobIdOfKey(key)                 the key, or LEGACY_ID for a legacy key
+ *   jobIdOfKey(key)                 the default jobId a key implies: the key, or LEGACY_ID for a legacy key (jobKeyOf's
+ *                                   form). Not D2's rule, which compares with each item's own jobId (D2, amended); a
+ *                                   dashboard id such as reconcileTaggingEdges@x is its own key, which has the legacy
+ *                                   form, so this reads it as the legacy id (for @<digits> it is a legacy job's very
+ *                                   key, R9 (d)); a test of one passes its jobId
  *   lineUpData(timeoutMs?)          enqueueTask's data shape, as D2 adds it
  *   lineUpOpts(jobId)               { jobId, removeOnComplete: true, removeOnFail: true }
  *   bullmqRejects(jobId, opts?)     BullMQ's own verdict on a custom id: null when accepted, else its message (a real
@@ -396,6 +400,13 @@ function jobKeyOf(job) {
   if (!job) return null;
   return String(job.id) === LEGACY_ID ? `${job.id}@${job.timestamp}` : String(job.id);
 }
+/**
+ * The default jobId a key implies, for building expectations: the key itself, or LEGACY_ID for a legacy key (the
+ * `${job.id}@${job.timestamp}` form jobKeyOf gives). The code under test compares with each busy item's own jobId,
+ * never the key (D2, amended). A dashboard id such as reconcileTaggingEdges@x is its own key, and that key has the
+ * legacy form, so this reads it as the legacy id (for @<digits> it is a legacy job's very key, R9 (d)); a test of one
+ * passes its jobId explicitly rather than taking it from here.
+ */
 function jobIdOfKey(key) {
   return typeof key === 'string' && key.startsWith(`${LEGACY_ID}@`) ? LEGACY_ID : key;
 }

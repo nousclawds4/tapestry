@@ -45,6 +45,10 @@
  *              take-back of a failed add restores the record as it was (CT65); a stop mark covers only its own
  *              execution (CT66); pruning keeps a stopped hand run's run:<runId> entry while its run is in report.json
  *              (CT67); "__proto__" and "constructor" are ordinary own entries, and Object.prototype stays clean (CT68).
+ *   CT69–CT70  added at story 6's fix round (2026-10-28; its review, round 1, blocking 1 and requested change 5): a
+ *              pass whose job id is reconcileTaggingEdges@x is stopped by that id, running and starting (CT69); a time
+ *              outside a Date's range, in a scheduled id's millis, a job's timestamp or a record's give-up time, makes
+ *              nothing throw (CT70). CT45's title now cites D2's amended rule; its body is unchanged.
  *
  * Hermetic: the controller is always an instance built by createController(deps) over the shared fakes (makeWorld:
  * a BullMQ-faithful fake queue, an in-memory record, a fake process table, a fake clock). TAGGING_EDGES_STATE_DIR
@@ -102,6 +106,12 @@
  *     window. CT67 ages the hand run's stop line out with five Run-and-Stop pairs. CT68 snapshots
  *     Object.getOwnPropertyNames(Object.prototype) before and after, and deletes anything added, so a regression
  *     there cannot leak into later tests.
+ *   - Added at the fix round (2026-10-28). CT69 reads its stop entry's jobId on a record with no entry before the Stop
+ *     (the start's write failed at pickup), since an entry the gate wrote already carries the job's id. CT70 uses
+ *     repeat:sched:<millis>, the scheduled form BullMQ accepts as a custom id (a custom id may hold ':' only as exactly
+ *     two of them, so the seed form cannot be added by hand). It pins a start recorded at pickup only as a valid ISO
+ *     time by its kind of who, and a record's give-up time a Date cannot hold only as never throwing (gaveUp null, or
+ *     a time that parses or is null).
  *
  * Hand-rolled in the project's existing test style — no new framework. Works on Node 16 and 22.
  */
@@ -1635,7 +1645,7 @@ test('CT44: the signal is checked just before it is sent — the report re-read 
   }));
 });
 
-test('CT45: a legacy-id pass is stopped by job id — its key reconcileTaggingEdges@<timestamp> resolves to the job id reconcileTaggingEdges, which the report\'s job.id matches, so it is signalled [ADR 0006 D2 jobIdOf "Every comparison with a report\'s job.id uses jobIdOf, never the key"; D9; R7; § Seams "A legacy-id pass is stopped by job id"]', async () => {
+test('CT45: a legacy-id pass is stopped by job id — its key is reconcileTaggingEdges@<timestamp>, but the Stop compares the report\'s job.id with the busy item\'s own jobId, reconcileTaggingEdges, which matches, so it is signalled [ADR 0006 D2, amended at story 6\'s fix round (2026-10-28): "Every comparison with a report\'s job.id uses the busy item\'s own jobId — the queue job\'s id, or for a live pass the report\'s — never the key"; D9; R7; § Seams "A legacy-id pass is stopped by job id"]', async () => {
   await withCtl('D9', async (ctx) => {
     await addJob(ctx, LEGACY_ID);
     const { rec } = await runPass(ctx, LEGACY_ID);
@@ -2442,6 +2452,140 @@ test('CT68: a job id that names a property every object inherits — "__proto__"
       for (const n of polluted()) delete Object.prototype[n];
     }
   });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// CT69–CT70 — added at story 6's fix round (2026-10-28; review round 1, blocking 1 and requested change 5): a Stop of a
+// pass whose job id starts reconcileTaggingEdges@ (D2, amended), and times outside a JavaScript Date's range.
+
+/** A job id a queue-dashboard add can give (R3): it starts with the legacy id and '@', and BullMQ accepts it. */
+const PREFIXED_ID = `${LEGACY_ID}@x`;
+
+test('CT69: a pass whose job id is reconcileTaggingEdges@x (added from the queue dashboard, and keyed by its own id) is stopped by that id — running, the Stop answers asked-to-stop with exactly one SIGTERM to its own pid through the injected kill, and its stop entry carries jobId reconcileTaggingEdges@x, whether or not its start was recorded at pickup; starting (launched, no record yet), the Stop waits for the first record that names reconcileTaggingEdges@x and signals that pid, never answering pass-not-reachable [ADR 0006 D2, amended at story 6\'s fix round (2026-10-28): "Every comparison with a report\'s job.id uses the busy item\'s own jobId — the queue job\'s id, or for a live pass the report\'s — never the key"; D9 steps 3–4; R3; Amendment 1 Consequences "What a Stop can now name"; story AC-3 "Confirming a stop of a running pass"; review round 1, blocking 1]', async () => {
+  assert(H.bullmqRejects(PREFIXED_ID) === null, `setup: BullMQ should accept the job id ${PREFIXED_ID}`);
+  await cases([
+    {
+      name: 'running, its start recorded at pickup',
+      setup: async (ctx) => (await runPass(ctx, await addJob(ctx, PREFIXED_ID))).rec,
+    },
+    {
+      name: 'running, its start not recorded at pickup (the write failed; the record healed before the Stop)',
+      setup: async (ctx) => {
+        ctx.world.record.failWrites('ENOSPC');
+        const { rec } = await runPass(ctx, await addJob(ctx, PREFIXED_ID));
+        ctx.world.record.heal();
+        assert(!entryOf(ctx, PREFIXED_ID), `setup: the record should hold no entry for ${PREFIXED_ID} before the Stop; it holds ${show(entryOf(ctx, PREFIXED_ID))}`);
+        return rec;
+      },
+    },
+    {
+      name: 'starting: launched, its first record not written yet',
+      setup: async (ctx) => { await launch(ctx, await addJob(ctx, PREFIXED_ID)); return null; },
+    },
+  ], (c) => withCtl('D2', async (ctx) => {
+    let rec = await c.setup(ctx);
+    const starting = rec === null;
+    const key = PREFIXED_ID;
+    expectItems((await snap(ctx)).items, [{ key, jobId: PREFIXED_ID, state: 'running', runId: starting ? null : rec.runId }], 'setup, before the Stop', 'D5');
+    const pending = stop(ctx, WHO.admin, [{ key, state: 'running' }], { limit: 5000 });
+    if (starting) {
+      await H.sleep(50);
+      rec = ctx.world.startPass({ jobId: PREFIXED_ID });
+    }
+    const a = await pending;
+    const p = [];
+    try { expectStopped(a, [{ key, how: 'asked-to-stop' }], true, 'D9'); } catch (e) { p.push(e.message); }
+    if (exact(ctx.world.kills) !== exact([{ pid: rec.process.pid, signal: 'SIGTERM' }])) p.push(`its own pid ${rec.process.pid} should get exactly one SIGTERM through the injected kill; signalled ${show(ctx.world.kills)}`);
+    p.push(...entryProblems(ctx, key, { jobId: PREFIXED_ID, stop: { at: iso(T0), runId: rec.runId, who: { ...WHO.admin } }, noRerun: true }, 'the stop'));
+    report(p, 'D2, amended at the fix round; D9');
+  }));
+});
+
+/**
+ * Scheduled-run ids whose millis a Date cannot hold: Number('99999999999999999') is 1e17, and 8640000000000001 is one
+ * past 8.64e15, the last instant a JavaScript Date holds. Written as strings: a template over the number would print
+ * "100000000000000000".
+ */
+const SCHED_PAST_DATE = 'repeat:sched:99999999999999999';
+const SCHED_JUST_PAST_DATE = 'repeat:sched:8640000000000001';
+/** An instant as the controller serves it: null, or an ISO string that parses. */
+const isServedTime = (v) => v === null || (typeof v === 'string' && Number.isFinite(Date.parse(v)));
+
+test('CT70: a time outside a JavaScript Date\'s range never makes the controller throw — for a waiting job with a scheduled run\'s id whose millis are past that range (repeat:sched:99999999999999999, and one millisecond past it; BullMQ accepts both, though it refuses the seed form repeat:sched:<entry>:<millis> as a custom id) and for a waiting job whose timestamp is past it: the snapshot resolves with queue \'ok\' and the job listed waiting with since null, and so does the public status\'s control; a Run answers 409 pass-busy (never 500), the confirm route\'s start joins it, and a Stop takes it out of line with 200 taken-out-of-line, recorded (no schedule start at an invalid time); at pickup the gate answers \'go\' with its start recorded at a valid time, and lists it waiting for the lock with since null; and a record whose give-up time is past that range still gives a snapshot and the status, and a Run lines up [review round 1, requested change 5 (toIso returns null for a time a Date cannot hold, so neither the snapshot nor recordStart throws; the stop entry\'s schedule start goes through it and is left out when null; the give-up line does not throw); ADR 0006 D5 "a read that fails … is cannot tell"; D6; D8; D9 step 4; D3 beforeAcquire; D12 "every time an ISO string"; R3]', async () => {
+  const p = [];
+  const jobs = [
+    { name: `${SCHED_PAST_DATE}, waiting`, id: SCHED_PAST_DATE, opts: {}, who: WHO.schedule },
+    { name: `${SCHED_JUST_PAST_DATE}, waiting`, id: SCHED_JUST_PAST_DATE, opts: {}, who: WHO.schedule },
+    { name: 'a waiting job whose timestamp is 1e17', id: 'added-by-hand-1', opts: { timestamp: 1e17 }, who: WHO.other },
+  ];
+  await cases(jobs, async (c) => {
+    assert(H.bullmqRejects(c.id, c.opts) === null, `setup: BullMQ should accept the job id ${c.id} with ${show(c.opts)}`);
+    const pc = [];
+    // The busy list, the status, Run, the confirm route's start and a Stop.
+    await withCtl('D5', async (ctx) => {
+      await addJob(ctx, c.id, c.opts);
+      const q = [];
+      try {
+        const s = await snap(ctx);
+        if (s.queue !== 'ok') q.push(`the snapshot should read queue 'ok'; it reads ${show(s.queue)}`);
+        q.push(...itemsProblems(s.items, [{ key: c.id, jobId: c.id, state: 'waiting', since: null }]).map((x) => `the snapshot: ${x}`));
+      } catch (e) { q.push(`the snapshot should resolve; it rejected: ${firstLine(e)}`); }
+      const { control } = await statusOf(ctx, 'signed-out', 'D12');
+      if (control.queue !== 'ok') q.push(`the status's control should read queue 'ok'; it reads ${show(control.queue)} (busy ${show(control.busy)})`);
+      else {
+        const it = busyItem(control, c.id);
+        if (!it || it.state !== 'waiting' || it.since !== null) q.push(`the status's control should list ${c.id} waiting with since null; it lists ${show(control.busy)}`);
+      }
+      const run = await lineUp(ctx, WHO.owner, 'run');
+      q.push(...codeProblems(run, 'pass-busy', 409).map((x) => `a Run: ${x}`));
+      const busy = Array.isArray(run.body.busy) ? run.body.busy.find((i) => i && i.key === c.id) : null;
+      if (run.body.code === 'pass-busy' && (!busy || busy.since !== null)) q.push(`a Run's busy list should name ${c.id} with since null; it is ${show(run.body.busy)}`);
+      const conf = await lineUp(ctx, WHO.confirmation, 'confirm');
+      if ((conf.status !== undefined && conf.status !== 200) || !enqueuedOf(conf) || conf.body.joined !== true) q.push(`the confirm route's start should join the waiting job (200 { enqueued: true, joined: true }); it answered ${conf.status} ${show(conf.body)}`);
+      ctx.world.clock.advance(SEC);
+      try { expectStopped(await stop(ctx, WHO.admin, [{ key: c.id, state: 'waiting' }]), [{ key: c.id, how: 'taken-out-of-line' }], true, 'D9'); } catch (e) { q.push(`a Stop: ${e.message}`); }
+      q.push(...entryProblems(ctx, c.id, { jobId: c.id, start: null, stop: { at: iso(T0 + SEC), runId: null, who: { ...WHO.admin } }, skip: true }, 'the Stop'));
+      q.push(...lineProblems(historyOf(ctx), { action: 'stop', key: c.id, at: iso(T0 + SEC), who: { ...WHO.admin } }, 'the Stop'));
+      const unserved = historyOf(ctx).filter((l) => !isServedTime(l && l.at));
+      if (unserved.length) q.push(`every history line's time should parse; these do not: ${show(unserved)}`);
+      pc.push(...q.map((x) => `the busy list: ${x}`));
+    });
+    // The gate at pickup.
+    await withCtl('D3', async (ctx) => {
+      await addJob(ctx, c.id, c.opts);
+      const job = pick1(ctx, c.id);
+      const q = [];
+      let v;
+      try { v = await within(ctx.ctl.gate.beforeAcquire(job), 3000, `gate.beforeAcquire(${c.id})`); } catch (e) { q.push(`beforeAcquire should answer 'go'; it rejected: ${firstLine(e)}`); }
+      if (v !== undefined && v !== 'go') q.push(`beforeAcquire should answer 'go'; it answered ${show(v)}`);
+      const e = entryOf(ctx, c.id);
+      const start = e && e.start;
+      if (!start || exact(start.who) !== exact(c.who) || !ISO_RE.test(String(start.at)) || !Number.isFinite(Date.parse(start.at))) {
+        q.push(`its start should be recorded, by ${show(c.who)}, at a valid ISO time; the entry is ${show(e)}`);
+      }
+      try {
+        q.push(...itemsProblems((await snap(ctx)).items, [{ key: c.id, state: 'waiting', behind: 'heavy-work', since: null }]).map((x) => `waiting for the lock: ${x}`));
+      } catch (err) { q.push(`the snapshot while it waits for the lock should resolve; it rejected: ${firstLine(err)}`); }
+      pc.push(...q.map((x) => `the gate: ${x}`));
+    });
+    report(pc);
+  }).catch((e) => { p.push(e.message); });
+  // A record whose give-up time a Date cannot hold (a hand-edited record: the controller writes ISO strings).
+  const k = H.lineUpKey(700);
+  await withCtl('D12', { world: { record: { record: H.recordFile({ passes: { [k]: H.recordEntry({ jobId: k, gaveUpAt: 1e17 }) } }) } } }, async (ctx) => {
+    const q = [];
+    try {
+      const s = await snap(ctx);
+      if (s.queue !== 'ok' || s.items.length) q.push(`the snapshot should read queue 'ok' with nothing busy; it reads ${show(s.raw)}`);
+      const g = s.raw.gaveUp;
+      if (g !== null && g !== undefined && !(g && isServedTime(g.at))) q.push(`gaveUp should be null or { key, at } with a time that parses (or null); it is ${show(g)}`);
+    } catch (e) { q.push(`the snapshot should resolve; it rejected: ${firstLine(e)}`); }
+    const { control } = await statusOf(ctx, 'signed-out', 'D12');
+    if (control.queue !== 'ok') q.push(`the status's control should read queue 'ok'; it reads ${show(control.queue)}`);
+    try { await runA(ctx, WHO.owner); } catch (e) { q.push(`a Run: ${firstLine(e)}`); }
+    p.push(...q.map((x) => `a record whose give-up time is past a Date's range: ${x}`));
+  });
+  report(p, 'D5; D12; review round 1, requested change 5');
 });
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════

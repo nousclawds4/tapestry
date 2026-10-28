@@ -922,7 +922,13 @@ function lineUpKey(hex12) {
 const schedKey = (entryId, iso) => `repeat:sched:${entryId}:${Date.parse(iso)}`;
 /** A job with the legacy fixed id is keyed `${job.id}@${job.timestamp}` (D2). */
 const legacyKey = (timestampMs) => `${LEGACY_JOB_ID}@${timestampMs}`;
-/** D2 jobIdOf: the key itself, but the legacy id for a legacy key and null for a `run:` key (D5 liveness). */
+/**
+ * The default jobId a fixture key implies, for building busy items and record entries: the key itself, the legacy id
+ * for a legacy key (keyOf's `${job.id}@${job.timestamp}`, D2), and null for a `run:` key (D5 liveness). It is not D2's
+ * rule: the code compares with each busy item's own jobId, never the key (D2, amended). A queue-dashboard id such as
+ * `reconcileTaggingEdges@x` is its own key, and that key has the legacy form, so this helper reads it as the legacy id
+ * (for `@<digits>` it is a legacy job's very key, R9 (d)); a fixture for one passes its jobId.
+ */
 function jobIdOf(key) {
   if (typeof key !== 'string') return null;
   if (key.startsWith(`${LEGACY_JOB_ID}@`)) return LEGACY_JOB_ID;

@@ -59,6 +59,15 @@
  *              control and queue modules replaced by recorders through the module resolver).
  *     Every child gets REDIS_HOST=127.0.0.1 and REDIS_PORT=1, so even a mistaken connection could reach no real Redis.
  *     Red until story 6 lands: none of pass.js, control/ or jobGates.js exists, and no file named here has changed yet.
+ *   Story 6's fix round (2026-10-28; its review, round 1, requested change 6): SWR85 is new, beside SWR78 and with its
+ *     recorder: a job id that carries NUL reaches no spawn environment (no BRAINSTORM_TASK_JOB_ID, no value holding
+ *     NUL, which Node refuses), the launcher's arguments and BRAINSTORM_STRUCTURED_LOGGING unchanged; an ordinary id
+ *     beside it still carries the variable. Red until the fix lands: the processor sets String(job.id) for every id.
+ *     SWR86 is new at the same round, beside SWR85 and with its recorder: a job id longer than 200 characters (UTF-16
+ *     code units, String.prototype.length; D10's pattern's bound) reaches no spawn environment, for the pass and for
+ *     another task, so no id can make one environment string of 128 KiB or more, which Linux refuses (E2BIG); ids of
+ *     exactly 200 code units, one with a character outside the BMP among them, still carry the variable unchanged.
+ *     Red until the fix lands: the processor leaves the variable out only for an id that holds NUL.
  *
  * Stack-free and hermetic: no Neo4j, no strfry, no network, no write to the local graph or relay. Temp directories come
  * from fs.mkdtempSync(os.tmpdir()) and are removed; env changes live only in child processes; the swapped driver
@@ -2988,6 +2997,141 @@ const cases = ${JSON.stringify(cases)};
     const shapeOk = s.cmd === 'bash' && args.length === 5 && /taskQueue\/launchChildTask\.sh$/.test(String(args[0])) && args[1] === c.job.data.taskName && args[2] === 'task-queue' && args[3] === expectedOptions && args[4] === c.childArgs;
     if (!shapeOk) problems.push(`${c.label}: the launcher's arguments should stay [launchChildTask.sh, ${show(c.job.data.taskName)}, 'task-queue', ${expectedOptions}, ${show(c.childArgs)}]; got ${s.cmd} ${show(args)}`);
     if (c.idInArgv === false && args.some((a) => String(a).includes(id))) problems.push(`${c.label}: the job id ${id} reaches the launcher's arguments — it travels in the environment (${ADR6} D10)`);
+  }
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR85: a job id that carries a NUL character never reaches the spawn environment — for the pass and for another task, processJob spawns the launcher once with no BRAINSTORM_TASK_JOB_ID and no environment value holding NUL (Node refuses such a value, so the spawn would fail), while BRAINSTORM_STRUCTURED_LOGGING stays \'true\', the inherited environment stays, and the launcher\'s arguments are as for any job; an ordinary id beside them still carries BRAINSTORM_TASK_JOB_ID (as SWR78 pins), so the recorder sees the variable when it is set; the pass then records job: null, as for any id outside D10\'s pattern [ADR tagging-edges/0006 D10 "The processor" ("harmless elsewhere"); § Constraints "Shared queue code changes only by opt-in" ("leave every other task\'s behaviour unchanged"); Amendment 1 (BullMQ accepts such ids); story 6\'s review, round 1, requested change 6]', () => {
+  const registryEntry = taskEntry();
+  const NUL = String.fromCharCode(0);
+  const cases = [
+    { label: 'the pass, with a job id that carries NUL', job: { id: `reconcileTaggingEdges${NUL}x`, data: { taskName: TASK, customerArgs: null, timeoutMs: 1800000 } }, taskDef: 'registry', childArgs: '', nul: true },
+    { label: 'another task, with a job id that carries NUL', job: { id: `job${NUL}1`, data: { taskName: 'someOtherTask', customerArgs: null, timeoutMs: 60000 } }, taskDef: { staticArgs: '--mode all' }, childArgs: '--mode all', nul: true },
+    { label: 'the pass, with an ordinary job id', job: { id: 'reconcileTaggingEdges-a00000000085', data: { taskName: TASK, customerArgs: null, timeoutMs: 1800000 } }, taskDef: 'registry', childArgs: '', nul: false },
+  ];
+  const code = `${CHILD_SAY}
+const cp = require('child_process');
+const { EventEmitter } = require('events');
+const seen = [];
+cp.spawn = function (cmd, args, opts) {
+  const env = (opts && opts.env) || {};
+  const nulKeys = Object.keys(env).filter((k) => String(env[k]).indexOf(String.fromCharCode(0)) >= 0);
+  seen.push({ cmd, args, has: Object.prototype.hasOwnProperty.call(env, 'BRAINSTORM_TASK_JOB_ID'), jobIdEnv: env.BRAINSTORM_TASK_JOB_ID, nulKeys, structured: env.BRAINSTORM_STRUCTURED_LOGGING, marker: env.TD6_INHERITED_MARKER });
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { write() {}, end() {} };
+  child.pid = 424242;
+  setImmediate(() => child.emit('close', 0));
+  return child;
+};
+let processor = null;
+let err = null;
+try { processor = require(${JSON.stringify(PROCESSOR)}); } catch (e) { err = __first(e); }
+const entry = ${JSON.stringify(registryEntry)};
+const cases = ${JSON.stringify(cases)};
+(async () => {
+  const results = [];
+  for (const c of cases) {
+    const before = seen.length;
+    let error = null;
+    try { await processor.processJob(c.job, c.taskDef === 'registry' ? entry : c.taskDef); } catch (e) { error = __first(e); }
+    results.push({ label: c.label, error, spawns: seen.slice(before) });
+  }
+  __sayNow({ err, results });
+})();
+`;
+  const out = runChild(code, childEnv({ TD6_INHERITED_MARKER: 'inherited' }), 'the processor check');
+  assert(!out.err, `src/manage/taskQueue/queue/processor.js did not load: ${out.err}`);
+  const problems = [];
+  for (const c of cases) {
+    const r = (out.results || []).find((x) => x.label === c.label) || {};
+    const expectedOptions = JSON.stringify({ completion: { failure: { timeout: { duration: c.job.data.timeoutMs } } } });
+    if (r.error) { problems.push(`${c.label}: processJob failed: ${r.error}`); continue; }
+    if (!r.spawns || r.spawns.length !== 1) { problems.push(`${c.label}: processJob should spawn the launcher once; it spawned ${r.spawns ? r.spawns.length : 0} time(s)`); continue; }
+    const s = r.spawns[0];
+    if (c.nul) {
+      if (s.has) problems.push(`${c.label}: the spawn environment should carry no BRAINSTORM_TASK_JOB_ID when the id holds NUL — Node refuses an environment value with NUL (ERR_INVALID_ARG_VALUE), so the task would fail at launch where before story 6 it ran; it carries ${show(s.jobIdEnv)} (review round 1, requested change 6; ${ADR6} D10)`);
+      if (s.nulKeys && s.nulKeys.length) problems.push(`${c.label}: no spawn environment value may hold NUL; these do: ${show(s.nulKeys)}`);
+    } else if (!s.has || s.jobIdEnv !== String(c.job.id)) {
+      problems.push(`${c.label}: the spawn environment should still carry BRAINSTORM_TASK_JOB_ID ${show(String(c.job.id))}; it ${s.has ? `carries ${show(s.jobIdEnv)}` : 'carries none'} (${ADR6} D10)`);
+    }
+    if (s.structured !== 'true') problems.push(`${c.label}: BRAINSTORM_STRUCTURED_LOGGING should stay 'true' in the spawn environment; got ${show(s.structured)}`);
+    if (s.marker !== 'inherited') problems.push(`${c.label}: the spawn environment should still inherit process.env (a marker set in the parent is ${show(s.marker)})`);
+    const args = Array.isArray(s.args) ? s.args : [];
+    const shapeOk = s.cmd === 'bash' && args.length === 5 && /taskQueue\/launchChildTask\.sh$/.test(String(args[0])) && args[1] === c.job.data.taskName && args[2] === 'task-queue' && args[3] === expectedOptions && args[4] === c.childArgs;
+    if (!shapeOk) problems.push(`${c.label}: the launcher's arguments should stay [launchChildTask.sh, ${show(c.job.data.taskName)}, 'task-queue', ${expectedOptions}, ${show(c.childArgs)}]; got ${s.cmd} ${show(args)}`);
+    if (args.some((a) => String(a).includes(String(c.job.id)))) problems.push(`${c.label}: the job id reaches the launcher's arguments (${ADR6} D10)`);
+  }
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR86: a job id longer than 200 characters (UTF-16 code units, String.prototype.length) never reaches the spawn environment — for the pass and for another task, an id of 201 characters, and one of 199 ASCII characters and one character outside the BMP (201 code units, 200 code points), each spawn the launcher once with no BRAINSTORM_TASK_JOB_ID, so no job id can make the one environment string Linux refuses at 128 KiB or more (E2BIG); an id of exactly 200 characters, for the pass and for another task, and one of 198 ASCII characters and one outside the BMP (200 code units), still carry BRAINSTORM_TASK_JOB_ID unchanged; for every case BRAINSTORM_STRUCTURED_LOGGING stays \'true\', the inherited environment stays, and the launcher\'s arguments are as for any job; the bound is D10\'s pattern\'s, so the pass, which records job: null for any longer id, loses nothing [ADR tagging-edges/0006 D10 "The job id" ({1,200}), "The processor" ("harmless elsewhere") and its note at the fix round; § Constraints "Shared queue code changes only by opt-in" ("leave every other task\'s behaviour unchanged"); story 6\'s review, round 1, requested change 6]', () => {
+  const registryEntry = taskEntry();
+  const OUTSIDE_BMP = String.fromCodePoint(0x1F600);
+  const idOf = (prefix, units, fill, tail = '') => `${prefix}${fill.repeat(units - prefix.length - tail.length)}${tail}`;
+  const cases = [
+    { label: 'the pass, with a job id of 201 characters', job: { id: idOf('reconcileTaggingEdges-', 201, 'a'), data: { taskName: TASK, customerArgs: null, timeoutMs: 1800000 } }, taskDef: 'registry', childArgs: '', units: 201, carried: false },
+    { label: 'another task, with a job id of 201 characters', job: { id: idOf('job-', 201, '1'), data: { taskName: 'someOtherTask', customerArgs: null, timeoutMs: 60000 } }, taskDef: { staticArgs: '--mode all' }, childArgs: '--mode all', units: 201, carried: false },
+    { label: 'another task, with a job id of 199 ASCII characters and one outside the BMP (201 code units)', job: { id: idOf('job-', 201, 'c', OUTSIDE_BMP), data: { taskName: 'someOtherTask', customerArgs: null, timeoutMs: 60000 } }, taskDef: { staticArgs: '--mode all' }, childArgs: '--mode all', units: 201, carried: false },
+    { label: 'the pass, with a job id of exactly 200 characters', job: { id: idOf('reconcileTaggingEdges-', 200, 'b'), data: { taskName: TASK, customerArgs: null, timeoutMs: 1800000 } }, taskDef: 'registry', childArgs: '', units: 200, carried: true },
+    { label: 'another task, with a job id of exactly 200 characters', job: { id: idOf('job-', 200, '2'), data: { taskName: 'someOtherTask', customerArgs: null, timeoutMs: 60000 } }, taskDef: { staticArgs: '--mode all' }, childArgs: '--mode all', units: 200, carried: true },
+    { label: 'another task, with a job id of 198 ASCII characters and one outside the BMP (200 code units)', job: { id: idOf('job-', 200, 'd', OUTSIDE_BMP), data: { taskName: 'someOtherTask', customerArgs: null, timeoutMs: 60000 } }, taskDef: { staticArgs: '--mode all' }, childArgs: '--mode all', units: 200, carried: true },
+  ];
+  for (const c of cases) assert(String(c.job.id).length === c.units, `setup: ${c.label}: the case's id is ${String(c.job.id).length} code units, not ${c.units}`);
+  const brief = (v) => (typeof v === 'string' && v.length > 40 ? `${show(v.slice(0, 30))}… (${v.length} code units)` : show(v));
+  const code = `${CHILD_SAY}
+const cp = require('child_process');
+const { EventEmitter } = require('events');
+const seen = [];
+cp.spawn = function (cmd, args, opts) {
+  const env = (opts && opts.env) || {};
+  seen.push({ cmd, args, has: Object.prototype.hasOwnProperty.call(env, 'BRAINSTORM_TASK_JOB_ID'), jobIdEnv: env.BRAINSTORM_TASK_JOB_ID, structured: env.BRAINSTORM_STRUCTURED_LOGGING, marker: env.TD6_INHERITED_MARKER });
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { write() {}, end() {} };
+  child.pid = 424242;
+  setImmediate(() => child.emit('close', 0));
+  return child;
+};
+let processor = null;
+let err = null;
+try { processor = require(${JSON.stringify(PROCESSOR)}); } catch (e) { err = __first(e); }
+const entry = ${JSON.stringify(registryEntry)};
+const cases = ${JSON.stringify(cases)};
+(async () => {
+  const results = [];
+  for (const c of cases) {
+    const before = seen.length;
+    let error = null;
+    try { await processor.processJob(c.job, c.taskDef === 'registry' ? entry : c.taskDef); } catch (e) { error = __first(e); }
+    results.push({ label: c.label, error, spawns: seen.slice(before) });
+  }
+  __sayNow({ err, results });
+})();
+`;
+  const out = runChild(code, childEnv({ TD6_INHERITED_MARKER: 'inherited' }), 'the processor check');
+  assert(!out.err, `src/manage/taskQueue/queue/processor.js did not load: ${out.err}`);
+  const problems = [];
+  for (const c of cases) {
+    const r = (out.results || []).find((x) => x.label === c.label) || {};
+    const id = String(c.job.id);
+    const expectedOptions = JSON.stringify({ completion: { failure: { timeout: { duration: c.job.data.timeoutMs } } } });
+    if (r.error) { problems.push(`${c.label}: processJob failed: ${r.error}`); continue; }
+    if (!r.spawns || r.spawns.length !== 1) { problems.push(`${c.label}: processJob should spawn the launcher once; it spawned ${r.spawns ? r.spawns.length : 0} time(s)`); continue; }
+    const s = r.spawns[0];
+    if (!c.carried) {
+      if (s.has) problems.push(`${c.label}: the spawn environment should carry no BRAINSTORM_TASK_JOB_ID when the id is longer than 200 characters (UTF-16 code units) — D10's pattern's bound, so no id can reach Linux's 128 KiB limit on one environment string (E2BIG), where the task would fail at launch though before story 6 it ran; it carries ${brief(s.jobIdEnv)} (${ADR6} D10 "The processor"; review round 1, requested change 6)`);
+    } else if (!s.has || s.jobIdEnv !== id) {
+      problems.push(`${c.label}: the spawn environment should still carry BRAINSTORM_TASK_JOB_ID unchanged, ${brief(id)} (String(job.id), within D10's bound of 200); it ${s.has ? `carries ${brief(s.jobIdEnv)}` : 'carries none'} (${ADR6} D10)`);
+    }
+    if (s.structured !== 'true') problems.push(`${c.label}: BRAINSTORM_STRUCTURED_LOGGING should stay 'true' in the spawn environment; got ${show(s.structured)}`);
+    if (s.marker !== 'inherited') problems.push(`${c.label}: the spawn environment should still inherit process.env (a marker set in the parent is ${show(s.marker)})`);
+    const args = Array.isArray(s.args) ? s.args : [];
+    const shapeOk = s.cmd === 'bash' && args.length === 5 && /taskQueue\/launchChildTask\.sh$/.test(String(args[0])) && args[1] === c.job.data.taskName && args[2] === 'task-queue' && args[3] === expectedOptions && args[4] === c.childArgs;
+    if (!shapeOk) problems.push(`${c.label}: the launcher's arguments should stay [launchChildTask.sh, ${show(c.job.data.taskName)}, 'task-queue', ${expectedOptions}, ${show(c.childArgs)}]; got ${s.cmd} ${brief(args)}`);
+    if (args.some((a) => String(a).includes(id))) problems.push(`${c.label}: the job id reaches the launcher's arguments (${ADR6} D10)`);
   }
   assert(problems.length === 0, problems.join('\n        '));
 });

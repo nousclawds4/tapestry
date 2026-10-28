@@ -8,13 +8,13 @@
 
 | Suite | Story 6's tests | Level |
 |---|---|---|
-| `test/tagging-edges-pass-control.test.js` (new) | CT1–CT68, with CT8b, CT55b and CT58b (CT65–CT68 added after Implementation) | component: one `createController(deps)` instance over the shared fakes. CT2 runs in a child process; CT57 uses the real store on a temp dir |
+| `test/tagging-edges-pass-control.test.js` (new) | CT1–CT70, with CT8b, CT55b and CT58b (CT65–CT68 added after Implementation; CT69–CT70 at the fix round, and CT45's title revised) | component: one `createController(deps)` instance over the shared fakes. CT2 runs in a child process; CT57 uses the real store on a temp dir |
 | `test/task-queue-job-gate.test.js` (new) | JG0–JG26 (JG0: the shared fakes' self-check) | module (JG1–JG4); queue integration (JG5–JG8: the real semaphore over a fake Redis; JG9–JG13: the real `initTaskQueue` over `require.cache` stand-ins); component (JG14–JG26) |
 | `test/tagging-edges-pass-routes.test.js` (new) | PX1–PX39, with PX6b (PX21 revised and PX39 added after Implementation) | handler with injected deps (PX1–PX31, PX39); child process (PX32: `pass.js`'s real defaults; PX33–PX37: the real `authMiddleware` in front of the real `handleRunTask`) |
-| `test/tagging-edges-wiring.test.js` | SWR75–SWR84 | source pin (SWR75, SWR77); module (SWR76); child process (SWR78–SWR84) |
+| `test/tagging-edges-wiring.test.js` | SWR75–SWR86 (SWR85 and SWR86 added at the fix round) | source pin (SWR75, SWR77); module (SWR76); child process (SWR78–SWR86) |
 | `test/tagging-edges-state-routes.test.js` | RT17, RT18, RT19 (revised); RT32–RT38 | handler |
 | `test/tagging-edges-runner.test.js` | SR1, SR50, SR68, SR69 (revised); SR78–SR87 | unit over injected ports; SR82 runs in a child process |
-| `test/tagging-pipeline-codes.test.js` | PC1, PC3, PC42 (revised titles); PC54's floors (`codeValues`, `codeValueLiterals`) | source pin |
+| `test/tagging-pipeline-codes.test.js` | PC1, PC3, PC42 (revised titles); PC54's floors (`codeValues`, `codeValueLiterals`); PC55's title (revised at the fix round) | source pin |
 | `test/tagging-pipeline-view.test.js` | TV83–TV110 (TV90 revised and TV109–TV110 added after Implementation) | unit, pure and clock-free |
 | `test/tagging-pipeline-fetch.test.js` | TF25–TF31 | unit, with an injected `fetchImpl` |
 | `test/tagging-pipeline-panel-source.test.js` | PS13, PS14, PS28 (revised); PS29–PS38 (PS37–PS38 added after Implementation) | source pin |
@@ -74,6 +74,7 @@ Two suites use the prefix `SR`. Below, "SR" means the runner suite, and the swit
 | AC-5, only a signed-in owner or admin may read who | PX27, PX28, PX32; CT58; RT37; TV107; B111 | pass-routes; pass-control; state-routes; view; spec | handler; child process; component; unit; browser |
 | AC-5, no who from any route, the task system's public views included: after an owner's and an admin's Run and Stop, a signed-out read of the status, the held list and the Task Explorer's run data, plus the structured events and console output (D11 "Who is never logged") | PX38; CT58, CT58b (the four kinds of start indistinguishable on the public status; closed D12 member sets); RT37 | pass-routes (child process); pass-control; state-routes | child process; component; handler |
 | AC-6, Run and Stop change no schedule entry | CT63, CT36 | pass-control | component |
+| AC-6, follows, mutes and reports are untouched | By construction: no module in `control/*.js`, `pass.js` or `jobGates.js` requires a graph module (the Neo4j driver or `graph.js`), directly or through what they require, and the runner's diff changes no graph statement or write (`graph.js` is not in it). Plus the runner suite, which pins what the pass writes (the row "AC-6, the pass behaves as story 2 defines"). No source pin like story 5's switch-record SR47 was added | runner | unit; by construction |
 | AC-6, Run and Stop leave the real-time path's switch, the Scheduled Tasks entries and the job schedulers alone; the pass catches up after a stopped pass | CT63 (the queue's full surface wrapped, so any remove or scheduler call is seen; `realtime/switch.json`, `switch-history.json` and `scheduled-tasks.json` byte-for-byte unchanged after Run, three kinds of Stop and a refused Stop); CT36; RE70b | pass-control; realtime-engine | component |
 | AC-6, the pass behaves as story 2 defines; a stopped pass leaves its writes | SR50, SR81, SR83, SR85, SR86; the runner suite's existing SR2–SR77 | runner | unit |
 | AC-6, with the path on, it catches up after any pass ends, a stopped one included | RE70b. The engine asks for its catch-up when a watched run's process is no longer alive (`realtime/index.js:995-998`), whatever the outcome; RE70b pins that for `stopped` | realtime-engine | component |
@@ -81,7 +82,7 @@ Two suites use the prefix `SR`. Below, "SR" means the runner suite, and the swit
 | AC-6, the panel's reads still change nothing; only this story's requests are sent | PS13, PS14, PS28; TF31; B38; TF1 (unchanged) | panel-source; fetch; spec | source pin; unit; browser |
 | AC-6, the opening line; the pass section's line on how a pass starts | PS35, B112; PS36, B9 | panel-source; spec | source pin; browser |
 | AC-6, the copy C5-4 changes (the panel change, D20) | PS34; B113 | panel-source; spec | source pin; browser |
-| AC-6, C5-6's copy, if taken | none drafted (optional; the Implementer's) | — | — |
+| AC-6, C5-6's copy: taken. The `no-status` sentence now names a fault in the driver itself | PC55 (its title reworded at the fix round to name the copy as taken; its checks unchanged) | codes | source pin |
 | AC-6, Confirm points at story 7 | B10 (its message); PS14 (its message); PS31 | spec; panel-source | browser; source pin |
 
 **Added by the test review** (these rows complete the table above):
@@ -116,16 +117,33 @@ Implementer's own check changed after Test Design: story § Deviations, last gro
 
 Amendment 1 § B's residual R9 needs no test of its own (the ADR says so); PX21's boundary cases cover its 400.
 
+**Added at the fix round (2026-10-28)** — what story 6's review, round 1, asked of the Tester, item by item:
+
+| Review item | Criterion or reading | Test ids | Test file | Level |
+|---|---|---|---|---|
+| Blocking 1 | D2, amended: "Every comparison with a report's job.id uses the busy item's own jobId — the queue job's id, or for a live pass the report's — never the key." A pass whose job id is `reconcileTaggingEdges@x` (a queue-dashboard add, keyed by its own id) is stopped by that id. Running, with its start recorded at pickup or not: `asked-to-stop`, exactly one SIGTERM to its own pid through the injected `kill`, and its stop entry's `jobId` is `reconcileTaggingEdges@x`. Starting (no record yet): the Stop waits for the first record naming that id and signals its pid, never `pass-not-reachable` | CT69 | pass-control | component |
+| Requested change 5 | A time outside a JavaScript Date's range makes nothing throw. Three waiting jobs: `repeat:sched:99999999999999999`, `repeat:sched:8640000000000001` (one past the range) and a job whose timestamp is 1e17. For each, the snapshot and the status's `control` read queue `ok` and list the job waiting with `since: null`; a Run answers 409 `pass-busy`; the confirm route's start joins; a Stop answers 200 `taken-out-of-line`, recorded, with no schedule start. At pickup, `beforeAcquire` answers `go` and records the start at a valid time. A record whose give-up time is 1e17 still gives a snapshot and the status, and a Run lines up | CT70 | pass-control | component |
+| Requested change 6 | A job id that carries NUL reaches no spawn environment, for the pass and for another task: no `BRAINSTORM_TASK_JOB_ID` and no value holding NUL, while the launcher's arguments, `BRAINSTORM_STRUCTURED_LOGGING` and the inherited environment are as for any job. An ordinary id beside them still carries the variable (SWR78 covers the rest) | SWR85 | wiring | child process |
+| Requested change 6, its follow-up | D10's note at the fix round: the processor also leaves `BRAINSTORM_TASK_JOB_ID` out for an id longer than 200 characters (UTF-16 code units, `String.prototype.length`), D10's pattern's bound, so no id can make the one environment string Linux refuses at 128 KiB or more (`E2BIG`). For the pass and for another task, an id of 201 code units carries no variable, one with a character outside the BMP among them; ids of exactly 200 code units, one with such a character, carry it unchanged. The launcher's arguments, `BRAINSTORM_STRUCTURED_LOGGING` and the inherited environment are as for any job | SWR86 | wiring | child process |
+| Blocking 1, its follow-up | The comments on two test helpers no longer name D2's removed rule. `jobIdOf` (`test/helpers/taggingPipelineFixtures.js`) and `jobIdOfKey` (`test/helpers/taggingEdgesPassFakes.js`, its index line and the function) now say what each is: the default `jobId` a fixture key implies, the legacy id for a legacy key. A dashboard id such as `reconcileTaggingEdges@x` is its own key, and that key has the legacy form, so the helpers read it as the legacy id (for `@<digits>` it is a legacy job's very key, R9 (d)); a fixture for one passes its `jobId`. Names and behaviour unchanged | — (comments only) | the two helpers | — |
+| Blocking 1, its second follow-up | D-a2: the snapshot's finishing-window check (D5) compares the report's `job.id` with the job being classified, not with the phase stored under the key. Outside R9 (d) the two are always equal (the gate stores `String(job.id)` under `keyOf(job)`), so no behaviour changes and no test pins it; R9 needs no test of its own (the ADR says so). pass-control is 73 / 0 before and after | — (unpinned, by design) | — | — |
+| Requested change 7 | C5-6's copy was taken. PC55's title now names the copy as it stands: a fault in the schema check's own code, in the driver itself, or in another library, never Neo4j's answer | PC55 (title only) | codes | source pin |
+| Requested change 8 | AC-6's "Follows, mutes and reports are untouched", with its basis | the AC-6 row above | — | by construction; unit |
+
+BullMQ accepts a `:` in a custom id only as exactly two of them (`node_modules/bullmq/dist/cjs/classes/job.js:1043-1045`
+at 5.76.10). So the seed form `repeat:sched:<entry>:<millis>` cannot be added by hand, and CT70 uses
+`repeat:sched:<millis>`, the form the review's probe used.
+
 ### ADR 0006, by decision group
 
 | Decision | Test ids | Test file | Level |
 |---|---|---|---|
 | **Controller** D1: the module, one instance, the chain, refusals outside the chain | CT1–CT6; JG14, JG23; SWR81 | pass-control; job-gate; wiring | component; child process |
-| D2: an id per start, `LINEUP_ID` accepted by BullMQ, the legacy key, the id's millis, `jobIdOf` | CT7–CT10, CT45 | pass-control | component |
-| D5: the busy snapshot (read order, one shared deadline, the four queue states, the liveness key rules, every classification branch, `stopAskedAt`, sort order, moves between reads, the status-only cache) | CT11–CT24; JG20, JG24 | pass-control; job-gate | component |
+| D2: an id per start, `LINEUP_ID` accepted by BullMQ, the legacy key, the id's millis; every comparison with a report's `job.id` uses the busy item's own `jobId` (amended at the fix round, replacing `jobIdOf`) | CT7–CT10, CT45, CT69 | pass-control | component |
+| D5: the busy snapshot (read order, one shared deadline, the four queue states, the liveness key rules, every classification branch, `stopAskedAt`, sort order, moves between reads, the status-only cache; a time a Date cannot hold) | CT11–CT24, CT70; JG20, JG24 | pass-control; job-gate | component |
 | D6: Run in the controller (the record first, busy, record unavailable, a failed add, the finishing window, the queue off) | CT25–CT30 | pass-control | component |
 | D8: the confirm route's start (join, line up, queue not ready, a failed add, cannot be refused) | CT31–CT34; RT17, RT18, RT19, RT32–RT36; SWR84 | pass-control; state-routes; wiring | component; handler; child process |
-| D9: Stop (waiting, scheduled, running, stale prompt, nothing to stop, pid wait, the signal check, legacy, `run:` targets, restart, queue down, unrecordable, either role) | CT35–CT50 | pass-control | component |
+| D9: Stop (waiting, scheduled, running, stale prompt, nothing to stop, pid wait, the signal check, legacy, `run:` targets, restart, queue down, unrecordable, either role; a job id that starts `reconcileTaggingEdges@`) | CT35–CT50, CT69 | pass-control | component |
 | D11: the record (shape, history, pruning, read error, damaged file, real store with 0700/0600 modes) | CT51–CT57; JG17, JG18, JG25; PX28 | pass-control; job-gate; pass-routes | component; handler |
 | D11: "Who is never logged" | PX38 (structured events recorded through a stand-in, console captured) | pass-routes | child process |
 | D12: the status's `control` member (no who, ISO times, `startRecorded`, the confirmation verdict and its read order, `gaveUp`, a failed read served as such) | CT58–CT62; RT37, RT38 | pass-control; state-routes | component; handler |
@@ -143,7 +161,7 @@ Amendment 1 § B's residual R9 needs no test of its own (the ADR says so); PX21'
 | D14: answers and codes (fixed codes as written, allow-listed `cause`, no full pubkey) | PX30, PX12, PX26; CT27 | pass-routes; pass-control | handler; component |
 | **Runner** D10: handler lifetime (registered after the lock checks; removed last in `finish()`; removed on a first-save failure; during `finish()`; never at top level) | SR78, SR79, SR80, SR86, SR87 | runner | unit |
 | D10: `stopNow()` finishes `stopped` (all five safe points; rewrites unchanged); `exitCodeFor('stopped')` is 0 | SR50, SR68, SR69, SR83, SR85; SR84 | runner | unit |
-| D10: the `job` port, `BRAINSTORM_TASK_JOB_ID`, and the processor's spawn environment | SR1, SR81, SR82; SWR78 | runner; wiring | unit; child process |
+| D10: the `job` port, `BRAINSTORM_TASK_JOB_ID`, and the processor's spawn environment (left out for an id that carries NUL or is longer than 200 characters) | SR1, SR81, SR82; SWR78, SWR85, SWR86 | runner; wiring | unit; child process |
 | D10: the codes guard's floors | PC1, PC3, PC42, PC54. PC18 and PC19 turn red once `stopped` and `requested` are extracted, until they have sentences | codes | source pin |
 | **Wiring and registration** | SWR75 (mounts behind `requireOwnerOrAdmin`); SWR76 (`ROUTE_ACCESS`, `resolveRouteAccess` owner for both POSTs and for GET and HEAD of the record; status still public); SWR77 (`return await` branch); SWR78 (spawn env); SWR79 (`queueHealth`, `jobGates` required by `initTaskQueue`); SWR80–SWR82 (load-time pins); SWR83, SWR84 (defaults). The sweep suites (`admin-action-sweep` AC6a, T2, T4, `admin-action-sweep-access`) cover the new entries unchanged; the entries are the Implementer's, in the same commit as the routes | wiring; `test/registry.js` | source pin; module; child process |
 | **Panel** D15: `sendRun`, `sendStop` (same race, never reject, 15 s default, the one private `raced`) | TF25–TF31; PS13, PS28 | fetch; panel-source | unit; source pin |
@@ -181,6 +199,8 @@ Amendment 1 § B's residual R9 needs no test of its own (the ADR says so); PX21'
 | TF1 | unchanged: every read sends GET | passes |
 | PX21 *(revised 2026-10-28)* | D9's key rule as amended by ADR 0006 Amendment 1 § A: 1 to 256 UTF-16 code units, no U+0000–U+001F, U+007F–U+009F, U+2028 or U+2029; both sides of each boundary (Edge cases above); the 400's sentence names 256, not 120. The header's "Body validation" choice now pins the empty key too | fails against `ca504c42` (the old rule's 400) |
 | `F.applyStop` (`test/helpers/taggingPipelineFixtures.js`) *(revised 2026-10-28)* | the browser mock's Stop body check follows Amendment 1 § A (`isStopKey`, written with ASCII escapes) | no browser test sends a key outside the old rule, so no B test changes status |
+| CT45 *(title revised at the fix round, 2026-10-28)* | the title cites D2's amended rule (the busy item's own `jobId`, never the key) in place of "uses jobIdOf, never the key"; the body is unchanged | passes before and after the fix |
+| PC55 *(title revised at the fix round, 2026-10-28)* | the title names C5-6's copy as taken: a fault in the schema check's own code (what it passes to the driver included), in the driver itself, or in another library, never Neo4j's answer; the checks are unchanged | passes |
 | TV90 *(revised 2026-10-28)* | every sentence of each accepted Stop's text must hold a past-tense verb (`pastProblems`), for one pass, two passes of each `how`, a waiting and a running pass, and an unrecorded Stop; it had read only the whole text, so "It stops at its next safe point." beside a past sentence passed | passes at `ca504c42`; fails with that sentence put back (Verification) |
 
 Pins that pass now, by design: JG0 (the fakes' self-check), JG8, JG13, PX37, RT19, SR87, PC3, PC42, PC54, RE70b, B10, and B58 (title only). Each pins behaviour story 6 must keep, or a floor that holds before and after.
@@ -191,6 +211,10 @@ Pins that pass now, by design: JG0 (the fakes' self-check), JG8, JG13, PX37, RT1
 - [x] A step that throws, or an add that is refused, leaves the chain working (CT5).
 - [x] Queue off or not ready while another step holds the chain: refused at once (CT6, PX6).
 - [x] The legacy fixed id `reconcileTaggingEdges`: keyed `@timestamp`, stopped by job id, recorded as "another way" (CT9, CT45, JG15, JG19, TV100, TV102, B108).
+- [x] A queue-dashboard id that starts `reconcileTaggingEdges@` (`reconcileTaggingEdges@x`): keyed by its own id, and stopped by it, running and starting (CT69). *(Added at the fix round, 2026-10-28.)*
+- [x] A time a Date cannot hold, in a scheduled id's millis, a job's timestamp or a record's give-up time (CT70). *(Added at the fix round, 2026-10-28.)*
+- [x] A job id that carries NUL, for any task: no `BRAINSTORM_TASK_JOB_ID` in the spawn environment (SWR85). *(Added at the fix round, 2026-10-28.)*
+- [x] A job id longer than 200 UTF-16 code units, for any task: no `BRAINSTORM_TASK_JOB_ID`; at exactly 200 it is carried unchanged, a character outside the BMP counting as two (SWR86). *(Added at the fix round, 2026-10-28.)*
 - [x] The seed id form `repeat:sched:seed:reconcileTaggingEdges:<millis>`, colons and all (CT10, CT36, JG17, SR81, PX21, TV106, B84, B93).
 - [x] Each of the four queue reads failing or hanging; one shared deadline (CT12, CT13).
 - [x] A job that moves or vanishes between reads; undefined entries (CT23).
@@ -258,7 +282,7 @@ Pins that pass now, by design: JG0 (the fakes' self-check), JG8, JG13, PX37, RT1
 - **The browser lane** (not in CI):
   - **Build** inside the container into the gitignored `tmp/tp-dist`, never `dist/`. Serve it on `:4174`, and run under Node 22 with Chromium, with `BRAINSTORM_SERVER_ACCESSIBLE=true`.
   - **The page** runs in UTC with `en-GB`, on `page.clock` from `F.NOW`. Every `/api` route is mocked; the catch-all is registered first and answers 599.
-  - **B39 is red before and after this story** (stale baseline, untracked ledger row `ledger/2026-10-28-relay-subtab-baseline-stale.md`). Compare against a baseline run, and do not re-record the AC-6 baseline here.
+  - **B39 is red before and after this story** (stale baseline, ledger row `ledger/2026-10-28-relay-subtab-baseline-stale.md`). Compare against a baseline run, and do not re-record the AC-6 baseline here.
 - **Live evidence** (local stack, then staging) is not part of the gate. See ADR 0006 § Seams "Live and evidence": restart the backend first, the heavy-lock `HSET`, `kill -STOP`/`-CONT`, and the in-container local `curl`.
 
 ## How to run
@@ -435,3 +459,73 @@ The older pins named in the last column stayed green, which is the gap each new 
 `2026-10-28-relay-subtab-baseline-stale`). B116 and B117 pass. `tmp/tp-dist` was removed afterwards. The browser teeth
 used copies of that build in the scratch folder, each with one fix undone in the minified bundle, served on their own
 ports. No source file was changed.
+
+### Fix round (2026-10-28): story 6's review, round 1
+
+Run on `2a361338` plus the uncommitted test changes, with `src/` as committed, through each suite's `run()` on Node
+22.23.3, twice with identical results:
+
+| Suite | Pass | Fail | Skipped | Failing |
+|---|---|---|---|---|
+| tagging-edges-pass-control | 71 | 2 | 0 | CT69, CT70 (red phase) |
+| tagging-edges-wiring | 84 | 2 | 0 | SWR85, SWR86 (red phase) |
+| tagging-pipeline-codes | 54 | 0 | — | — |
+
+*(SWR86 was added later in the round. The wiring row is from one run in a scratch copy of the working tree, with
+`src/` restored to `2a361338`, so the checkout was not touched. Before SWR86 it was 84 / 1 / 0, SWR85 failing.)*
+
+Every other test in the three suites keeps its status, CT45 and PC55 (titles only) included. Each new test fails
+because the code still does what its review item names, never at load or in setup:
+
+```
+FAIL  CT69: … 3 of 3 case(s) failed:
+  [running, its start recorded at pickup] stop(…) … stopped should be [{"how":"asked-to-stop","key":"reconcileTaggingEdges@x"}];
+    it is [{"how":"too-late","key":"reconcileTaggingEdges@x"}] …
+    its own pid 5001 should get exactly one SIGTERM through the injected kill; signalled []
+  [running, its start not recorded at pickup (…)] … it is [{"how":"too-late", …}] … signalled []
+    the stop: the record's entry for reconcileTaggingEdges@x should have {"jobId":"reconcileTaggingEdges@x", …};
+    it has {"jobId":"reconcileTaggingEdges", …}
+  [starting: launched, its first record not written yet] … status 409, not 200 … it answered
+    {"code":"pass-not-reachable","success":false} … signalled [] … it has {"jobId":"reconcileTaggingEdges@x","noRerun":false,"stop":null}
+FAIL  CT70: … 3 of 3 case(s) failed:
+  [repeat:sched:99999999999999999, waiting] the busy list: the snapshot should resolve; it rejected: Invalid time value
+    the busy list: the status's control should read queue 'ok'; it reads "read-failed" (busy [])
+    the busy list: a Run: … should answer status 409; it answered 500
+    the busy list: the confirm route's start should join the waiting job (200 { enqueued: true, joined: true }); it
+      answered 500 {"cause":"error","code":"error","enqueued":false,"success":false}
+    the busy list: a Stop: … status 500, not 200 …
+    the gate: beforeAcquire should answer 'go'; it rejected: Invalid time value
+    the gate: the snapshot while it waits for the lock should resolve; it rejected: Invalid time value
+  [repeat:sched:8640000000000001, waiting] … the same lines
+  [a waiting job whose timestamp is 1e17] … the same lines, its start "by {"kind":"other"}"
+  a record whose give-up time is past a Date's range: the snapshot should resolve; it rejected: Invalid time value
+  … a Run: … status 500, not 200 …
+FAIL  SWR85: the pass, with a job id that carries NUL: the spawn environment should carry no BRAINSTORM_TASK_JOB_ID
+    when the id holds NUL … it carries "reconcileTaggingEdges\u0000x" …
+  the pass, with a job id that carries NUL: no spawn environment value may hold NUL; these do: ["BRAINSTORM_TASK_JOB_ID"]
+  another task, with a job id that carries NUL: … it carries "job\u00001" …; these do: ["BRAINSTORM_TASK_JOB_ID"]
+FAIL  SWR86: the pass, with a job id of 201 characters: the spawn environment should carry no BRAINSTORM_TASK_JOB_ID
+    when the id is longer than 200 characters (UTF-16 code units) — D10's pattern's bound, so no id can reach
+    Linux's 128 KiB limit on one environment string (E2BIG) … it carries "reconcileTaggingEdges-aaaaaaaa"… (201 code units) …
+  another task, with a job id of 201 characters: … it carries "job-11111111111111111111111111"… (201 code units) …
+  another task, with a job id of 199 ASCII characters and one outside the BMP (201 code units): … it carries
+    "job-cccccccccccccccccccccccccc"… (201 code units) …
+```
+
+SWR85's ordinary-id case passes on `2a361338`, so the recorder sees the variable when it is set. So do SWR86's
+three cases of 200 code units.
+
+**The tests can be met.** In a scratch copy of `2a361338` (`git archive`, so the checkout was not touched), the
+round's three code fixes were patched in by hand:
+- `waitForRun`, `signal` and the stop entry compare with `a.jobId`;
+- `toIso` answers null for a time a Date cannot hold, and the stop entry's schedule start and the give-up line go
+  through it;
+- the processor leaves `BRAINSTORM_TASK_JOB_ID` out for an id that carries NUL.
+
+Then pass-control was 73 / 0, wiring 85 / 0 (before SWR86 was added) and codes 54 / 0.
+
+**SWR86 against the working tree.** With the code lane's first fixes in the checkout (the processor leaving the
+variable out only for an id that holds NUL), wiring was 85 / 1 / 0, SWR86 failing with the lines above, and
+pass-control 73 / 0 / 0. In a scratch copy of that working tree, with the processor also leaving the variable out
+for an id longer than 200 characters (`jobId.length > 200`), wiring was 86 / 0 / 0. With that length fix in the
+checkout, wiring is 86 / 0 / 0 and pass-control 73 / 0 / 0 (each suite alone through `run()`, Node 22.23.3).
