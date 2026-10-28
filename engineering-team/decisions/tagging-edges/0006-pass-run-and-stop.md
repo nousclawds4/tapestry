@@ -1,6 +1,7 @@
 # ADR 0006: Running and stopping the pass: one serialised controller, a job id per start, an opt-in job gate, a signal to the exact process, and a private record of who
 
-**Status:** Accepted
+**Status:** Accepted (Amendment 1 appended 2026-10-28 — Stop's target keys are any 1 to 256 characters with no control
+character; residual R9; the Implementer's as-built readings ratified)
 **Date:** 2026-10-02 (re-read on 2026-10-27 against `48de58a7`, after merging `origin/staging`)
 **Story:** `engineering-team/stories/tagging-edges/6-pass-run-and-stop.md`
 **Amends:** ADR `tagging-edges/0002` (run, stop, the stopped outcome, who started a pass, the run-task route's answers
@@ -313,6 +314,7 @@ keeps a Stop working without disk, and leaves schedules untouched. Its costs are
 - **R8.** Since 2026-10-13 the owner's and every admin's keys are public (`/api/about-this-instance`). The public
   `stopAskedAt` therefore narrows who pressed Stop to that set. On an instance with no admins, it says the owner did.
   AC-2 allows the public status to say that a stop was asked for, and when, so this ADR keeps it.
+- **R9.** *(Amended 2026-10-28: a busy job a Stop cannot name; see Amendment 1 § B.)*
 
 **Debt and follow-ups:**
 - The ledger row above closes here; story 7 re-checks it from the panel.
@@ -527,6 +529,7 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
     - Otherwise → `waiting`, `since` as above, `behind: null`.
 - **`stopAskedAt`** comes from `stopsAsked` or the record under the item's key. For a running item, it falls back to a
   `stopsAsked` value or a stop entry with the same `runId`.
+  *(Amended 2026-10-28: an in-memory mark counts for its own execution only; see Amendment 1 § C.)*
 - **Each item** is `{key, jobId, state, since, behind, runId, stopAskedAt}`. Items are sorted running first, then
   waiting by `since`.
 - **Busy** means `items.length > 0`. When `queue !== 'ok'`, only the liveness item is known, and the panel says it
@@ -562,6 +565,7 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
   3. **Then the add** (bounded). If it fails or times out:
      - put the key in `skips`, so a late landing completes without spawning (R1);
      - remove the start entry and its history line (the line whose key is this key) in one best-effort write;
+       *(amended 2026-10-28: the record as it was just before the start's own write; see Amendment 1 § C)*
      - answer 503 `QUEUE_UNAVAILABLE`, or 500 `{code: 'error', cause}`.
   4. Bump `generation` and answer 200 `{success: true, linedUp: true, key, recorded: true}`.
 - **The finishing window.** A Run in that window is not busy (the ending job is not listed). It lines up a new job,
@@ -620,6 +624,7 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
   answer `enqueued: false`. The confirmation stays pending for the next pass, as today.
 - **An add that fails or times out**: put the key in `skips`, remove any start entry and history line already written
   (as D6 step 3), and answer `enqueued: false`.
+  *(Amended 2026-10-28: the take-back is D6 step 3's, as amended; see Amendment 1 § C.)*
 - **The ledger row** closes here (§ Consequences).
 
 **D9. Stop: `stop({who, targets})`.**
@@ -628,6 +633,8 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
   re-checks `ownerOrAdmin`, then requires JSON (415), then validates the body (400). The body is
   `{targets: [{key, state: 'waiting' | 'running'}]}`: one to fifty entries, distinct keys, each key at most 120
   characters of `[A-Za-z0-9:._@-]`.
+  *(Amended 2026-10-28: a key is now 1 to 256 characters with no control character, see Amendment 1 § A; and the
+  busy jobs a Stop cannot name are residual R9, § B.)*
 - **In the chain:**
   1. **`snapshot`** (fresh). If `queue !== 'ok'` and any target is not the snapshot's liveness item, answer 503
      `QUEUE_UNAVAILABLE`. Nothing changes.
@@ -738,6 +745,8 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
 
   Outside that cap, it also keeps every entry with `skip` or `noRerun` whose job the last queue read still found. All
   such entries are kept when that read failed, or when no read has happened yet in this process.
+  *(Amended 2026-10-28: pruning also keeps an entry joined by its stop's `runId`, and entries are own properties; see
+  Amendment 1 § C.)*
 - **Reading.**
   - A missing file reads as empty.
   - A read error is `{unreadable: true, readError: code}`.
@@ -853,6 +862,7 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
     takes the stop of the entry its start joined to, but only when that stop's `runId` is null. This covers a stop
     recorded on an entry with no start, and one recorded under a `run:` key.
   - **A running busy item with a run** takes who from its run, as `LatestPass` does, so the two lines agree.
+    *(Amended 2026-10-28: joined as live, from the item's own state; see Amendment 1 § C.)*
   - **A starting item** (running, `runId` null) uses `startRecorded`:
     - **true:** the entry's who, or "refreshing" while the record answer lacks the entry;
     - **false:** "start not recorded".
@@ -900,7 +910,8 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
     and the snapshot and sets the outcome.
   - **On unknown,** it clears at once, fires the re-reads, and says the outcome is unknown.
   - **It closes by itself** when a read shows nothing busy, but only while it is not pending. It never rewrites its
-    text from later polls.
+    text from later polls. *(Amended 2026-10-28: only on a read whose busy list is known and empty; see Amendment 1
+    § C.)*
 - **The outcomes** of Run and Stop show in PassControls, whether or not Stop is shown, until the next Run or Stop is
   sent.
 - **Section state.**
@@ -1226,3 +1237,266 @@ the run-task route's answers for this pass.`
 - **Naming the heavy lock's holder,** or clearing leaked leases at boot (ledger `2026-09-27-stale-heavy-lease-after-deploy`).
 - **The 30-minute time-out's `kill -9`.**
 - **`confirmationPending.mintedBy`** on the public status: story 7's question.
+
+---
+
+## Amendment 1 — Stop's target keys, residual R9, and the as-built readings (2026-10-28)
+
+**Raised by:** the owner's two decisions of 2026-10-28 on the implemented story (`ca504c42`): "Widen the rule" (§ A,
+§ B) and "Add them now" (the Tester's tests for § C). The text above stays. Dated pointers at D5, D6, D8, D9, D11, D16,
+D17 and § Residuals lead here. Where this amendment and the text above differ, this amendment holds.
+
+### What D9's body rule got wrong
+
+D9 allowed each target key at most 120 characters of `[A-Za-z0-9:._@-]`. The keys a Stop must name are not the app's
+to choose:
+- **The busy list keys every job of the pass's queue by its BullMQ id** (D2, D5). BullMQ 5.76.10 accepts far more than
+  D9's class. This was checked on 2026-10-28 with BullMQ's own `Job` validation and no Redis, as
+  `test/task-queue-jobid-valid.test.js`'s `bullmqRejects` does:
+  - accepted: `manual run`, `job/1`, ids of 300 and 5,000 characters, and ids carrying a newline, NUL, U+0085 or
+    U+2028;
+  - refused, of the ids tried: an integer id, and an id with one `:`. BullMQ lets a `:` through only when the id
+    splits into exactly three parts (probe P1).
+
+  A BullBoard add (R3) can use any of the accepted ids.
+- **Liveness rule 2 accepts a report job id of up to 200 characters** (D5, D10's pattern), past D9's 120.
+- **D9 step 2 makes every open item a required target.** One busy job whose key D9 refused therefore made every Stop
+  fail for as long as that job stayed busy: up to 4 h for a job waiting behind the heavy-task lock. The panel names
+  every open item, so it got 400; a client that left the item out got 409 `prompt-out-of-date`. A Stop of the owner's
+  own pass failed the same way.
+
+### Options
+
+- **Option A: any key the server could have emitted, bounded (chosen; the owner's decision).** A key is any string of
+  1 to 256 characters with no control character. The server only compares it with its own busy list (§ A).
+- **Option B: keep D9's class, and leave out of step 2 any open item whose key the class refuses.**
+  - A Stop would then leave running a busy pass that its prompt showed. The only fix is for the prompt to say that
+    pass cannot be stopped, which is new copy and a new state for a case only an outside add makes.
+  - The item would also keep Run refused `pass-busy` while it waits.
+
+  Rejected.
+- **Option C: a fixed-size handle per busy item.** The status would give each item a `ref` (say, the first 16 hex of
+  the key's SHA-256), and Stop would name refs.
+  - It removes R9 (a).
+  - But it changes the public status's shape and the panel's echo, and adds a collision rule.
+  - It leaves R9 (b), the cap of 50.
+
+  Rejected for a case only an outside add makes.
+
+### A. D9's body rule, as amended
+
+This supersedes D9's sentence "The body is `{targets: [...]}`: one to fifty entries, distinct keys, each key at most
+120 characters of `[A-Za-z0-9:._@-]`."
+- **The body.** A JSON object whose `targets` is an array of 1 to 50 entries.
+  - **Each entry** is an object `{key, state}`, with `state` exactly `'waiting'` or `'running'`.
+  - **Keys are distinct by `===`.** No trimming, no case folding and no Unicode normalisation, because the server's own
+    comparison is `===`.
+  - **Extra members** on the body or on an entry are ignored, and only `{key, state}` reaches the controller (as
+    built).
+  - **Anything else** is 400, before the chain, and changes nothing.
+- **A key** is a string of 1 to 256 characters with no forbidden character.
+  - **Characters are counted in UTF-16 code units,** as JavaScript's `key.length` counts them. An astral character,
+    such as an emoji, counts 2. Why code units:
+    - the comparison the rule guards is JavaScript string equality, which works on code units;
+    - `length` is what the code, the tests and the fakes already measure, with no `u`-flag regex or spread needed;
+    - every key the app makes is ASCII, where the two counts agree;
+    - code units bound the memory and comparison cost directly;
+    - a key of 256 code units has at most 256 code points, so the rule is never looser than a code-point count.
+  - **The forbidden characters:**
+    - U+0000–U+001F (C0), U+007F (DEL) and U+0080–U+009F (C1). Together these are Unicode's general category Cc, so "no
+      control character" means Cc exactly. C1 is included because it is the same category as C0 (U+0085 is a line
+      break in some readers);
+    - U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR). JavaScript treats them as line terminators, as it
+      does `\n` and `\r`, so the set is "nothing that controls or ends a line".
+  - **Everything else is allowed.** That includes the space, U+00A0, the format characters (U+200B–U+200F,
+    U+202A–U+202E, U+2066–U+2069, U+FEFF) and lone surrogates. The panel never renders a key as text: it uses a key
+    only as a React `key`, in comparisons, and in the Stop body's echo, so these cannot mislead a reader. A target the
+    server did not emit is left out at step 2.
+- **The predicate.** Copy it as it is. It has no `g` or `y` flag, because `test` on a global regex keeps `lastIndex`
+  between calls.
+
+  ```js
+  const STOP_TARGETS_MAX = 50;
+  const STOP_KEY_MAX = 256; // UTF-16 code units, as String.prototype.length counts them
+  const STOP_KEY_FORBIDDEN = /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/; // Cc (C0, DEL, C1), LS, PS
+  const isStopKey = (key) => typeof key === 'string'
+    && key.length >= 1 && key.length <= STOP_KEY_MAX
+    && !STOP_KEY_FORBIDDEN.test(key);
+  ```
+
+- **Boundaries.**
+  - **Accepted:**
+    - a 1-unit key, a 256-unit key, and 128 emoji (256 units);
+    - `manual run`, `job/1`, `__proto__` and `constructor`;
+    - a key carrying U+0020, U+007E, U+00A0, U+2027 or U+202A.
+  - **Refused:**
+    - `''`, a 257-unit key, and 128 emoji plus one more character;
+    - a key carrying U+0000, U+001F, U+007F, U+0080, U+009F, U+2028 or U+2029 anywhere;
+    - a key that is not a string;
+    - 0 entries, 51 entries, or two entries with the same key.
+- **Why it is safe.**
+  - **A target's key is only compared.** `stop` uses it for two things only:
+    - to look up the state the prompt showed for each of the snapshot's own open items (a `Map`, step 2);
+    - while the queue cannot be read, to compare it with the live item's key (step 1).
+
+    A target that is not open is left out (step 2). Every mark, record write and signal after that takes its key from
+    the snapshot's item, never from the body. So a key reaches the record, the in-memory marks or a signal only when it
+    is a key the server itself emitted. The pid comes from `report.json`, never from a key.
+  - **Nothing new is disclosed.** The keys the server emits are already on the public status (D12).
+  - **Keys are record property names, read and written as own properties** (§ C, D11). `__proto__`, `constructor` and
+    the like are ordinary entries. In memory, keys index `Map`s and `Set`s, which have no inherited keys.
+  - **A key never becomes** a path, a Redis argument, a shell argument, a regex, or text on the panel.
+  - **The work is bounded:** at most 50 keys of at most 256 units each, compared with one busy list.
+- **The 400's sentence** names the new rule. Its wording is the Implementer's; today's names the 120 rule
+  (`pass.js:90`).
+
+### B. Residual R9: a busy job a Stop cannot name
+
+Stop names every open item (D9 step 2), at most 50 of them, each by a key that § A accepts. While either case below
+holds, every Stop answers 400 from the panel and changes nothing, a Stop of the owner's own pass included. A client
+that leaves the item out gets 409 `prompt-out-of-date` instead.
+- **(a) An open item whose key is longer than 256 code units, or carries a forbidden character.**
+  - **The app never makes one.** Every key the app makes is ASCII, at most 200 characters, with no forbidden character.
+    That covers D2's keys, and D5's legacy, `run:` and rule-2 keys. Scheduled Tasks entry ids are either minted
+    `entry-<uuid>` or are the seeds.
+  - **Only an add outside the app makes one:** a BullBoard add (R3), or a hand-edited entry id in
+    `scheduled-tasks.json`.
+- **(b) More than 50 open items.**
+  - **From BullBoard:** more than 50 adds.
+  - **Through the app:** more than 50 enabled Scheduled Tasks entries for this task whose runs come due while a pass is
+    busy. Each entry's scheduler keeps one due run (probe Q2). The panel already warns when more than one entry is
+    enabled (ADR 0004).
+
+**What the panel shows** (as built at `ca504c42`):
+- The busy list shows each item as usual, Stop stays shown, and the prompt opens with a block per item.
+- On confirm, `sendStop` sends every open item. The server answers 400 with no `code`, and `stopOutcome` reads that as
+  `failed`, with `code: 'http-400'`.
+- After the re-reads the prompt closes, and PassControls shows, in the `bad` tone: "The server answered with an error
+  status that does not say whether the stop took effect. What is busy shows here from the next read. Try again. If it
+  repeats, check the control panel's log, /var/log/supervisor/brainstorm.log in the tapestry container. Code:
+  `http-400`".
+
+**The way out** is BullBoard (`/admin/queues`, on the owner's side). Remove the job there while it is in BullMQ's
+wait, paused or prioritized state, or delayed when it is not a scheduler's. BullBoard cannot clear two cases:
+- **A job the worker has picked up,** whether waiting for the heavy-task lock or running, cannot be removed (probe P5).
+  It leaves the busy list when it ends: when its pass ends, or when its lock wait gives up after 4 h.
+- **A due scheduled run** cannot be removed directly (probe Q2). Disable its Scheduled Tasks entry instead:
+  `removeJobScheduler` deletes a due run still in `delayed`. That is also the way out of (b) through the app.
+
+**(c) Found while writing this amendment; § A does not change it.** This case covers a *running* pass whose BullMQ id
+is outside D10's pattern: it has a character outside `[A-Za-z0-9:._@-]` (such as `manual run` or `job/1`), or more
+than 200 characters. Only a BullBoard add makes such an id.
+- **Two listings for one process.** The pass records `job: null` (D10), so liveness rule 3 lists it as `run:<runId>`.
+  Rule 1 cannot match its active job, so the job is listed again, under its own key, as running and starting (D5, phase
+  `launched`). The panel therefore shows two running passes for one process.
+- **Every Stop is refused.** Each one waits 3 s for that key's first record, which never names it, and then answers
+  409 `pass-not-reachable` (D9 step 3), unless the job ends within those 3 s. The panel shows: "The stop was refused:
+  the pass was starting and had not yet recorded its process, so nothing changed. Press Stop again."
+- **How long it lasts.** Until the pass ends (usually seconds; at worst its 30-minute time-out) and its job's
+  finishing window has passed. The job is active, so BullBoard cannot remove it.
+- **What § A changes here.** Before this amendment the same running job gave 400, because its key failed the
+  120-character rule, so § A leaves this case where it was. § A does fix the same job while it waits, which is the
+  long case (up to 4 h).
+- **Not decided here.** Aligning D10's pattern with § A's rule would let rule 1 match the job, which would end the
+  double listing. That changes what the public report may carry (§ Constraints), so it is the owner's call.
+
+R9 is a residual and needs no test of its own. § A's boundary cases cover the 400.
+
+### C. The as-built readings, ratified (the Implementer's own check, 2026-10-28)
+
+The story's § Deviations, in the group "After the Implementer's own check against the ADR", changed the code after Test
+Design. Each reading below is now the contract, and the Tester's tests for them (the owner's "Add them now") pin it.
+Code references are to `src/pipeline/tagging-edges/control/index.js` at `ca504c42` unless another file is named.
+- **D6 step 3 and D8: the take-back of a failed add.**
+  - **As built.** The start's write keeps a copy of the record it wrote over (`commitStart`'s `prior`). After a damaged
+    file is renamed aside, that copy is a fresh, empty record. When the add fails or times out, one best-effort write
+    (`takeBack`) puts back that copy's `passes` and `history`, pruned as every write is (D11).
+  - **When it runs.** Run takes back only after its start was written: a failed start write answers 500
+    `record-unavailable` before any add. The confirm route takes back only when its start write succeeded. Both writes
+    are in one chain step.
+  - **Only states what the original meant:** the record as if the start had never been asked for. It supersedes the
+    literal "remove the start entry and its history line", which would lose an older line or entry that the start's
+    caps (10 lines, 40 entries) had pushed out. What a reader sees is unchanged: after a failed add there is no start
+    in `passes` or `history`.
+- **D11: pruning also keeps an entry joined by its stop.**
+  - **As built, what counts as joined.** An entry is joined to a run in `report.json` (`latest` or `previous`) when
+    its `jobId` is that run's `job.id`, *or when its `stop.runId` is that run's `runId`*.
+  - **The order within the cap of 40:** the step's own keys, then the keys busy at the last snapshot, the keys with a
+    gate phase, the keys `history` names, and then the joined entries.
+  - **Beyond the cap,** every `skip` or `noRerun` entry whose job the last queue read found is kept. All of them are
+    kept when that read failed, or when none has run yet.
+  - **A `report.json` read that throws** while pruning keeps every entry.
+  - **Changes the contract:** one more kept class, and the rule for a read that throws. It matches D16's join, which
+    finds a stop by `stop.runId` under any key. Without it, the `run:<runId>` entry of a stopped hand run or orphan
+    (its `jobId` null) was dropped while its run was still shown, and the run read "stopped on request (who and when
+    not recorded)".
+- **D11: entries are own properties.**
+  - **As built.**
+    - **Found** only as the record's own property (`Object.prototype.hasOwnProperty.call`, in `entryAt`).
+    - **Created** with `Object.defineProperty` (enumerable, writable, configurable), never by assignment (`entryIn`).
+    - **Iterated** with `Object.entries` and `Object.values`, and **pruned** through `Object.fromEntries`.
+    - **Round-tripped** through `JSON.parse` and `JSON.stringify`, which keep a `__proto__` member as an own one.
+  - **The panel** reads the record answer the same way (`own()` in `passWho`, `ui/src/utils/taggingPipelineView.js`).
+    So any key, `__proto__` and `constructor` included, is an ordinary entry.
+  - **Only states what the original meant:** `passes` maps a key to its entry. The rule binds every later reader and
+    writer of the record. It was needed before § A too, because `__proto__` matched D9's old class.
+- **D5: `stopAskedAt`, one execution per mark.**
+  - **As built.** An in-memory mark under the item's key (`stopsAsked`, read by `stopAskedOf`) counts only for the
+    execution it was asked for:
+    - a running item with a `runId`: when the mark's `runId` is null or the same;
+    - a running item with no `runId` yet (starting): when its launch (`phases.since`) is no later than the mark;
+    - a waiting item: never.
+  - **The rest of D5 stands.** The record's stop under the item's key counts as written. A running item with a `runId`
+    falls back to any mark or record stop with that `runId`.
+  - **Changes the contract** by narrowing D5's letter. The story already required it:
+    - AC-3: a pass that lines up after a stop was asked for is not covered by that stop;
+    - D9: the skip is per job.
+
+    So a re-run of the same job id in the same process is not shown as already stopped, whether it follows a stop that
+    could not be recorded (R2) or comes through BullBoard (R3). Stop applies to it in its turn.
+- **D16: a running busy item's who.**
+  - **As built.** A busy running item whose `runId` names a run in the status takes who from that run, joined as live
+    (`runWho(run, entries, true)`), not from `status.running`.
+  - **Only states what the original meant:** "as `LatestPass` does, so the two lines agree". A `control` served from
+    D5's 1 s reuse can say running while `status.running` says the run has ended, and the line must not say "running"
+    and "stopped on request" together.
+- **D17: the Stop prompt closes by itself only on a known, empty read.**
+  - **As built** (`TaggingPipelinePanel.jsx`, `nothingBusy`). It closes when a read's busy list is known
+    (`control.queue === 'ok'`, which is `busyView`'s `known`) and empty, and never while its stop is under way. A read
+    that cannot tell leaves it open.
+  - **Only states what the original meant:** "when a read shows nothing busy". A read that cannot tell is never
+    "nothing waiting" (AC-2). It supersedes the story's earlier panel deviation "whether or not the queue state is
+    known".
+
+The other items in that group, PassControls' `key` and the copy, are the Implementer's under D17 and D19, and need no
+note.
+
+### D. Docs and code that follow
+
+**For the Implementer:**
+- **`BIBLE.md:677`** (§11, the `POST /api/tagging-edges/pass/stop` row). "each at most 120 characters of
+  `A-Za-z0-9:._@-`" becomes § A's rule: each 1 to 256 characters (UTF-16 code units), with no control character
+  (U+0000–U+001F, U+007F–U+009F) and no U+2028 or U+2029.
+- **`OPERATIONS.md:723`** (§12.8, "Stopping it"). It states no key rule. Add one sentence on R9's way out, for when
+  every Stop fails with `http-400` (or `pass-not-reachable`) while a job added in BullBoard is busy:
+  - remove the job in BullBoard if it has not been picked up yet;
+  - disable the Scheduled Tasks entry of a due scheduled run;
+  - or wait for a picked-up job to end.
+- **`src/api/openapi.yaml`.** It has no `/api/tagging-edges/pass/stop` entry and states no 120 rule, so nothing
+  changes.
+- **BIBLE's Last-updated line and its §16 story-6 entry.** Neither states the key rule, so neither changes.
+- **The code.** `src/api/tagging-edges/pass.js:29` (`TARGET_KEY_RE`), `:90` (the 400's sentence) and `:95` follow § A's
+  predicate.
+
+**For the Tester** (Phase 3's lane, listed so nothing is missed):
+- PX21 in `test/tagging-edges-pass-routes.test.js`: its title at `:849`, the 120-character case at `:879`, and the
+  header note at `:95`;
+- the browser mock's Stop body check, `test/helpers/taggingPipelineFixtures.js:1419`;
+- the test plan's body-rules line, `6-pass-run-and-stop.test-plan.md:193`.
+
+### Consequences of the amendment
+
+- **What a Stop can now name.** Every busy job the app makes. Also any job a BullBoard add makes whose key is at most
+  256 code units with no forbidden character, waiting or running, apart from R9 (c).
+- **What does not change:** the public status, the record's shape, the panel, and every other route.
+- **Firmware reinstall required?** No. No concept definition changes.
