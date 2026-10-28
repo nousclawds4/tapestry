@@ -443,7 +443,7 @@ Node 22.23.3, full `npm test`, read from the run records (`gate:status`):
   - pass-routes, 40;
   - job-gate, 27.
 
-  Each changed suite, before → after:
+  Each suite whose counts changed, before → after:
   - runner, 77 → 87;
   - wiring, 74 → 84;
   - state-routes, 55 → 62;
@@ -451,6 +451,8 @@ Node 22.23.3, full `npm test`, read from the run records (`gate:status`):
   - fetch, 24 → 31;
   - panel-source, 28 → 38;
   - realtime-engine, 82 → 83.
+
+  Two more were edited with unchanged counts: codes (54) and switch-record (47).
 - **No other suite changed.** The same 16 suites fail in all three runs, with the same pass, fail and skip counts and
   the same failing tests. They are this host's live-stack set.
 - **The browser spec** passes 120 of 121 on Chromium, twice, against the UI built inside the container from the
@@ -478,8 +480,10 @@ The backend was restarted at 14:41:54Z with `scripts/dev-refresh.sh`, running `5
 - **A running pass, stopped.**
   - **The setup.** The owner's Run lined up `reconcileTaggingEdges-4362bb686e54`. A watcher sent `SIGSTOP` when its
     first record appeared (run `20261028T144351Z-e23b30c3`, `job.id` the key, phases `identities`, `schema`).
-  - **The Stop** answered 200 `asked-to-stop`. The pass's `/proc` status then showed exactly one SIGTERM pending
-    (`ShdPnd` bit 15) on its own pid.
+  - **The Stop** answered 200 `asked-to-stop`. The pass's `/proc` status then showed SIGTERM pending (`ShdPnd`,
+    signal 15) on its own pid. That mask shows a signal is pending, not how many were sent. That only one was sent
+    rests on the controller, which calls `kill` once per running target, and on the tests that pin one SIGTERM (CT37,
+    CT41).
   - **While the pass was still stopped.**
     - The status listed it as running, with `stopAskedAt` 14:44:00.491Z.
     - A Run was refused `pass-busy`.
@@ -493,9 +497,14 @@ The backend was restarted at 14:41:54Z with `scripts/dev-refresh.sh`, running `5
 - **No who reached a signed-out reader.** Signed-out reads of the status, the held list and the Task Explorer's data
   for this task carry neither the owner's key nor any recorded who. Neither do `report.json`, the task events and the
   structured log.
-  - **The backend's console log.** It names the owner's key only in lines older than this story: the config reader's
-    "Found BRAINSTORM_OWNER_PUBKEY" and the sign-in route's own lines. That key is already public at
-    `/api/about-this-instance`.
+  - **The backend's console log.** It names the owner's key only in lines written by code older than this story:
+    - the config reader's "Found BRAINSTORM_OWNER_PUBKEY" and "Found BRAINSTORM_ADMIN_PUBKEYS=" lines (the local
+      admin list holds the owner's key);
+    - the sign-in route's own lines;
+    - the profile-metadata lines (`src/api/export/profiles/queries/kind0.js`).
+
+    The story's diff adds no `console.*` call. That key is already public at `/api/about-this-instance`.
+    *(Corrected at the review fix round, 2026-10-28: the list named only the owner-key line and the sign-in route.)*
 - **Left for staging** (the evidence plan): the owner's and an admin's Runs with who shown, an admin stopping a waiting
   pass while other heavy work holds the lock, and a stranger's "no who".
 
@@ -535,9 +544,12 @@ These are small judgement calls made at Implementation (2026-10-28), too small f
     story 5's refusals do.
   - **The delegate's own `message` texts** are this story's wording for 503, 500 and its 401 and 403s. D7 fixes only
     the 200 and 409 texts, and those are used as written.
-  - **When the status's snapshot fails.** If the snapshot rejects, or answers something that is not an object, the
-    status still serves the report. Its `control` is then `{queue: 'read-failed', busy: [], gaveUp: null}`, never a
-    500.
+  - **When the status's snapshot fails.** If the snapshot rejects, or answers null or undefined, the status still
+    serves the report. Its `control` is then `{queue: 'read-failed', busy: [], gaveUp: null}`, never a 500. Any other
+    answer is not checked: its `queue`, `items` and `gaveUp` become `control`'s `queue`, `busy` and `gaveUp`, so a
+    string, number, boolean or `{}` gives `control: {}`. The real controller always answers `{queue, items, gaveUp}`.
+    *(Corrected at the review fix round, 2026-10-28: this read "answers something that is not an object", which
+    `controlOf` never checked.)*
   - **`index.js`'s `defaultDeps`** loses `isQueueAvailable`, `runViaQueueAsync` and `taskTimeoutMs`. Nothing in the
     file calls them after D8.
   - **The confirm route** copies `jobId` only when it is a string. It adds `joined: true` only when the controller says
@@ -573,8 +585,10 @@ These are small judgement calls made at Implementation (2026-10-28), too small f
     sentence, rather than every run reading "start not recorded".
   - **Tones.**
     - A Stop is `ok`; `neutral` when every target came too late; `warn` when it was not recorded.
-    - For the other outcomes, the refusals and unknown are `warn`, nothing-to-stop is `neutral`, and the failures are
-      `bad`.
+    - For the other outcomes, the 409 refusals (`pass-busy`, `prompt-out-of-date`, `pass-not-reachable`) and unknown
+      are `warn`, and nothing-to-stop is `neutral`. The 401 and 403 refusals, queue-unavailable, record-unavailable and
+      failed are `bad`, as in story 5. *(Corrected at the review fix round, 2026-10-28: this read "the refusals and
+      unknown are `warn` … the failures are `bad`", which `PASS_ACTION_TONE` never did.)*
   - **Outcomes show the allow-listed `cause`** beside story 5's status and code.
   - **`passReason.requested`** also says that a claimed confirmation is used up (SR69).
   - **C5-6 was taken.** The `no-status` premise names a fault in the driver itself beside another library. No test
@@ -583,7 +597,9 @@ These are small judgement calls made at Implementation (2026-10-28), too small f
   - **While a stop is under way,** the prompt's Cancel is disabled as well as its stop button. A Cancel then would only
     close the prompt, and would suggest the stop was called off.
   - **What the open prompt replaces.** It takes the Stop button's place; Run a pass now stays.
-  - **It closes by itself** when the busy list read is empty, whether or not the queue state is known.
+  - **It closes by itself** only on a read that knows nothing is busy. *(Corrected at the review fix round,
+    2026-10-28: this read "when the busy list read is empty, whether or not the queue state is known", which no
+    committed code did. See the later bullet "The Stop prompt closes by itself" and ADR Amendment 1 § C, D17.)*
   - **A busy item's stop line** comes from `passWho` when it has one, else from `busyView`'s who-free `stopLine`.
   - **A failed record read** shows `ReadFailed` with Retry. A record answer that is unreadable or damaged shows its
     sentence with no Retry; the 5 s poll re-reads it.
@@ -636,6 +652,35 @@ These are small judgement calls made at Implementation (2026-10-28), too small f
     no control character and no U+2028 or U+2029".
   - **OPERATIONS §12.8's R9 bullet** also names the in-app case, more than 50 enabled Scheduled Tasks entries (§ B
     (b)), and the doubly listed pass's `pass-not-reachable` (§ B (c)), since both have the same way out.
+- **The fix round (review round 1, 2026-10-28).**
+  - **A report's job id is compared with the item's own.** `waitForRun` and `signal` now compare the report's `job.id`
+    with the busy item's own `jobId` (the queue job's id, or for a live pass the report's), and the stop entry records
+    that `jobId`. None of them uses a value derived from the key, and `jobIdOf`, which had no other caller, is removed.
+    - **The snapshot too.** Its finishing-window check, which reads a launched job's own run as ended, compares the
+      report's `job.id` with the id of the job it is classifying, not with the id stored under the job's key. So the
+      amended D2 rule holds there as well, for R9 (d)'s two jobs under one key included.
+    - **Why.** `jobIdOf` mapped every key that starts `reconcileTaggingEdges@` to the legacy id. So a Stop of a running
+      pass whose queue-dashboard id had that form sent no signal and answered too late, and a Stop of a starting one
+      answered `pass-not-reachable` (Blocking 1; CT69).
+    - **What stays.** `keyOf`'s key scheme and the `run:` rule are unchanged. The one pair the key scheme still cannot
+      tell apart is the Architect's residual R9 (d).
+  - **A time outside a JavaScript Date's range.** `toIso` returns null when `new Date(ms)` is invalid, so neither the
+    status snapshot nor the start's record throws on such a time.
+    - A busy item with such a time is served with `since: null`.
+    - The stop entry leaves out its schedule start, and the status's `gaveUp.at` is null rather than a throw.
+    - **Why.** One busy job with such a time, in its id or its timestamp, could otherwise make the status say it cannot
+      tell what is waiting, make Run, Stop and the confirm route answer 500, and fail the job at pickup (Requested 5;
+      CT70).
+  - **The job id in a task's environment.** `processor.js` sets `BRAINSTORM_TASK_JOB_ID` only when the job's id has no
+    NUL character and is at most 200 characters long (UTF-16 code units, `String.prototype.length`). Otherwise it
+    leaves the variable out: the task launches as it did before this story, and the pass records `job: null`, as for
+    any id outside D10's pattern.
+    - **Why no NUL.** Node refuses an environment value that holds NUL, so a job of any task with such an id would fail
+      at launch, where before this story it ran (Requested 6; SWR85).
+    - **Why 200.** Linux refuses any one environment string of 128 KiB or more (`E2BIG`), and BullMQ accepts an id that
+      long, so a job of any task with such an id would also fail at launch. The bound is D10's pattern bound, which the
+      pass already applies before it records an id. The pass is the variable's only reader, so no reader loses
+      anything, and the corner is closed (SWR86).
 
 ## Linked artifacts
 

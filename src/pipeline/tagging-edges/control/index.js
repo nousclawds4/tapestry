@@ -52,20 +52,20 @@ const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const entryAt = (passes, key) => (Object.prototype.hasOwnProperty.call(passes, key) && isObject(passes[key]) ? passes[key] : null);
 const msOf =(v) => (typeof v === 'number' ? v : Date.parse(v));
 const iso = (ms) => new Date(ms).toISOString();
-const toIso = (v) => { const t = msOf(v); return Number.isFinite(t) ? iso(t) : null; };
+/** An ISO string, or null for a time a Date cannot hold (not finite, or past its range), so it never throws. */
+const toIso = (v) => { const t = new Date(msOf(v)); return Number.isNaN(t.getTime()) ? null : t.toISOString(); };
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 const emptyRecord = () => ({ version: 1, passes: {}, history: [] });
 
 // ─── job ids and keys (D2) ───────────────────────────────────────────────────────────────────────────────────────
 
-/** A job's key: its id, or `<id>@<timestamp>` for the legacy fixed id, which is reused (a stalled re-run keeps it). */
+/**
+ * A job's key: its id, or `<id>@<timestamp>` for the legacy fixed id, which is reused (a stalled re-run keeps it).
+ * Every comparison with a report's job.id uses the busy item's own jobId, never the key.
+ */
 function keyOf(job) {
   const id = String(job.id);
   return id === LEGACY_ID ? `${id}@${job.timestamp}` : id;
-}
-/** The job id a key stands for; every comparison with a report's job.id uses this, never the key. */
-function jobIdOf(key) {
-  return typeof key === 'string' && key.startsWith(`${LEGACY_ID}@`) ? LEGACY_ID : key;
 }
 const isScheduled = (id) => String(id).startsWith(SCHED_PREFIX);
 /** The digits after a scheduled id's last ':' (the entry id may itself contain ':'), or null. */
@@ -384,7 +384,7 @@ function createController(deps) {
             items.push(waiting(job, key, 'heavy-work'));
           } else if (phase && phase.phase === 'launched') {
             // Its own run has ended while the job is still active: the finishing window, not busy.
-            const ownRun = !!latest && isObject(latest.job) && String(latest.job.id) === phase.jobId && msOf(latest.startedAt) >= phase.since;
+            const ownRun = !!latest && isObject(latest.job) && String(latest.job.id) === String(job.id) && msOf(latest.startedAt) >= phase.since;
             const ending = (ownRun && (latest.endedAt != null || !alive)) || endedRecently(key);
             if (!ending) items.push({ key, jobId: String(job.id), state: 'running', since: phase.since, behind: null, runId: null });
           } else if (!endedRecently(key)) {
@@ -423,7 +423,7 @@ function createController(deps) {
       if (Number.isFinite(at) && (!gave || at > gave.at)) gave = { key, at };
     }
     const startedMs = latest ? msOf(latest.startedAt) : NaN;
-    const gaveUp = gave && !(Number.isFinite(startedMs) && startedMs >= gave.at) ? { key: gave.key, at: iso(gave.at) } : null;
+    const gaveUp = gave && !(Number.isFinite(startedMs) && startedMs >= gave.at) ? { key: gave.key, at: toIso(gave.at) } : null;
 
     const out = {
       queue,
@@ -464,9 +464,9 @@ function createController(deps) {
   }
 
   /**
-   * snapshot({ fresh }) or snapshot(d, { fresh }) → { queue, items, gaveUp }, every time an ISO string. Without fresh
-   * (the status route) one computed in the last second is reused while it carries the current generation; one from an
-   * older generation, in flight or done, is neither served nor kept.
+   * snapshot({ fresh }) or snapshot(d, { fresh }) → { queue, items, gaveUp }, every time an ISO string, or null for
+   * one a Date cannot hold. Without fresh (the status route) one computed in the last second is reused while it carries
+   * the current generation; one from an older generation, in flight or done, is neither served nor kept.
    */
   function snapshot(a, b) {
     const opts = isObject(b) ? b : (isObject(a) ? a : {});
@@ -557,7 +557,7 @@ function createController(deps) {
     const until = Date.now() + d.timers.pidWaitMs;
     for (;;) {
       const latest = await latestRun();
-      if (latest && isObject(latest.job) && String(latest.job.id) === jobIdOf(a.key) && (!a.phase || msOf(latest.startedAt) >= a.phase.since)) {
+      if (latest && isObject(latest.job) && String(latest.job.id) === a.jobId && (!a.phase || msOf(latest.startedAt) >= a.phase.since)) {
         return { runId: latest.runId, ended: latest.endedAt != null || !(await aliveOf(latest)) };
       }
       if (endedRecently(a.key)) return 'gone';
@@ -571,7 +571,7 @@ function createController(deps) {
     const latest = await latestRun();
     if (!latest || latest.endedAt != null) return false;
     const sameRun = (!a.runId || latest.runId === a.runId)
-      && (a.key.startsWith('run:') || (isObject(latest.job) && String(latest.job.id) === jobIdOf(a.key)));
+      && (a.key.startsWith('run:') || (isObject(latest.job) && String(latest.job.id) === a.jobId));
     if (!sameRun || (a.phase && !(msOf(latest.startedAt) >= a.phase.since))) return false;
     if (!(await aliveOf(latest))) return false;
     const pid = isObject(latest.process) ? latest.process.pid : null;
@@ -618,12 +618,12 @@ function createController(deps) {
     // Then the record.
     const wrote = await commit((r) => {
       for (const a of acts) {
-        const e = entryIn(r, a.key, a.key.startsWith('run:') ? a.jobId || null : jobIdOf(a.key));
+        const e = entryIn(r, a.key, a.jobId || null);
         e.stop = { at, runId: a.state === 'running' ? a.runId || null : null, who };
         if (a.state === 'waiting') {
           e.skip = true;
-          const millis = isScheduled(a.key) ? millisOf(a.key) : null;
-          if (millis !== null && !e.start) startOf(a.key, e.jobId, iso(millis), { kind: 'schedule' })(r);
+          const due = isScheduled(a.key) ? toIso(millisOf(a.key)) : null; // null: no millis, or none a Date can hold
+          if (due !== null && !e.start) startOf(a.key, e.jobId, due, { kind: 'schedule' })(r);
         } else {
           const rerunKey = rerunKeyOf(a);
           if (rerunKey) entryIn(r, rerunKey, rerunKey).noRerun = true;

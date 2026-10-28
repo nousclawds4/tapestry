@@ -129,14 +129,22 @@ function runWithResolvedArgs({ job, taskDef, taskName, customerArgs, queryParams
 
     console.log(`[task-queue] processor invoking launchChildTask for: ${taskName} (job ${job.id})`);
 
+    // BRAINSTORM_TASK_JOB_ID: the BullMQ job id, for every task (ADR
+    // tagging-edges/0006 D10); the gap-filling pass records it. Left out when
+    // the id holds a NUL, which Node refuses in an environment value, or is
+    // longer than 200 characters (UTF-16 code units): Linux refuses one
+    // environment string of 128 KiB or more, and the pass reads only ids of at
+    // most 200 characters (D10's pattern). The task then launches as before
+    // story 6, and the pass records job: null.
+    const jobId = String(job.id);
+    const jobIdEnv = jobId.includes('\0') || jobId.length > 200 ? {} : { BRAINSTORM_TASK_JOB_ID: jobId };
+
     const child = spawn(
       'bash',
       [launchChildTaskPath, taskName, 'task-queue', optionsJson, childArgs],
       {
         stdio: ['pipe', 'pipe', 'pipe'],
-        // BRAINSTORM_TASK_JOB_ID: the BullMQ job id, for every task (ADR
-        // tagging-edges/0006 D10); the gap-filling pass records it.
-        env: { ...process.env, BRAINSTORM_STRUCTURED_LOGGING: 'true', BRAINSTORM_TASK_JOB_ID: String(job.id) }
+        env: { ...process.env, BRAINSTORM_STRUCTURED_LOGGING: 'true', ...jobIdEnv }
       }
     );
 

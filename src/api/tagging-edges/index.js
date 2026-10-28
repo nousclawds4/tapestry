@@ -195,8 +195,8 @@ function fsError(res, err) {
 
 /**
  * The status's `control` member (ADR tagging-edges/0006 D12): the controller's busy snapshot, which carries no who and
- * every time as an ISO string — reused for up to a second while nothing has changed (D5). A snapshot that cannot be
- * taken reads as "cannot tell", never as nothing busy, and never hides the report.
+ * every time as an ISO string, or null when it cannot be dated — reused for up to a second while nothing has changed
+ * (D5). A snapshot that cannot be taken reads as "cannot tell", never as nothing busy, and never hides the report.
  */
 async function controlOf(d) {
   try {
