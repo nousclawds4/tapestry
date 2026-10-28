@@ -426,6 +426,137 @@ None, once the owner ratifies the Product Owner's proposals below by approving t
     - an admin stops a waiting pass, while other heavy database work holds the shared lock;
   - production gets read-only checks only.
 
+## Deviations
+
+These are small judgement calls made at Implementation (2026-10-28), too small for an ADR amendment.
+
+- **The controller** (`src/pipeline/tagging-edges/control/`).
+  - **Answers.** `lineUp` and `stop` always resolve `{status, body}` and never reject. An unexpected throw inside a
+    step answers 500 `{code: 'error', cause}`, with `cause` allow-listed. In confirm mode it also answers
+    `enqueued: false`.
+  - **A failed add.** An add that times out answers 503 `QUEUE_UNAVAILABLE`; one that is refused answers 500
+    `{code: 'error', cause}`. D6 allows either. The add gets a fresh `stepMs` (2000 ms) of its own.
+  - **The job data's `timeoutMs`** comes from a default dep, `taskTimeoutMs()`, which reads the registry the way
+    `queue/index.js` does. It is not in § Seams' deps list, so the tests use the default.
+  - **No flag check.** The controller never reads the task-queue flag. The queue-off refusal is the handlers' (PX6,
+    PX6b).
+  - **`endedKeys` expire by `now()`** when they are read and on each `gate.ended`, with no timer. That is the same
+    10 s in production.
+  - **The status cache** measures its 1000 ms in real time. A status snapshot still in flight is shared only by
+    readers of the same generation. A `fresh: true` snapshot never reads or writes the cache.
+  - **The record is re-read on every use** while its last read was unreadable or damaged, not only before a write.
+    Nothing is written while it gives a read error. A file that parses but is not `{version: 1, passes, history}` is
+    treated as damaged, and renamed aside before a fresh write.
+  - **Two extra checks.** The pre-signal check also requires `latest.runId` to equal the target's `runId` when that is
+    known. Any throw from `kill` reads as too late.
+  - **When a read throws.**
+    - A `listClaimed` throw gives a running item's verdict `'cannot-tell'`.
+    - A `readConfirmation` throw counts as pending.
+    - A `queueHealth` throw counts as `'not-ready'`.
+  - **Who is normalised before it is recorded:** `{kind}`, plus an 8-character `key` for the owner or an admin. A
+    full pubkey cannot reach the record.
+  - **A `run:` stop target.** Its `noRerun` goes only under the report's job id, and only when that id is not the
+    legacy one and matches D10's pattern. The `run:` entry itself keeps `noRerun: false`.
+- **The routes** (`src/api/tagging-edges/pass.js`, `index.js`, `runTask.js`).
+  - **Sentences beside codes.** Run's and Stop's refusals carry an `error` sentence beside the fixed `code`, as
+    story 5's refusals do.
+  - **The delegate's own `message` texts** are this story's wording for 503, 500 and its 401 and 403s. D7 fixes only
+    the 200 and 409 texts, and those are used as written.
+  - **When the status's snapshot fails.** If the snapshot rejects, or answers something that is not an object, the
+    status still serves the report. Its `control` is then `{queue: 'read-failed', busy: [], gaveUp: null}`, never a
+    500.
+  - **`index.js`'s `defaultDeps`** loses `isQueueAvailable`, `runViaQueueAsync` and `taskTimeoutMs`. Nothing in the
+    file calls them after D8.
+  - **The confirm route** copies `jobId` only when it is a string. It adds `joined: true` only when the controller says
+    so.
+  - **Stop's body.** An empty key is refused 400. Extra members on the body or on a target are ignored, and only
+    `{key, state}` reaches the controller.
+  - **The record GET.** A `readRecord` throw answers 200 `{state: 'unreadable', readError}`, as `realtime.js`'s
+    `readOrError` maps one (PX26 allows this or a 500).
+  - **A malformed controller answer** becomes 500 `{code: 'error'}`, so every handler still resolves.
+  - **The registrations** sit in their own block in `src/api/index.js`, after the drift route. `pass.js` also exports
+    its pure helpers `validateStop` and `recordView`.
+- **The task queue** (`src/manage/taskQueue/queue/`).
+  - **The HDEL after an abandoned win is best effort**, as `release()` is. A Redis error at that moment completes the
+    job as skipped instead of failing it.
+  - **`shouldAbandon` is used only when it is a function.** The `abandoned` wait-end is emitted only after a
+    wait-begin, at both abandon points.
+  - **`initTaskQueue` calls `gateFor`** once for every task as its worker is built. Only the `resourceClass` branch uses
+    the gate.
+  - **The gated callback is the first arm** of the callback choice, so today's tagged and untagged callbacks are
+    unchanged byte for byte.
+- **The pass** (`reconcileTaggingEdges.js`).
+  - **An unset job id.** `BRAINSTORM_TASK_JOB_ID` is checked as a string before the pattern: `RegExp.test(undefined)`
+    would match the text `'undefined'`.
+  - **On the first-save failure,** the handlers are removed just before the return, after its events.
+  - **`job` is the pessimistic record's last member.** An injected `job` dep is used as given.
+- **The panel** (`taggingPipelineView.js`, `PassControls.jsx`, `PassSection.jsx`).
+  - **The history.** `passWho` also returns the history (the last 10, newest first) and its empty-state sentence. This
+    keeps the who words in one table.
+  - **A new line shape, `{text, at, end}`,** carries D16's and D18's sentences, which put the time mid-sentence.
+  - **busyView.** Its items carry D12's members plus `line` and `stopLine`. The gave-up line is the panel's, from
+    `control.gaveUp`.
+  - **A record that cannot be read.** A record answer of `unreadable` or `damaged` reads as failed, with its own
+    sentence, rather than every run reading "start not recorded".
+  - **Tones.**
+    - A Stop is `ok`; `neutral` when every target came too late; `warn` when it was not recorded.
+    - For the other outcomes, the refusals and unknown are `warn`, nothing-to-stop is `neutral`, and the failures are
+      `bad`.
+  - **Outcomes show the allow-listed `cause`** beside story 5's status and code.
+  - **`passReason.requested`** also says that a claimed confirmation is used up (SR69).
+  - **C5-6 was taken.** The `no-status` premise names a fault in the driver itself beside another library. No test
+    pinned the old text.
+  - **Each Stop prompt block opens with a timed subject line,** so two blocks of the same state can be told apart.
+  - **While a stop is under way,** the prompt's Cancel is disabled as well as its stop button. A Cancel then would only
+    close the prompt, and would suggest the stop was called off.
+  - **What the open prompt replaces.** It takes the Stop button's place; Run a pass now stays.
+  - **It closes by itself** when the busy list read is empty, whether or not the queue state is known.
+  - **A busy item's stop line** comes from `passWho` when it has one, else from `busyView`'s who-free `stopLine`.
+  - **A failed record read** shows `ReadFailed` with Retry. A record answer that is unreadable or damaged shows its
+    sentence with no Retry; the 5 s poll re-reads it.
+  - **Who in the passes table.** `EarlierPasses` gains a Who column after Outcome. `LatestPass` shows the same pair
+    after its times.
+  - **Where the parts live.** `TimedLine` and `WhoLines` are named exports of `PassControls.jsx`, as story 5's
+    `SwitchRecord` is of `PathSwitch.jsx`.
+  - **This story's own copy.**
+    - The prompt's heading: "Stop the busy pass?" or "…passes?".
+    - The gave-up line.
+    - The history heading: "Recent actions, newest first.", ended with a full stop so that B110's sentence check reads
+      it apart from the first row.
+- **The ADR notes** (ADRs 0002–0005, the Architect's).
+  - **Their form** is `*(Amended by `tagging-edges/0006`, 2026-10-28: …)*`, copying ADR 0002's existing style.
+  - **References by name, not number.** Notes refer to other notes by heading, because line numbers shift.
+  - **Small wording fixes.**
+    - "Since story 8" names `security-auth-exposure`.
+    - "This ADR's part" reads "ADR 0006's part".
+    - C5-8's "no `Origin` passes" reads "a request with no `Origin` passes".
+  - **Placement.** Notes inside a code fence or a table row sit after the fence or inside the cell.
+- **After the Implementer's own check against the ADR** (2026-10-28; four read-only checks, each finding confirmed or
+  rejected before any change).
+  - **The take-back of a failed add** (D6 step 3, D8) writes back the record as it was just before the start's own
+    write. Removing only the new entry and its line would lose an older line or entry that the start's cap or pruning
+    had pushed out.
+  - **Pruning (D11)** also keeps an entry whose `stop.runId` is a run in `report.json`. Otherwise a stopped hand run's
+    `run:<runId>` entry, which has no `jobId`, was dropped while its run was still shown.
+  - **`stopAskedAt` (D5).** A key's in-memory stop mark counts only for its own execution:
+    - a running item through its `runId`, or a mark with no `runId`;
+    - a starting item launched no later than the stop;
+    - never a waiting item.
+
+    A re-run of the same job id in the same process is therefore not shown as already stopped.
+  - **Record entries** are created and read as own properties, so a job key such as `__proto__` is an ordinary entry.
+  - **`passWho` (D16).** A busy running item with a run reads as live from its own state, not from
+    `status.running`, so a reused 1 s status snapshot cannot say "running" and "stopped on request" together.
+  - **The Stop prompt closes by itself** only on a read that knows nothing is busy. A read that cannot tell leaves it
+    open.
+  - **`PassControls` carries a `key`** in both branches, so the empty-to-ready switch does not remount it.
+  - **Copy.** The changed sentences are:
+    - `passReason.requested` no longer says the owner or an admin asked (R6: any stop signal);
+    - "asked to stop" is in the past tense;
+    - the plural too-late sentence no longer says "some";
+    - Run's queue-unavailable sentence names the task queue being switched off;
+    - the empty-state line reads as three ways a pass starts.
+
 ## Linked artifacts
 
 - ADR: `engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md`

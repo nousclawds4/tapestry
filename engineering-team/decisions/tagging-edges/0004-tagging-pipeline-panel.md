@@ -9,6 +9,7 @@
 Story 4 adds a read-only panel for the tagging pipeline: a Settings › Relays sub-tab, "Tagging pipeline", directly
 after ⚡ Streaming ETL, seen by the owner and admins. Its six criteria:
 - **AC-1:** the placement, and that the panel changes nothing.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: the panel now runs and stops a pass.)*
 - **AC-2:** the pass: judged running by liveness, the latest and earlier passes, the held list, the confirmation's
   state, the backstop schedule.
 - **AC-3:** the path: liveness first, its warnings, its counts and gauges, its last catch-up, its problems.
@@ -72,6 +73,9 @@ ADR 0003).
     `sameHost` (`:147-155`).
   - The auth middleware lets every signed-out GET through unless its path holds one of five substrings
     (`src/middleware/auth.js:497-512`), so any gate on a new GET is the route's own.
+    *(Amended by `tagging-edges/0006`, 2026-10-28: stale since 2026-10-10. The middleware's substring lists are gone,
+    and an unlisted `/api/` path, a GET included, is the owner's side's (ADR `security-auth-exposure/0005`;
+    `src/middleware/routeAccess.js:542-547`). New routes take route-table entries instead (0006 D13).)*
 - **The UI.**
   - `RELAY_TABS` (`RelaySettings.jsx:2058-2064`) sets the sub-tabs, which live in local state (`:2071`).
   - Settings mounts only for classification `owner` or `admin` (`ui/src/pages/settings/Index.jsx:35`, `:121-133`).
@@ -258,7 +262,7 @@ pure halves `gateOwnerOrAdmin(req, d)` and `countFilter(identities)`.
          limit, but a graph count keeps its session until Neo4j ends it.
        - So abandoned graph counts can run beside newer ones, bounded by the driver's pool of 20
          (`src/lib/neo4j-driver.js:35-38`). They only read, and nobody can read their answer.)*
-       *(Clarified at story 5's review, round 1, 2026-10-02, requested change 11: the code is cited by name, with its
+       *(Clarified at story 5's review, round 1, 2026-10-01, requested change 11: the code is cited by name, with its
        line at `ee170bf0`.)*
 
   A refused request spawns nothing, runs no Cypher and never joins a count.
@@ -310,6 +314,9 @@ pure halves `gateOwnerOrAdmin(req, d)` and `countFilter(identities)`.
 
   - The path holds none of the auth middleware's substrings (`auth.js:370-512`): `authenticatedEndpoints`,
     `customerOrOwnerEndpoints`, `ownerOnlyEndpoints`, `ownerOnlyGetEndpoints`, `protectedGetEndpoints`.
+    *(Amended by `tagging-edges/0006`, 2026-10-28: stale since 2026-10-10. The middleware's substring lists are gone,
+    and an unlisted `/api/` path, a GET included, is the owner's side's (ADR `security-auth-exposure/0005`;
+    `src/middleware/routeAccess.js:542-547`). New routes take route-table entries instead (0006 D13).)*
   - SWR11 and SWR67 stay green, because they match the existing literals exactly.
 - **Reads only.**
   - `strfry scan` only connects to Redis and writes nothing: the patched `main.cpp.tt:103` only connects, and the only
@@ -344,7 +351,7 @@ Its named exports:
   - `^held-file-unreadable ` and `^claim failed: ` (confirmationWhy, with the rest shown as the code).
 
   *(Amended at story 5's Architecture, 2026-10-01; ADR `tagging-edges/0005`, from story 4's review, round 2, R2-11: in step with T12 and
-  `FAMILIES` in `taggingPipelineView.js`, `:254-280`.)* *(Clarified at story 5's review, round 1, 2026-10-02,
+  `FAMILIES` in `taggingPipelineView.js`, `:254-280`.)* *(Clarified at story 5's review, round 1, 2026-10-01,
   requested change 11: the code is cited by name, with its lines at `ee170bf0`.)* The countCode families, and the
   same again under failureCode (T12), are checked in this order:
   - `^E(?!RR_)[A-Z0-9_]+$`, an operating-system code. It excludes Node's own `ERR_…` codes.
@@ -368,6 +375,8 @@ Its named exports:
     empty. The pass section then says that no pass has run yet, and names the two ways one starts: an enabled
     Scheduled Tasks entry ("Reconcile tagging relationships"), or the Task Explorer (until story 5). *(Until story 6:
     the pass's controls are story 6's since story 5's Planning, 2026-10-01; ADR `tagging-edges/0005`.)*
+    *(Amended by `tagging-edges/0006`, 2026-10-28: the empty state names Run. Run and Stop are story 6's, and Confirm
+    is story 7's (story 6's Planning, 2026-10-02).)*
   - `confirmation` is checked in this order:
     1. `{ state: 'none' }` when `confirmationPending` is null;
     2. `{ state: 'unreadable', code }` when it has `unreadable`;
@@ -528,6 +537,7 @@ TaggingPipelinePanel({ onOpenTab })`.
 - **Copy.** No emoji and no exclamation marks. Every code is shown through `explain`. Every request the panel sends is
   a `GET`. *(Amended at story 5's Architecture, 2026-10-01; ADR `tagging-edges/0005` D12: apart from the switch's failure code, shown beside `switchOutcome`'s
   sentence for its target; and apart from `sendSwitch`'s one POST.)*
+  *(Amended by `tagging-edges/0006`, 2026-10-28: besides `sendSwitch`, the panel sends `sendRun` and `sendStop`.)*
 
 **`ui/src/pages/settings/RelaySettings.jsx`** gets three edits and nothing else:
 1. the import;
@@ -607,7 +617,8 @@ ui/src/pages/settings/RelaySettings.jsx` shows only the three additions.
     with the same spec run on `66d60cb5`, recorded as the Tester's baseline.
   - **Against a baseline.** The browser class is already red on staging (ledger
     `2026-09-22-staging-browser-class-83-red`).
-- **AC-1's "no pass is queued".**
+- **AC-1's "no pass is queued".** *(Amended by `tagging-edges/0006`, 2026-10-28: the panel now runs and stops a
+  pass (0006).)*
   - In the browser spec every route is stubbed, so it holds by fixture.
   - For live evidence, the Tester checks BullBoard (`/admin/queues`, owner or admin). It records that the
     `reconcileTaggingEdges` queue has no waiting, delayed or active job before and after the check.
@@ -827,6 +838,9 @@ carries today, and the pass mints its own.
   - **Reads:** `incomplete`, `missing-column` and `uniqueness-not-holding` (`:388-408`, `:421`).
   - **The rest:** `plan-error` (`:436`), `invariant` (`graph.js:164-166`), `signal` (`:310`) and `error` (the
     fallback at `:394`, `:405`, `:423`, `:487`, `:588`). *(Amended at story 5's Architecture, 2026-10-01; ADR `tagging-edges/0005`, R2-1 and R2-9.)*
+    *(Amended by `tagging-edges/0006`, 2026-10-28: the runner no longer mints `signal` as `failure.stage` or
+    `failure.code` (0006 D10). A stop on request finishes `stopped` with `failure: null`. The `signal` entries stay,
+    for older reports.)*
     - **The driver's own `N/A` and `ProtocolError`** (`error.js:86-96`) reach `failure.code` raw at any graph stage.
       Each gets an exact failureCode entry, worded for any graph stage:
       - `N/A` is the driver's unclassified error. Most often no connection was had within the 30 s acquisition
@@ -837,7 +851,7 @@ carries today, and the pass mints its own.
       which turns both into `error` (`raceCount`'s two calls, `drift.js:103` and `:118`, which settle both of
       `countBoth`'s counts; `computeRealtimeStatus`'s `lastError` re-check, `realtime.js:134`; the engine `:623`), or
       carries only filesystem codes (`handleStatus`'s `confirmation.json` read, `index.js:204`). *(Clarified at story
-      5's review, round 1, 2026-10-02, requested change 11: the code is cited by name, with its lines at `ee170bf0`.
+      5's review, round 1, 2026-10-01, requested change 11: the code is cited by name, with its lines at `ee170bf0`.
       The engine's line still resolves.)*
     - **`fsFailure`** (`reconcileTaggingEdges.js:102`) joins the `error` fallbacks. It is stored through `fail()` at
       `:548` (via `:486`) and at `:569`. The one at `:245` is never stored, because the report write itself failed.
@@ -877,8 +891,10 @@ recorded before the change, at `88af7df3` (its UI is `66d60cb5`'s), in
 - **Story 5's controls** and their confirm prompts. The widening of the switch to admins, and the run and stop
   controls, are for story 5's ADR. *(Amended at story 5's Architecture, 2026-10-01: the switch, its prompt and its
   widening to admins are story 5's, ADR `tagging-edges/0005`. The pass's run, stop and confirm are story 6's.)*
+  *(Amended by `tagging-edges/0006`, 2026-10-28: Run and Stop are story 6's (0006), Confirm story 7's.)*
 - **A cron parser.** A cron entry's frequency is judged only by the rule in `scheduleView`.
 - **A panel read that shows a queued pass,** and any change to the gate on the scheduled-tasks routes. The latter is
   the 2026-07-21 intake entry's.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: a waiting pass is shown since story 6 (0006 D5, D12).)*
 - **New design tokens, an animated shimmer, and light or dark theming.** A static, token-only skeleton is in scope
   (§ UI).

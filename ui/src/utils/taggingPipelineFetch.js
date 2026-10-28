@@ -1,19 +1,23 @@
 /**
  * The Tagging pipeline panel's request primitives (tagging-edges Story 4 /
- * ADR 0004 § UI, § Clarifications T7; Story 5 / ADR 0005 D12). Every section
- * of the panel reads its route through readSection, so each section loads,
- * fails and retries on its own, and a failure always arrives as a short code,
- * never as raw text or a stack trace (a non-2xx answer's parsed JSON rides
- * along only for /held's latestRunId and the switch's failure code). Plain
- * ESM in Node 16 syntax so the Node harness can dynamic-import it; it can't
- * parse JSX (the nextTaskCountdown precedent).
+ * ADR 0004 § UI, § Clarifications T7; Story 5 / ADR 0005 D12; Story 6 /
+ * ADR 0006 D15). Every section of the panel reads its route through
+ * readSection, so each section loads, fails and retries on its own, and a
+ * failure always arrives as a short code, never as raw text or a stack trace
+ * (a non-2xx answer's parsed JSON rides along only for /held's latestRunId and
+ * the failure codes of the switch, Run and Stop). Plain ESM in Node 16 syntax
+ * so the Node harness can dynamic-import it; it can't parse JSX (the
+ * nextTaskCountdown precedent).
  *
- * Every request is a GET but one: sendSwitch's POST, the real-time path's
- * switch (story 5). Both share one race, so the switch's 15 s limit is the
- * reads' own.
+ * Every request is a GET but three: sendSwitch's POST, the real-time path's
+ * switch (story 5), and sendRun's and sendStop's POSTs, the pass's Run and
+ * Stop (story 6 / ADR 0006 D15). All share one race, so their 15 s limit is
+ * the reads' own.
  */
 
 const SWITCH_PATH = '/api/tagging-edges/realtime/switch';
+const RUN_PATH = '/api/tagging-edges/pass/run';
+const STOP_PATH = '/api/tagging-edges/pass/stop';
 
 /**
  * Read one section's route.
@@ -59,6 +63,39 @@ export async function sendSwitch(on, opts) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ on }),
+    signal,
+  }));
+}
+
+/**
+ * Ask for a gap-filling pass (ADR 0006 D6, D15): one POST of `{}` as JSON to the run route. It resolves
+ * readSection's result shapes through the same race and 15 s default, is never retried, and never rejects.
+ *
+ * @param {{ fetchImpl?: Function, timeoutMs?: number }} [opts]
+ */
+export async function sendRun(opts) {
+  const { fetchImpl = globalThis.fetch, timeoutMs = 15000 } = opts || {};
+  return raced(timeoutMs, (signal) => attempt(RUN_PATH, fetchImpl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+    signal,
+  }));
+}
+
+/**
+ * Stop the busy passes the prompt showed (ADR 0006 D9, D15): one POST of `{"targets": [{key, state}, …]}` as JSON to
+ * the stop route, the targets exactly as given. Same race, shapes and 15 s default as sendRun; it never rejects.
+ *
+ * @param {Array<{ key: string, state: 'waiting'|'running' }>} targets
+ * @param {{ fetchImpl?: Function, timeoutMs?: number }} [opts]
+ */
+export async function sendStop(targets, opts) {
+  const { fetchImpl = globalThis.fetch, timeoutMs = 15000 } = opts || {};
+  return raced(timeoutMs, (signal) => attempt(STOP_PATH, fetchImpl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targets }),
     signal,
   }));
 }

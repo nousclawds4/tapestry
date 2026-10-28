@@ -134,7 +134,9 @@ function runWithResolvedArgs({ job, taskDef, taskName, customerArgs, queryParams
       [launchChildTaskPath, taskName, 'task-queue', optionsJson, childArgs],
       {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, BRAINSTORM_STRUCTURED_LOGGING: 'true' }
+        // BRAINSTORM_TASK_JOB_ID: the BullMQ job id, for every task (ADR
+        // tagging-edges/0006 D10); the gap-filling pass records it.
+        env: { ...process.env, BRAINSTORM_STRUCTURED_LOGGING: 'true', BRAINSTORM_TASK_JOB_ID: String(job.id) }
       }
     );
 

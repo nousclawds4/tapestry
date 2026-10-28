@@ -11,7 +11,9 @@
  *
  * Wait loop: poll at pollIntervalMs (default 500 ms) until acquire returns 1
  * OR the hard timeout (default 4 hours) elapses → reject with an Error whose
- * `.code === 'RESOURCE_CLASS_WAIT_TIMEOUT'`.
+ * `.code === 'RESOURCE_CLASS_WAIT_TIMEOUT'`, OR, for a caller that passes
+ * `shouldAbandon`, until it answers true → resolve null (ADR
+ * tagging-edges/0006 D4).
  *
  * Crash safety: TTL leases. If a Worker dies without releasing, its lease
  * ages out at `leaseTtlMs` (default 4 hours) and the next acquirer sweeps it
@@ -20,7 +22,7 @@
  * Observability: emits structured events to events.jsonl via the Node-side
  * emit_task_event helper at src/utils/structuredEvents.js, with phase tokens:
  *   - resource_class_wait_begin    (waiter starts polling)
- *   - resource_class_wait_end      (wait resolved — outcome: "acquired" | "timeout")
+ *   - resource_class_wait_end      (wait resolved — outcome: "acquired" | "timeout" | "abandoned")
  *   - resource_class_released      (lease released — held_seconds)
  */
 
@@ -95,9 +97,16 @@ function createSemaphore(redis, caps, options) {
    * whose `.code === 'RESOURCE_CLASS_WAIT_TIMEOUT'` if acquireTimeoutMs
    * elapses without acquiring.
    *
+   * With an optional `context.shouldAbandon` (ADR tagging-edges/0006 D4),
+   * acquire asks it at the top of each loop pass and again just after a
+   * winning attempt. When it answers true, acquire hands back any lease it
+   * just won, emits wait_end "abandoned" (only if wait_begin was emitted),
+   * and resolves null. Without it, acquire never resolves null.
+   *
    * @param {string} resourceClass
    * @param {Object} [context]  { taskName, target, jobId } — included in
-   *                            structured events for operator visibility.
+   *                            structured events for operator visibility;
+   *                            optionally shouldAbandon() → boolean.
    */
   async function acquire(resourceClass, context) {
     const ctx = context || {};
@@ -106,12 +115,35 @@ function createSemaphore(redis, caps, options) {
     const leaseId = crypto.randomUUID();
     const start = Date.now();
     let waitEmitted = false;
+    const shouldAbandon = typeof ctx.shouldAbandon === 'function' ? ctx.shouldAbandon : null;
+
+    function abandoned() {
+      if (waitEmitted) {
+        emitTaskEvent('PROGRESS', ctx.taskName || resourceClass, ctx.target || '', {
+          phase: 'resource_class_wait_end',
+          resourceClass,
+          wait_seconds: Math.round((Date.now() - start) / 1000),
+          outcome: 'abandoned',
+          jobId: ctx.jobId || null
+        });
+      }
+      return null;
+    }
 
     while (true) {
+      if (shouldAbandon && shouldAbandon()) return abandoned();
+
       const now = Date.now();
       const result = await redis.semaphoreAcquire(key, leaseId, cap, leaseTtlMs, now);
 
       if (result === 1) {
+        if (shouldAbandon && shouldAbandon()) {
+          // Hand back the lease just won, so it does not sit for leaseTtlMs.
+          // Best-effort, as release() is.
+          try { await redis.hdel(key, leaseId); } catch (_e) { /* best effort */ }
+          return abandoned();
+        }
+
         const waitSeconds = Math.round((Date.now() - start) / 1000);
         emitTaskEvent('PROGRESS', ctx.taskName || resourceClass, ctx.target || '', {
           phase: 'resource_class_wait_end',
