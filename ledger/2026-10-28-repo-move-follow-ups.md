@@ -13,8 +13,9 @@ every `gh` command. These items remain:
 1. **The new repo has no rulesets** (read 2026-10-28; the old repo has both).
    - Nothing on `main` or `staging` restricts deletions, requires a PR, or requires the `stack-free` and
      `main-source-guard` checks.
-   - So `/cycle-prod`'s wait for `BLOCKED` to clear never fires. A merge seconds after a promotion PR opens would go
-     through.
+   - So `/cycle-prod`'s stop on a `BLOCKED` merge state (`.claude/skills/cycle-prod/SKILL.md`, error handling) never
+     fires, and nor does the wait-for-`CLEAN` habit (OPEN.md row 209). A merge seconds after a promotion PR opens would
+     go through.
    - OPERATIONS §4, §9.2 and §15 still describe the old repo's protections.
    - **Owner action:** recreate the rulesets on the new repo, then re-check OPEN.md row 14.
 2. **The old repo can still deploy.** All its workflows are active, and it still holds the droplets' deploy secrets

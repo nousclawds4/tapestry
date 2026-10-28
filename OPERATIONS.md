@@ -317,9 +317,11 @@ Some checkouts also carry the pre-move repo as a remote, `nous-clawds4` → `nou
 - **It keeps its GitHub Actions and its deploy secrets.** Its deploy workflows fire on pushes to the long-lived deploy
   branches in `scripts/long-lived-branches.txt`, the archived `feat/communities` and `feat/curate` included, so never push
   those branches to it. Feature branches may be mirrored there.
-- **PR numbers restarted at #1** on `nousclawds4/tapestry`. Earlier PR references in this file, links and bare `#N`
-  alike, are the old repo's, where those PRs live.
-- **`gh repo set-default`** is stored per checkout. One made before the move still names the old repo; re-run it.
+- **PR and issue numbers restarted at #1** on `nousclawds4/tapestry`. Earlier PR and issue references in this file,
+  links and bare `#N` alike, are the old repo's, where they live.
+- **`gh repo set-default`** is stored per checkout, against a remote name. A checkout moved with `git remote set-url
+  origin …` follows to the new repo. One where the old repo kept the `origin` name still names it. Re-running
+  `gh repo set-default nousclawds4/tapestry` is safe either way.
 
 `gh repo view --json nameWithOwner` returns the upstream, so `gh pr create`, `gh pr list`, `gh issue ...` all silently target the wrong repo and either fail or return empty.
 
