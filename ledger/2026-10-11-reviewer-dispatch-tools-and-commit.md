@@ -54,3 +54,12 @@ checker runs first, then the Reviewer folds in what holds and commits. So for a 
 the commit until the check is done follows the workflow, and the commit stays the Reviewer's. That settles the commit
 question only for that case. The row stays OPEN for its other defects: WebFetch named in dispatches, a commit held
 for any other reason (story 1's orchestrator commit, for one), and where completion detection is recorded.
+
+**Seen again, 2026-10-28 (tagging-edges #6 review, round 1, Harness friction 7): a parallel-lane review.** The review
+ran as a workflow of read-only lanes and one writer. Every lane, the writer included, was read-only for git, and the
+orchestrator committed the review (`2a361338`). `roles/reviewer.md` (step 9) and
+`engineering-team/workflows/5-review.md` § Per-phase commits and § On PASS still tell the Reviewer to commit, and to
+flip the story's Status in that commit on a passing verdict. The lanes flagged the conflict. It is this row's "commit
+held for any other reason" case. Fix-shape addendum: the role and phase files name the parallel-lane variant. The
+lanes only read; the orchestrator commits the review and makes any Status flip, and the commit message says that it
+did. Ledger `2026-10-28-workflow-truncates-lane-results` is another harness gap from the same run.
