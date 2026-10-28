@@ -221,7 +221,7 @@ End-to-end procedure for adding a new long-lived sandbox to the deploy fleet. Th
 
 4. **Clone and check out the target branch.**
    ```bash
-   git clone https://github.com/nous-clawds4/tapestry.git /opt/tapestry
+   git clone https://github.com/nousclawds4/tapestry.git /opt/tapestry
    cd /opt/tapestry
    git checkout <branch>
    ```
@@ -309,12 +309,19 @@ The app publishes signed events to public relays by default. A per-deployment op
 ### 9.1. `gh` CLI defaults to the upstream fork
 
 This local checkout has two remotes:
-- `origin` → `nous-clawds4/tapestry` (our fork — what we actually push to)
+- `origin` → `nousclawds4/tapestry` (our fork, and what we actually push to, since the move of 2026-10-23)
 - `upstream` → `Pretty-Good-Freedom-Tech/brainstorm` (the original project)
+
+Some checkouts also carry the pre-move repo as a remote, `nous-clawds4` → `nous-clawds4/tapestry`.
+- **It is not the deploy target.** The droplets deploy from `nousclawds4/tapestry`.
+- **Its GitHub Actions still run.** Its deploy workflows fire on pushes to `staging`, `main`, `feat/tags` and
+  `feature-magic-carpet`, so never push those branches to it. Feature branches may be mirrored there.
+- **PR numbers restarted at #1** on `nousclawds4/tapestry`. Earlier PR links in this file point at the old repo, where
+  those PRs live.
 
 `gh repo view --json nameWithOwner` returns the upstream, so `gh pr create`, `gh pr list`, `gh issue ...` all silently target the wrong repo and either fail or return empty.
 
-**Fix:** always pass `--repo nous-clawds4/tapestry` to every `gh` command, or run `gh repo set-default nous-clawds4/tapestry` once to fix it permanently.
+**Fix:** always pass `--repo nousclawds4/tapestry` to every `gh` command, or run `gh repo set-default nousclawds4/tapestry` once to fix it permanently.
 
 ### 9.2. 2026-04-24: auto-delete-head-branches deleted `staging`
 

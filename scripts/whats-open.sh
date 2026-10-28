@@ -11,7 +11,7 @@
 # which runs this and then adds triage/prioritization. See OPEN.md and CLAUDE.md.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
-REPO="nous-clawds4/tapestry"
+REPO="nousclawds4/tapestry"
 KEEPLIST="scripts/long-lived-branches.txt"
 hr() { printf '\n──────── %s ────────\n' "$1"; }
 

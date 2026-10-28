@@ -40,7 +40,7 @@ If the diff is empty, surface "main is already at staging — nothing to promote
 ### 2. Open the promotion PR
 
 ```bash
-gh pr create --repo nous-clawds4/tapestry \
+gh pr create --repo nousclawds4/tapestry \
   --base main \
   --head staging \
   --title "Promote staging → main: <short summary>" \
@@ -74,7 +74,7 @@ EOF
 )"
 ```
 
-Always include `--repo nous-clawds4/tapestry`. Always.
+Always include `--repo nousclawds4/tapestry`. Always.
 
 ### 3. Wait for explicit user approval
 
@@ -98,9 +98,9 @@ The cadence, bound, and verdict-handling rules live in the doc and the script �
 ### 5. Merge
 
 ```bash
-gh pr merge <PR#> --repo nous-clawds4/tapestry --merge
+gh pr merge <PR#> --repo nousclawds4/tapestry --merge
 sleep 2
-gh pr view <PR#> --repo nous-clawds4/tapestry --json state,mergedAt,mergeCommit
+gh pr view <PR#> --repo nousclawds4/tapestry --json state,mergedAt,mergeCommit
 ```
 
 Verify state is `"MERGED"`.
@@ -112,12 +112,12 @@ The run can appear **up to ~2 minutes after the merge** (Actions queue lag — O
 ```bash
 SHA=<mergeCommit oid>; RUN=""
 for i in $(seq 1 30); do   # up to 5 minutes
-  RUN=$(gh run list --repo nous-clawds4/tapestry --workflow=deploy-tapestry.yml --limit 5 \
+  RUN=$(gh run list --repo nousclawds4/tapestry --workflow=deploy-tapestry.yml --limit 5 \
         --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId" | head -1)
   [ -n "$RUN" ] && break; sleep 10
 done
 [ -n "$RUN" ] || { echo "no deploy-tapestry.yml run for $SHA after 5 min — stop and surface"; exit 1; }
-gh run watch "$RUN" --repo nous-clawds4/tapestry --exit-status
+gh run watch "$RUN" --repo nousclawds4/tapestry --exit-status
 ```
 
 Typical prod deploy is ~80s warm cache, ~2m+ on first build with new deps. If no run appears within the bound, stop and surface — do not smoke-test. If it fails, surface the failure and consider opening a revert. Do NOT auto-merge a revert; recommend it to the user and let them decide.
