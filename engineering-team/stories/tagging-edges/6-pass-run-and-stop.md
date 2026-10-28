@@ -429,5 +429,5 @@ None, once the owner ratifies the Product Owner's proposals below by approving t
 ## Linked artifacts
 
 - ADR: `engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md`
-- Test plan: (filled in after Test Design phase)
+- Test plan: `engineering-team/stories/tagging-edges/6-pass-run-and-stop.test-plan.md`
 - Review: (filled in after Review phase)

@@ -192,6 +192,21 @@ scratch fails it.
   "carry" or "carries" a code, within one sentence. When the words before "carries" limit the errors to Neo4j's answer
   or the server's, the claim is true, and passes ("every error the driver builds from Neo4j's answer carries a code").
   So does "every Neo4jError …".
+
+  *(Corrected at story 6's Test Design, 2026-10-27, C5-3.)* The exemption is wider than that. As its regex has it
+  (`/\banswer|\bserver|neo4j's|\bfrom neo4j\b/i`, `test/tagging-pipeline-codes.test.js:930` at `442c9dec`):
+  - **The claim.** "every", "each" or "any" error, or "all errors" or "all the errors", then "driver", then "carry" or
+    "carries", then "code" or "codes", with no full stop between them, in any case. Only the first such claim in the
+    text is read.
+  - **What exempts it.** The words between the subject and "driver", or between "driver" and "carry" or "carries",
+    contain any of these: a word that begins "answer" ("answers", "answered"), a word that begins "server" ("servers",
+    "server's"), the text "Neo4j's", or the words "from Neo4j". Nothing checks that they limit the errors. "Every error
+    from the server that the driver raises carries a code" passes this check, and so does "every error the driver gets
+    from Neo4j carries a code".
+  - **What is not read.** The words after "carries". "Every error the driver raises carries a code from Neo4j's answer"
+    is refused.
+  - **"Every Neo4jError …"** passes because it is not the claim at all ("Neo4jError" is not "error"), not because of the
+    exemption.
 - **TV82 reads "claims a state"** as "unchanged", "still on" or "still off", "as before", "remains", "stays" and the
   like with on or off, or "is" or "was" on or off. "Whether the path is on or off" asks rather than claims, so it
   passes. "The next read" is "next" followed by "read" within one sentence.
@@ -259,12 +274,18 @@ refused where AC-4 admits one, version 1 bytes where version 2 is expected, or "
 
 *(Corrected at review round 1, 2026-10-01, blocking 2.)* That list covered the story's suites only, and missed one
 regression outside them:
-- **What.** `gate-result-record`'s C9 (row 263) refuses, in every test file, a status derived from a body's success
-  flag. SR34, added at `b6726818`, derived its first expected status that way, at
+- **What.** `gate-result-record`'s C9 (row 263) refuses one spelling of a status derived from a body's success flag,
+  `? 200 : 500`, in every test file it scans: each `test/*.test.js` but its own and `stack-free-npm-test`'s. SR34,
+  added at `b6726818`, derived its first expected status in that spelling, at
   `test/tagging-edges-switch-record.test.js:1350`. So `gate-result-record` went from 34 / 0 to 33 / 1 at `b6726818`,
   and stayed red to `ee170bf0`.
-- **When.** No test file matched C9's pattern at `c557177f` or `8a082b75`. From `b6726818` to `ee170bf0`, that one
+  *(Corrected at story 6's Test Design, 2026-10-27, C5-2: this said C9 refuses "in every test file, a status derived
+  from a body's success flag". It checks only that spelling, in the files it scans. SR34's rows' literal statuses,
+  not C9, are what keep SR34 from deriving its status in another spelling.)*
+- **When.** No file C9 scans matched its pattern at `c557177f` or `8a082b75`. From `b6726818` to `ee170bf0`, that one
   line did.
+  *(Corrected at story 6's Test Design, 2026-10-27, C5-2: this said "No test file". C9's own file matched at both
+  commits, through its own message; C9 skips it.)*
 - **Fixed in review round 1.** `gate-result-record` passes 34 / 0 again through `run()`, on Node 22.23.3 and on host
   Node 16.17.0.
 - **The full gate after the round.** Run `20261002T030856Z-37748-d97b` on `078aa6c3` was compared suite by suite with
@@ -284,6 +305,9 @@ regression outside them:
 
 The round's red phase was confirmed on 2026-10-01, on `ee170bf0` with the round's test edits in the working tree.
 Each Node suite was run through `run()` on Node 22.23.3 and on host Node 16.17.0, with the same results on both.
+*(Corrected at story 6's Test Design, 2026-10-27, C5-1: not for `stack-free-npm-test`. On host Node 16.17.0 it skips
+G2: G2's probe of the control panel calls the global `fetch`, which Node 16 does not have, so it reads the panel as
+unreachable. Its 7 / 0 below is Node 22.23.3's.)*
 
 | Suite | With the round's tests | Failing |
 |---|---|---|
@@ -291,7 +315,7 @@ Each Node suite was run through `run()` on Node 22.23.3 and on host Node 16.17.0
 | gate-result-record | 34 / 0 | none (C9 passes again) |
 | tagging-pipeline-codes | 53 / 1 | PC55 |
 | tagging-pipeline-view | 81 / 1 | TV82 |
-| tagging-pipeline-panel-source, tagging-pipeline-fetch, stack-free-npm-test (unchanged) | 28 / 0, 24 / 0, 7 / 0 | none |
+| tagging-pipeline-panel-source, tagging-pipeline-fetch, stack-free-npm-test (unchanged) | 28 / 0, 24 / 0, 7 / 0 (Node 22.23.3; on Node 16.17.0 G2 skips, C5-1) | none |
 | tagging-pipeline-panel.spec.js (Chromium, the UI at `ee170bf0`) | 85 / 1 | B82 |
 
 - **No file matches C9's pattern** but C9's own: `grep -nE "\?\s*200\s*:\s*500\b" test/*.test.js` finds only

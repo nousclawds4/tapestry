@@ -19,6 +19,15 @@
  *      rejects. readSection is untouched, so TF1 (every read sends GET) stands as it is. Each TF20+ test fails by
  *      name through loadSwitch() until the module exports sendSwitch.
  *
+ * TF25–TF31 — tagging-edges Story 6 (engineering-team/stories/tagging-edges/6-pass-run-and-stop.md; ADR
+ *      engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md D15): sendRun() POSTs {} to
+ *      /api/tagging-edges/pass/run, and sendStop(targets) POSTs {"targets": …} to /api/tagging-edges/pass/stop, each with
+ *      sendSwitch's options object last ({ fetchImpl, timeoutMs = 15000 }; D15 "Same race and shapes"), through the
+ *      module's private raced(), resolving readSection's result shapes and never rejecting. TF1 stays as it is: every read
+ *      still sends GET. Each fails by name through loadSender() until the module exports the sender.
+ *      Reading where D15 leaves a detail open: the options object is the last argument, as sendSwitch's is (D15 writes the
+ *      calls as sendRun() and sendStop(targets); TF30 calls them so, with no options).
+ *
  * Stack-free; runs on Node 16 (the host gate, no global fetch) and Node 22.
  * RED until the module exists: each test fails by name through loadFetch().
  */
@@ -517,9 +526,246 @@ test('TF24: sendSwitch\'s defaults — with no fetchImpl it calls globalThis.fet
   }
 });
 
+/* ───────────────────────── TF25–TF31 — sendRun and sendStop (story 6) ───────────────────────── */
+
+const ADR6 = 'ADR tagging-edges/0006';
+const RUN_URL = '/api/tagging-edges/pass/run';
+const STOP_URL = '/api/tagging-edges/pass/stop';
+/** What the panel sends a Stop (ADR 0006 D17: the prompt's snapshot mapped to { key, state }): a waiting job and an orphan's run: key. */
+const TARGETS = [
+  { key: 'reconcileTaggingEdges-0000000000a1', state: 'waiting' },
+  { key: 'run:20261027T115500Z-c0de0001', state: 'running' },
+];
+/**
+ * The two senders, as D15 names them: sendRun() and sendStop(targets), each taking sendSwitch's options object last,
+ * { fetchImpl, timeoutMs = 15000 } (D15 "Same race and shapes … beside sendSwitch").
+ */
+const SENDERS = [
+  { name: 'sendRun', url: RUN_URL, body: JSON.stringify({}), call: (mod, opts) => mod.sendRun(opts),
+    sig: `sendRun({ fetchImpl, timeoutMs = 15000 }) POSTs {} to ${RUN_URL}` },
+  { name: 'sendStop', url: STOP_URL, body: JSON.stringify({ targets: TARGETS }), call: (mod, opts) => mod.sendStop(TARGETS, opts),
+    sig: `sendStop(targets, { fetchImpl, timeoutMs = 15000 }) POSTs {"targets": …} to ${STOP_URL}` },
+];
+
+/** Loads the module and checks it exports `s.name`; the failure says what ADR 0006 D15 expects. */
+async function loadSender(s, bust) {
+  const mod = await loadFetch(bust);
+  if (typeof mod[s.name] !== 'function') {
+    throw new Error(
+      `${MODULE_REL} does not export ${s.name} yet (${ADR6} D15: ${s.sig} through the module's private raced(), with sendSwitch's ` +
+      '15 s race, resolves readSection\'s result shapes and never rejects)'
+    );
+  }
+  return mod;
+}
+async function sendVia(mod, s, opts, ms = 2000) {
+  return guarded(s.call(mod, opts), ms, `${s.name}(…) — it must honour timeoutMs as sendSwitch does (${ADR6} D15)`);
+}
+/** Checks one request's init as TF20 does sendSwitch's: POST, the JSON header, the exact body, an unaborted signal, nothing else. */
+function initProblems(s, f) {
+  const out = [];
+  if (f.calls.length !== 1) { out.push(`${s.name}: expected fetchImpl to be called exactly once (a request is never retried); it was called ${f.calls.length} times`); return out; }
+  const [url, init] = f.calls[0];
+  if (url !== s.url) out.push(`${s.name}: expected the url ${show(s.url)}; got ${show(url)}`);
+  if (!init || typeof init !== 'object') { out.push(`${s.name}: expected a second argument { method, headers, body, signal }; got ${show(init)}`); return out; }
+  if (init.method !== 'POST') out.push(`${s.name}: expected method 'POST' (${ADR6} D15); got ${show(init.method)}`);
+  if (!sameJson(init.headers, { 'Content-Type': 'application/json' })) out.push(`${s.name}: expected headers { 'Content-Type': 'application/json' }; got ${show(init.headers)}`);
+  if (init.body !== s.body) out.push(`${s.name}: expected the body ${show(s.body)}; got ${show(init.body)}`);
+  const sig = init.signal;
+  if (!(sig && typeof sig === 'object' && typeof sig.aborted === 'boolean' && typeof sig.addEventListener === 'function')) {
+    out.push(`${s.name}: expected init.signal to be an AbortSignal (the module's race); got ${show(sig)}`);
+  } else if (sig.aborted) out.push(`${s.name}: the signal handed to fetchImpl must not already be aborted`);
+  const extra = Object.keys(init).filter((k) => !['method', 'headers', 'body', 'signal', 'credentials'].includes(k));
+  if (extra.length) out.push(`${s.name}: the request carries no option beyond method, headers, body and signal; found ${show(extra)}`);
+  if (!(init.credentials === undefined || init.credentials === 'same-origin')) out.push(`${s.name}: credentials stay the default same-origin; got ${show(init.credentials)}`);
+  return out;
+}
+
+test('TF25: sendRun() calls the given fetchImpl exactly once, with \'/api/tagging-edges/pass/run\' and { method: \'POST\', headers: { \'Content-Type\': \'application/json\' }, body: \'{}\', signal } — an unaborted AbortSignal, and no other option but the default same-origin credentials, as TF20 pins for sendSwitch [story 6 AC-1 "Pressing it asks nothing", AC-6 "The panel\'s reads still change nothing"; ADR tagging-edges/0006 D15 "sendRun() (POST /api/tagging-edges/pass/run, body {})", D6 "The body is {}"]', async () => {
+  const s = SENDERS[0];
+  const mod = await loadSender(s);
+  const f = fakeFetch(response(200, JSON.stringify({ success: true, linedUp: true, key: 'reconcileTaggingEdges-0000000000a1', recorded: true })));
+  await sendVia(mod, s, { fetchImpl: f });
+  const bad = initProblems(s, f);
+  assert(!bad.length, `sendRun's request (${ADR6} D15):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TF26: sendStop(targets) calls the given fetchImpl exactly once, with \'/api/tagging-edges/pass/stop\' and { method: \'POST\', headers: { \'Content-Type\': \'application/json\' }, body: JSON.stringify({ targets }), signal } — the targets exactly as given, in order, a waiting key and a run: key — and nothing else [story 6 AC-3 "A stop acts on every busy pass that has no stop asked for when it is confirmed, and never does more than its prompt said"; ADR tagging-edges/0006 D15 "sendStop(targets) (POST /api/tagging-edges/pass/stop, body {targets})", D9 "The body is {targets: [{key, state}]}", D17]', async () => {
+  const s = SENDERS[1];
+  const mod = await loadSender(s);
+  const f = fakeFetch(response(200, JSON.stringify({ success: true, stopped: [{ key: TARGETS[0].key, how: 'taken-out-of-line' }, { key: TARGETS[1].key, how: 'asked-to-stop' }], recorded: true })));
+  await sendVia(mod, s, { fetchImpl: f });
+  const bad = initProblems(s, f);
+  assert(!bad.length, `sendStop's request (${ADR6} D15):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TF27: sendRun and sendStop resolve readSection\'s result shapes — a 2xx JSON object is { ok: true, body } (recorded passed through); a 409 pass-busy or prompt-out-of-date, a 503 QUEUE_UNAVAILABLE, a 401, a 403 and a 500 record-unavailable are { ok: false, code: \'http-<status>\', httpStatus, body } with the parsed body and its code; a 502 HTML page has body null; a 2xx that is not a JSON object is bad-json — each after exactly one call [story 6 AC-1 "the server refuses plainly", AC-4 "the panel shows the reason"; ADR tagging-edges/0006 D15 "resolve sendSwitch\'s result shapes", D14]', async () => {
+  const bad = [];
+  for (const s of SENDERS) {
+    const mod = await loadSender(s);
+    const oks = s.name === 'sendRun'
+      ? [{ success: true, linedUp: true, key: 'reconcileTaggingEdges-0000000000a1', recorded: true }]
+      : [{ success: true, stopped: [{ key: TARGETS[0].key, how: 'taken-out-of-line' }], recorded: true },
+        { success: true, stopped: [{ key: TARGETS[1].key, how: 'asked-to-stop' }], recorded: false }];
+    for (const body of oks) {
+      const f = fakeFetch(response(200, JSON.stringify(body)));
+      const out = await sendVia(mod, s, { fetchImpl: f });
+      if (!(out && out.ok === true && sameJson(out.body, body))) bad.push(`${s.name}: a 200 answering ${show(body)}: expected { ok: true, body }; got ${show(out)}`);
+      if (f.calls.length !== 1) bad.push(`${s.name}: a 200: expected one fetchImpl call; got ${f.calls.length}`);
+    }
+    const failures = [
+      [409, s.name === 'sendRun' ? { success: false, code: 'pass-busy', busy: [{ key: 'reconcileTaggingEdges-0000000000a2', state: 'waiting' }] } : { success: false, code: 'prompt-out-of-date', busy: [] }],
+      [409, s.name === 'sendRun' ? { success: false, code: 'pass-busy', busy: [] } : { success: false, code: 'pass-not-reachable' }],
+      [503, { success: false, code: 'QUEUE_UNAVAILABLE' }],
+      [401, { success: false, error: 'Sign in as the owner or an admin to do this.' }],
+      [403, { success: false, error: 'cross-site request refused' }],
+      [500, { success: false, code: 'record-unavailable', cause: 'ENOSPC' }],
+    ];
+    for (const [status, body] of failures) {
+      const f = fakeFetch(response(status, JSON.stringify(body)));
+      const out = await sendVia(mod, s, { fetchImpl: f });
+      const label = `${s.name}: a ${status} answering ${show(body)}`;
+      if (!(out && out.ok === false && out.code === `http-${status}` && out.httpStatus === status && sameJson(out.body, body))) {
+        bad.push(`${label}: expected { ok: false, code: 'http-${status}', httpStatus: ${status}, body } with the parsed body; got ${show(out)}`);
+      }
+      if (f.calls.length !== 1) bad.push(`${label}: a request is never retried: fetchImpl called ${f.calls.length} times`);
+    }
+    const gw = await sendVia(mod, s, { fetchImpl: fakeFetch(response(502, '<html><body>Bad Gateway</body></html>')) });
+    if (!(gw && gw.ok === false && gw.code === 'http-502' && gw.httpStatus === 502 && gw.body === null)) bad.push(`${s.name}: a 502 HTML page: expected { ok: false, code: 'http-502', httpStatus: 502, body: null }; got ${show(gw)}`);
+    for (const text of ['<!doctype html><html></html>', '[1]', '']) {
+      const out = await sendVia(mod, s, { fetchImpl: fakeFetch(response(200, text)) });
+      if (!(out && out.ok === false && out.code === 'bad-json' && out.httpStatus === 200)) bad.push(`${s.name}: a 200 whose text is ${show(text)}: expected bad-json; got ${show(out)}`);
+    }
+  }
+  assert(!bad.length, `the senders' result shapes (${ADR6} D15):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TF28: a Run or a Stop that never settles ends as { ok: false, code: \'timeout\', httpStatus: null, body: null } shortly after timeoutMs (30 ms here), not before — whether fetchImpl ignores its signal, rejects on abort, or answers headers whose body never arrives — after one call [story 6 AC-1 "If the server has not answered within 15 seconds, the control is enabled again and the panel says the outcome is unknown", AC-3 "While a stop is under way … within 15 seconds"; ADR tagging-edges/0006 D15 "Both use the private raced(15000, …)"]', async () => {
+  const abortRejecting = (_url, init) => new Promise((_res, rej) => {
+    const sig = init && init.signal;
+    if (sig && typeof sig.addEventListener === 'function') {
+      sig.addEventListener('abort', () => { const e = new Error('The operation was aborted'); e.name = 'AbortError'; rej(e); });
+    }
+  });
+  const cases = [
+    ['ignores its signal', () => new Promise(() => {})],
+    ['rejects on abort', abortRejecting],
+    ['answers, but its body never arrives', () => ({ ok: true, status: 200, text: () => new Promise(() => {}) })],
+  ];
+  const bad = [];
+  for (const s of SENDERS) {
+    const mod = await loadSender(s);
+    for (const [label, answer] of cases) {
+      const f = fakeFetch(answer);
+      const started = Date.now();
+      let out;
+      try {
+        out = await sendVia(mod, s, { fetchImpl: f, timeoutMs: 30 }, 1500);
+      } catch (e) {
+        bad.push(`${s.name}, a fetchImpl that ${label}: it must resolve as timeout, never reject or hang (${ADR6} D15); ${e.message}`);
+        continue;
+      }
+      const elapsed = Date.now() - started;
+      if (!(out && out.ok === false && out.code === 'timeout' && out.httpStatus === null && out.body === null)) bad.push(`${s.name}, a fetchImpl that ${label}: expected { ok: false, code: 'timeout', httpStatus: null, body: null }; got ${show(out)}`);
+      if (elapsed < 20) bad.push(`${s.name}, a fetchImpl that ${label}: the timeout must wait for timeoutMs (30 ms); it settled after ${elapsed} ms`);
+      if (elapsed >= 1000) bad.push(`${s.name}, a fetchImpl that ${label}: with timeoutMs 30 the timeout must come well within a second; it took ${elapsed} ms`);
+      if (f.calls.length !== 1) bad.push(`${s.name}, a fetchImpl that ${label}: expected one call; got ${f.calls.length}`);
+    }
+  }
+  assert(!bad.length, `the senders' race (${ADR6} D15):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TF29: sendRun and sendStop never reject — a fetchImpl that rejects (the network is down), one that throws synchronously, and an answer whose text() rejects each resolve to { ok: false, code: \'network\', httpStatus: null, body: null }, after one call [story 6 AC-4 "Refused or failed … the panel shows the reason"; ADR tagging-edges/0006 D15 "They never reject"]', async () => {
+  const cases = [
+    ['rejects', () => Promise.reject(new TypeError('Failed to fetch'))],
+    ['throws synchronously', () => { throw new TypeError('fetch is not a function'); }],
+    ['answers, but text() rejects', () => ({ ok: true, status: 200, text: () => Promise.reject(new TypeError('body stream error')) })],
+  ];
+  const bad = [];
+  for (const s of SENDERS) {
+    const mod = await loadSender(s);
+    for (const [label, answer] of cases) {
+      const f = fakeFetch(answer);
+      let out;
+      try {
+        out = await sendVia(mod, s, { fetchImpl: f });
+      } catch (e) {
+        bad.push(`${s.name}, a fetchImpl that ${label}: it must resolve to { ok: false, code: 'network' }, never reject; it rejected with ${e.message}`);
+        continue;
+      }
+      if (!(out && out.ok === false && out.code === 'network' && out.httpStatus === null && out.body === null)) bad.push(`${s.name}, a fetchImpl that ${label}: expected { ok: false, code: 'network', httpStatus: null, body: null }; got ${show(out)}`);
+      if (f.calls.length !== 1) bad.push(`${s.name}, a fetchImpl that ${label}: a request is never retried: fetchImpl called ${f.calls.length} times`);
+    }
+  }
+  assert(!bad.length, `the senders never reject (${ADR6} D15):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TF30: the senders\' defaults — called with no options at all, sendRun() and sendStop(targets) call globalThis.fetch as it is when called, with the same POST, and race it for 15 000 ms, the 15 seconds after which the panel says the outcome is unknown [story 6 AC-1, AC-3 "within 15 seconds"; ADR tagging-edges/0006 D15 "sendRun() … sendStop(targets) … Both use the private raced(15000, …)"]', async () => {
+  const bad = [];
+  for (const s of SENDERS) {
+    const mod = await loadSender(s);
+    const had = Object.prototype.hasOwnProperty.call(globalThis, 'fetch');
+    const savedFetch = globalThis.fetch;
+    const realSetTimeout = globalThis.setTimeout;
+    const calls = [];
+    const delays = [];
+    try {
+      globalThis.fetch = (url, init) => { calls.push([url, init]); return Promise.resolve(response(200, '{"success":true,"recorded":true}')); };
+      globalThis.setTimeout = function spiedSetTimeout(fn, ms, ...rest) { delays.push(ms); return realSetTimeout(fn, ms, ...rest); };
+      const out = await guarded(s.name === 'sendRun' ? mod.sendRun() : mod.sendStop(TARGETS), 2000, `${s.name} with no options`);
+      if (calls.length !== 1) bad.push(`${s.name} with no options: it must call the globalThis.fetch present at call time; it was called ${calls.length} times`);
+      else if (!(calls[0][0] === s.url && calls[0][1] && calls[0][1].method === 'POST' && calls[0][1].body === s.body)) {
+        bad.push(`${s.name} with no options: expected globalThis.fetch(${show(s.url)}, { method: 'POST', body: ${show(s.body)}, … }); got ${show(calls[0])}`);
+      }
+      if (!(out && out.ok === true)) bad.push(`${s.name} with no options: expected { ok: true, body } through the default fetch; got ${show(out)}`);
+      if (!delays.includes(15000)) bad.push(`${s.name} with no options: its race must be 15000 ms; the timers set were ${show(delays)}`);
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      if (had) globalThis.fetch = savedFetch; else delete globalThis.fetch;
+    }
+  }
+  assert(!bad.length, `the senders' defaults (${ADR6} D15):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TF31: the 15 s race is the module\'s one private raced() — sendRun and sendStop each call raced(…) and set no timer and build no AbortController of their own, raced stays unexported, and readSection and sendSwitch still go through it [story 6 AC-1, AC-3 "within 15 seconds"; ADR tagging-edges/0006 D15 "Both use the private raced(15000, …)", § Constraints "No new timer in the panel. The 15 s race stays in taggingPipelineFetch.js"]', async () => {
+  for (const s of SENDERS) await loadSender(s);
+  const t = require('typescript');
+  const sf = t.createSourceFile(MODULE_ABS, fs.readFileSync(MODULE_ABS, 'utf-8'), t.ScriptTarget.Latest, true, t.ScriptKind.JS);
+  const walk = (node, visit) => { visit(node); t.forEachChild(node, (c) => walk(c, visit)); };
+  const fnsNamed = (name) => {
+    const out = [];
+    walk(sf, (n) => {
+      if (t.isFunctionDeclaration(n) && n.name && n.name.text === name) out.push(n);
+      if (t.isVariableDeclaration(n) && t.isIdentifier(n.name) && n.name.text === name && n.initializer
+        && (t.isArrowFunction(n.initializer) || t.isFunctionExpression(n.initializer))) out.push(n.initializer);
+    });
+    return out;
+  };
+  const calls = (fn, name) => {
+    let hit = 0;
+    walk(fn, (n) => { if (t.isCallExpression(n) && t.isIdentifier(n.expression) && n.expression.text === name) hit++; });
+    return hit;
+  };
+  const bad = [];
+  for (const name of ['readSection', 'sendSwitch', 'sendRun', 'sendStop']) {
+    const fns = fnsNamed(name);
+    if (fns.length !== 1) { bad.push(`${name} is defined ${fns.length} times; expected once`); continue; }
+    if (calls(fns[0], 'raced') === 0) bad.push(`${name} must race its request through the module's raced() (${ADR6} D15)`);
+    if (calls(fns[0], 'setTimeout') > 0) bad.push(`${name} sets a timer of its own; the race is raced()'s`);
+    let ac = false;
+    walk(fns[0], (n) => { if (t.isNewExpression(n) && t.isIdentifier(n.expression) && n.expression.text === 'AbortController') ac = true; });
+    if (ac) bad.push(`${name} builds an AbortController of its own; the race is raced()'s`);
+  }
+  const exportsRaced = sf.statements.some((st) => (t.isFunctionDeclaration(st) && st.name && st.name.text === 'raced'
+    && (st.modifiers || []).some((m) => m.kind === t.SyntaxKind.ExportKeyword))
+    || (t.isExportDeclaration(st) && st.exportClause && t.isNamedExports(st.exportClause) && st.exportClause.elements.some((e) => e.name.text === 'raced' || (e.propertyName && e.propertyName.text === 'raced'))));
+  if (exportsRaced) bad.push('raced must stay private to the module (D15 "the private raced")');
+  assert(!bad.length, `the senders share the module's one race (${ADR6} D15):\n      - ${bad.join('\n      - ')}`);
+});
+
 /* ─── Run ─── */
 async function run() {
-  console.log('\n--- tagging-pipeline-fetch tests (tagging-edges story #4) ---');
+  console.log('\n--- tagging-pipeline-fetch tests (tagging-edges stories #4–#6) ---');
   let pass = 0, fail = 0;
   const failures = [];
   for (const [name, fn] of tests) {

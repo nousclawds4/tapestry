@@ -44,6 +44,21 @@
  *   own. Red until story 5 lands: index.js has no ownerOrAdmin, and both routes still compare for themselves.
  *   SWR74 is new (D5 "Shared helpers"): realtime.js's defaultDeps gains the lazy getAdminPubkeys provider, which no
  *   suite exercises because every admin test injects the lookup.
+ *   Story 6 (2026-10-27; engineering-team/stories/tagging-edges/6-pass-run-and-stop.md, ADR tagging-edges/0006 D2, D3,
+ *   D6, D7, D8, D10, D13 and § Seams "Registration pins", "Load-time pins"): SWR75–SWR84 are new; no earlier test changes.
+ *     SWR75–SWR77 read source: the three pass routes' registrations (per method, behind requireOwnerOrAdmin); the route
+ *       table's entries and resolveRouteAccess's answers; run-task's one-line branch for this pass (return await on the
+ *       delegate, with R1/R3/T12/T13's literals kept).
+ *     SWR78–SWR84 run in child processes, so no stub, tracer or module state reaches this suite's process:
+ *       SWR78  the processor's spawn environment gains BRAINSTORM_TASK_JOB_ID (child_process.spawn replaced by a recorder);
+ *       SWR79  queue/index.js's queueHealth() and its require of jobGates (bullmq and ioredis replaced by recording fakes);
+ *       SWR80–SWR82  the load-time rule for pass.js, the controller and jobGates.js: an fs tracer on a temp
+ *              TAGGING_EDGES_STATE_DIR (and /var/lib/brainstorm) and a socket tracer (net, tls) see nothing;
+ *       SWR83  pass.js's defaultDeps reaches the configured admin list (SWR74's trap: every suite injects the lookup);
+ *       SWR84  index.js's defaultDeps reaches the default controller's lineUp and snapshot and queueHealth() (the
+ *              control and queue modules replaced by recorders through the module resolver).
+ *     Every child gets REDIS_HOST=127.0.0.1 and REDIS_PORT=1, so even a mistaken connection could reach no real Redis.
+ *     Red until story 6 lands: none of pass.js, control/ or jobGates.js exists, and no file named here has changed yet.
  *
  * Stack-free and hermetic: no Neo4j, no strfry, no network, no write to the local graph or relay. Temp directories come
  * from fs.mkdtempSync(os.tmpdir()) and are removed; env changes live only in child processes; the swapped driver
@@ -2689,6 +2704,614 @@ test('SWR74: src/api/tagging-edges/realtime.js\'s defaultDeps gains getAdminPubk
   assert(defaults, 'src/api/tagging-edges/realtime.js defines no defaultDeps — the handlers\' real dependencies (ADR 0003 T22, ADR 0005 D5)');
   const provider = /\bgetAdminPubkeys\s*:\s*(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*require\(\s*['"][./]*utils\/config['"]\s*\)\s*\.\s*getAdminPubkeys\s*\(\s*\)/;
   assert(provider.test(defaults.text), 'src/api/tagging-edges/realtime.js\'s defaultDeps has no getAdminPubkeys: () => require(\'../../utils/config\').getAdminPubkeys() — the lazy admin-list provider ownerOrAdmin consults for a real request (ADR 0005 D5 "Shared helpers"); without it an admin lookup throws, which admits no admin');
+});
+
+// ══ Story 6 — running and stopping the pass (ADR tagging-edges/0006) ══════════════════════════════════════════════
+const ADR6 = 'ADR tagging-edges/0006';
+const PASS_API = path.join(REPO_ROOT, 'src/api/tagging-edges/pass.js');
+const CONTROL_INDEX = path.join(REPO_ROOT, 'src/pipeline/tagging-edges/control/index.js');
+const QUEUE_DIR = path.join(REPO_ROOT, 'src/manage/taskQueue/queue');
+const QUEUE_INDEX = path.join(QUEUE_DIR, 'index.js');
+const JOB_GATES = path.join(QUEUE_DIR, 'jobGates.js');
+const PROCESSOR = path.join(QUEUE_DIR, 'processor.js');
+const RUN_TASK = path.join(REPO_ROOT, 'src/api/manage/commands/runTask.js');
+const ROUTE_TABLE = path.join(REPO_ROOT, 'src/middleware/routeAccess.js');
+const STATE_JS = path.join(REPO_ROOT, 'src/pipeline/tagging-edges/state.js');
+const UTILS_CONFIG = path.join(REPO_ROOT, 'src/utils/config.js');
+const PASS_FAKES = path.join(__dirname, 'helpers', 'taggingEdgesPassFakes.js');
+const PASS_PATHS = Object.freeze({
+  run: '/api/tagging-edges/pass/run',
+  stop: '/api/tagging-edges/pass/stop',
+  record: '/api/tagging-edges/pass/record',
+  status: '/api/tagging-edges/status',
+});
+
+// ─── child processes: each story-6 runtime check runs in its own, so no stub or tracer reaches this process ───
+const CHILD_MARK = '@@TD6@@';
+/** A temp directory under os.tmpdir() (never /var/lib/brainstorm); the caller removes it. */
+function td6Temp(label) { return fs.mkdtempSync(path.join(os.tmpdir(), `tagging-edges-wiring-${label}-`)); }
+/** The child's environment: structured logging off, and a Redis address no real Redis listens on. */
+function childEnv(extra = {}) {
+  const env = { ...process.env, BRAINSTORM_STRUCTURED_LOGGING: 'false', REDIS_HOST: '127.0.0.1', REDIS_PORT: '1', ...extra };
+  delete env.BRAINSTORM_TASK_JOB_ID;
+  return env;
+}
+function rmTemp(dir) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) { /* best effort */ } }
+/** Run `code` with node -e; → the JSON the child printed after CHILD_MARK. */
+function runChild(code, env, what) {
+  const r = spawnSync(process.execPath, ['-e', code], { cwd: REPO_ROOT, env, encoding: 'utf8', timeout: 60000, maxBuffer: 16 * 1024 * 1024 });
+  const out = String(r.stdout || '');
+  const at = out.lastIndexOf(CHILD_MARK);
+  if (at < 0) throw new Error(`${what}: the child process gave no answer (exit ${r.status}${r.signal ? `, signal ${r.signal}` : ''}${r.error ? `, ${r.error.message}` : ''}): ${tail(r.stderr || out)}`);
+  const line = out.slice(at + CHILD_MARK.length).split('\n')[0];
+  try { return JSON.parse(line); } catch (e) { throw new Error(`${what}: the child's answer is not JSON (${e.message}): ${line.slice(0, 300)}`); }
+}
+/** The child's helpers: say(o) prints the answer and exits once it is flushed; first(e) is an error's first line. */
+const CHILD_SAY = String.raw`
+const __first = (e) => String((e && e.message) || e).split('\n')[0];
+const __sayNow = (o) => { process.stdout.write('${CHILD_MARK}' + JSON.stringify(o) + '\n', () => process.exit(0)); };
+`;
+/**
+ * The load-time tracer (§ Seams "Load-time pins"): every fs call (fs and fs.promises, sync, callback and promise) whose
+ * first or second argument is a path under TD6_TRACE_ROOTS (the temp state directory, its real path and
+ * /var/lib/brainstorm), and every socket opened (net.connect, net.createConnection, net.Socket#connect, tls.connect).
+ */
+const LOAD_TRACER = String.raw`
+const __fs = require('fs');
+const __path = require('path');
+const __net = require('net');
+const __tls = require('tls');
+const __url = require('url');
+const __roots = JSON.parse(process.env.TD6_TRACE_ROOTS || '[]').map((r) => __path.resolve(r));
+const __ops = [];
+const __conns = [];
+let __quiet = 0;
+const __abs = (p) => {
+  try {
+    if (typeof p === 'string') return __path.resolve(p);
+    if (Buffer.isBuffer(p)) return __path.resolve(p.toString('utf8'));
+    if (p instanceof URL && p.protocol === 'file:') return __path.resolve(__url.fileURLToPath(p));
+  } catch (_) { /* not a path */ }
+  return null;
+};
+const __under = (abs) => abs !== null && __roots.some((r) => abs === r || abs.startsWith(r + __path.sep));
+function __wrap(obj, label) {
+  for (const k of Object.keys(obj)) {
+    const f = obj[k];
+    if (typeof f !== 'function' || /^[A-Z_]/.test(k)) continue;
+    const w = function (...a) {
+      if (!__quiet) for (const x of a.slice(0, 2)) { const abs = __abs(x); if (__under(abs)) __ops.push(label + k + ' ' + abs); }
+      return f.apply(this, a);
+    };
+    Object.setPrototypeOf(w, f);
+    obj[k] = w;
+  }
+}
+__wrap(__fs, 'fs.');
+__wrap(__fs.promises, 'fs.promises.');
+for (const [m, label, keys] of [[__net, 'net.', ['connect', 'createConnection']], [__tls, 'tls.', ['connect']]]) {
+  for (const k of keys) { const f = m[k]; m[k] = function (...a) { __conns.push(label + k); return f.apply(this, a); }; }
+}
+const __sock = __net.Socket.prototype.connect;
+__net.Socket.prototype.connect = function (...a) { __conns.push('net.Socket#connect'); return __sock.apply(this, a); };
+const __say = (o) => { __quiet++; __sayNow(o); };
+const __controlDirExists = () => { __quiet++; try { return __fs.existsSync(__path.join(process.env.TAGGING_EDGES_STATE_DIR, 'control')); } finally { __quiet--; } };
+`;
+/** Run a load-time check in a child over a fresh, empty temp state directory. */
+function loadTimeChild(body, what) {
+  const dir = td6Temp('load');
+  try {
+    const roots = [dir, fs.realpathSync(dir), '/var/lib/brainstorm'];
+    const env = childEnv({ TAGGING_EDGES_STATE_DIR: dir, TD6_TRACE_ROOTS: JSON.stringify(roots) });
+    return runChild(`${CHILD_SAY}\n${LOAD_TRACER}\nconst REPO = ${JSON.stringify(REPO_ROOT)};\n${body}`, env, what);
+  } finally { rmTemp(dir); }
+}
+/** The problems a load-time answer shows: anything done on disk or on a socket, or the control directory made. */
+function loadTimeProblems(rel, out) {
+  const p = [];
+  if (out.ops && out.ops.length) p.push(`requiring ${rel} touched the state directory: ${show(out.ops.slice(0, 6))} — "no <stateDir>/control/ mkdir and no record read until first use" (${ADR6} § Seams "Load-time pins"; D1)`);
+  if (out.controlDir) p.push(`requiring ${rel} made <stateDir>/control/ (${ADR6} D1: the record is "loaded lazily from disk on first use")`);
+  if (out.conns && out.conns.length) p.push(`requiring ${rel} opened a socket (${show(out.conns.slice(0, 4))}) — no Redis work when it loads (${ADR6} § Seams "Load-time pins")`);
+  return p;
+}
+
+test('SWR75: src/api/index.js registers the pass\'s three routes from require(\'./tagging-edges/pass\'), each exactly once with its one method, behind adminApi.requireOwnerOrAdmin and after adminApi is required — POST /api/tagging-edges/pass/run with handlePassRun, POST /api/tagging-edges/pass/stop with handlePassStop, and GET /api/tagging-edges/pass/record with a handler of its own that pass.js exports — and neither path is mounted by any other method [ADR tagging-edges/0006 D6 "Mounted", D9 "Mounted", D13 "Gate"; § Seams "Registration pins"; story AC-4 "The server decides", AC-5 "Who may read it"]', () => {
+  const src = codeOnly(safeRead(API_INDEX));
+  const REQ = String.raw`require\(\s*['"]\.\/tagging-edges\/pass(?:\.js)?['"]\s*\)`;
+  const modVar = new RegExp(String.raw`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*${REQ}`).exec(src);
+  const destructured = new RegExp(String.raw`(?:const|let|var)\s*\{([^}]*)\}\s*=\s*${REQ}`).exec(src);
+  const bound = new Map(); // local name → the pass.js export it names
+  if (destructured) {
+    for (const part of splitTopLevel(destructured[1])) {
+      const m = /^([A-Za-z_$][\w$]*)(?:\s*:\s*([A-Za-z_$][\w$]*))?$/.exec(part.trim());
+      if (m) bound.set(m[2] || m[1], m[1]);
+    }
+  }
+  const handlerOf = (arg) => {
+    if (modVar) {
+      const m = new RegExp(String.raw`^${escapeRe(modVar[1])}\s*\.\s*([A-Za-z_$][\w$]*)$`).exec(arg);
+      if (m) return m[1];
+    }
+    return bound.has(arg) ? bound.get(arg) : null;
+  };
+  const problems = [];
+  if (!modVar && !destructured) problems.push(`src/api/index.js must require('./tagging-edges/pass') for the pass's handlers (${ADR6} Implementation notes: "the routes" means src/api/tagging-edges/pass.js)`);
+  const routes = [
+    ['post', PASS_PATHS.run, 'handlePassRun', 'D6'],
+    ['post', PASS_PATHS.stop, 'handlePassStop', 'D9'],
+    ['get', PASS_PATHS.record, null, 'D13'],
+  ];
+  const METHODS = ['get', 'post', 'put', 'patch', 'delete', 'all', 'use'];
+  const adminAt = src.search(/const\s+adminApi\s*=\s*require\(\s*['"]\.\/admin['"]\s*\)/);
+  assert(adminAt >= 0, 'src/api/index.js must still require adminApi from ./admin');
+  const registrations = (method, p) => [...src.matchAll(new RegExp(`\\bapp\\s*\\.\\s*${method}\\s*\\(\\s*['"\`]${escapeRe(p)}['"\`]`, 'g'))].length;
+  const passCode = codeOf(PASS_API);
+  for (const [want, p, handler, d] of routes) {
+    for (const method of METHODS) {
+      const n = registrations(method, p);
+      if (method === want && n !== 1) problems.push(`${want.toUpperCase()} ${p} must be registered exactly once, with app.${want}(…); found ${n} (${ADR6} ${d})`);
+      if (method !== want && n !== 0) problems.push(`${p} must not be registered with app.${method}(…) — it carries only ${want.toUpperCase()}; found ${n}`);
+    }
+    if (registrations(want, p) !== 1) continue;
+    const m = new RegExp(`app\\.${want}\\(\\s*['"]${escapeRe(p)}['"]\\s*,([^;]*?)\\)\\s*;`).exec(src);
+    if (!m) { problems.push(`${want.toUpperCase()} ${p} must be registered as app.${want}('${p}', adminApi.requireOwnerOrAdmin, <handler>);`); continue; }
+    const args = splitTopLevel(m[1]);
+    if (args.length !== 2 || args[0] !== 'adminApi.requireOwnerOrAdmin') problems.push(`${want.toUpperCase()} ${p} must be registered with adminApi.requireOwnerOrAdmin, then its handler (${ADR6} ${d}); got ${args.join(', ')}`);
+    const name = args.length === 2 ? handlerOf(args[1]) : null;
+    if (handler && name !== handler) problems.push(`${want.toUpperCase()} ${p}'s handler must be pass.js's ${handler} (${ADR6} ${d}); got ${args[1] === undefined ? '(none)' : args[1]}`);
+    if (!handler) {
+      if (!name) problems.push(`GET ${p}'s handler must be one of pass.js's exports, reached through its require; got ${args[1] === undefined ? '(none)' : args[1]}`);
+      else if (['handlePassRun', 'handlePassStop', 'handleRunTaskForPass'].includes(name)) problems.push(`GET ${p} must have a handler of its own, the gated record read; it is ${name} (${ADR6} D13)`);
+      else if (!exportsName(passCode, name)) problems.push(`GET ${p}'s handler ${name} is not exported by src/api/tagging-edges/pass.js`);
+    }
+    if (m.index < adminAt) problems.push(`${want.toUpperCase()} ${p} must be registered after adminApi is required`);
+  }
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR76: the route table keeps the pass\'s routes on the owner\'s side — ROUTE_ACCESS gains \'GET /api/tagging-edges/pass/record\' as an owner read and \'POST /api/tagging-edges/pass/run\' and \'POST /api/tagging-edges/pass/stop\' as owner actions (OWNER_READ, OWNER_ACTION), resolveRouteAccess answers \'owner\' for both POSTs and for GET and HEAD of the record path, and GET and HEAD /api/tagging-edges/status still answer \'public\' [ADR tagging-edges/0006 D13 "Route-table entries"; § Seams "Registration pins"; ADR security-auth-exposure/0005; story AC-2 "The public status", AC-5 "Who may read it"]', () => {
+  assert(fs.existsSync(ROUTE_TABLE), 'src/middleware/routeAccess.js does not exist (ADR security-auth-exposure/0005 Decision 1)');
+  delete require.cache[require.resolve(ROUTE_TABLE)];
+  const { ROUTE_ACCESS, resolveRouteAccess } = require(ROUTE_TABLE);
+  const problems = [];
+  const entries = [
+    [`GET ${PASS_PATHS.record}`, { access: 'owner', kind: 'read' }, 'OWNER_READ'],
+    [`POST ${PASS_PATHS.run}`, { access: 'owner', kind: 'action' }, 'OWNER_ACTION'],
+    [`POST ${PASS_PATHS.stop}`, { access: 'owner', kind: 'action' }, 'OWNER_ACTION'],
+  ];
+  for (const [key, want, name] of entries) {
+    const v = ROUTE_ACCESS && ROUTE_ACCESS[key];
+    if (!v) problems.push(`ROUTE_ACCESS has no '${key}' entry — D13 adds it as ${name}, so the table stays total, as its header asks (${ADR6} D13)`);
+    else if (v.access !== want.access || v.kind !== want.kind) problems.push(`ROUTE_ACCESS['${key}'] must be ${name} ({ access: '${want.access}', kind: '${want.kind}' }); got ${show(v)}`);
+  }
+  for (const [method, p, want] of [
+    ['POST', PASS_PATHS.run, 'owner'], ['POST', PASS_PATHS.stop, 'owner'], ['GET', PASS_PATHS.record, 'owner'], ['HEAD', PASS_PATHS.record, 'owner'],
+    ['GET', PASS_PATHS.status, 'public'], ['HEAD', PASS_PATHS.status, 'public'],
+  ]) {
+    const got = resolveRouteAccess(method, p);
+    if (got !== want) problems.push(`resolveRouteAccess('${method}', '${p}') must be '${want}'; got '${got}'${want === 'public' ? ' — the public status stays a public read (story AC-2)' : ` (${ADR6} D13)`}`);
+  }
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR77: the run-task route sends this pass to pass.js — handleRunTask, right after const { taskName } = req.query and inside its try, before the registry is loaded, holds the one branch if (String(taskName) === \'reconcileTaggingEdges\') whose body is return await require(\'../../tagging-edges/pass\').handleRunTaskForPass(req, res) — and every literal R1, R3, T12 and T13 pin stays (taskName, pubkey, customerId, customerName, determineExecutionMode, resolveTaskTimeout, QUEUE_UNAVAILABLE, 503, TASK_QUEUE_ENABLED), so other tasks are unchanged [ADR tagging-edges/0006 D7 "The branch"; § Seams "Registration pins": "A source pin checks that runTask.js\'s branch is return await on the delegate"; story AC-4 "The general run-task route, for this pass"]', () => {
+  const src = safeRead(RUN_TASK);
+  assert(src, 'src/api/manage/commands/runTask.js not found (ADR tagging-edges/0006 D7)');
+  const code = codeOf(RUN_TASK);
+  const fn = definitionOf(code, 'handleRunTask');
+  assert(fn, 'src/api/manage/commands/runTask.js defines no handleRunTask — the run-task route\'s handler (ADR tagging-edges/0006 D7)');
+  const body = fn.text;
+  const problems = [];
+  const PASS_REQ = String.raw`require\s*\(\s*['"\x60]\.\.\/\.\.\/tagging-edges\/pass(?:\.js)?['"\x60]\s*\)`;
+  const destructure = /const\s*\{\s*taskName\s*\}\s*=\s*req\s*\.\s*query\s*;/.exec(body);
+  if (!destructure) problems.push(`handleRunTask no longer reads const { taskName } = req.query; — D7 places the branch right after it`);
+  const conds = [...body.matchAll(/\bif\s*\(\s*(?:String\s*\(\s*taskName\s*\)\s*===\s*(['"`])reconcileTaggingEdges\1|(['"`])reconcileTaggingEdges\2\s*===\s*String\s*\(\s*taskName\s*\))\s*\)/g)];
+  if (conds.length !== 1) {
+    problems.push(`handleRunTask must hold one branch if (String(taskName) === 'reconcileTaggingEdges') — String() so a repeated or bracketed query parameter compares the same (${ADR6} D7); found ${conds.length}`);
+  } else {
+    const c = conds[0];
+    const after = body.slice(c.index + c[0].length);
+    const call = new RegExp(String.raw`^\s*\{?\s*return\s+await\s+(${PASS_REQ}|\(\s*${PASS_REQ}\s*\)|[A-Za-z_$][\w$]*)\s*\.\s*handleRunTaskForPass\s*\(\s*req\s*,\s*res\s*\)`).exec(after);
+    if (!call) problems.push(`the branch must be return await require('../../tagging-edges/pass').handleRunTaskForPass(req, res) — return await, so any rejection stays inside handleRunTask's try (${ADR6} D7); it reads: ${after.slice(0, 160).replace(/\s+/g, ' ').trim()}`);
+    else if (/^[A-Za-z_$][\w$]*$/.test(call[1]) && !new RegExp(String.raw`\b(?:const|let|var)\s+${escapeRe(call[1])}\s*=\s*${PASS_REQ}`).test(code)) {
+      problems.push(`the branch calls ${call[1]}.handleRunTaskForPass, but ${call[1]} is not require('../../tagging-edges/pass') in runTask.js (${ADR6} D7)`);
+    }
+    if (destructure && c.index < destructure.index) problems.push(`the branch must come after const { taskName } = req.query; (${ADR6} D7)`);
+    const tryAt = body.search(/\btry\s*\{/);
+    if (tryAt < 0 || c.index < tryAt) problems.push(`the branch must sit inside handleRunTask's try (${ADR6} D7: "return await keeps any rejection inside handleRunTask's try")`);
+    const registryAt = body.search(/\bgetTaskRegistry\s*\(/);
+    if (registryAt >= 0 && c.index > registryAt) problems.push(`the branch must come before the registry is loaded, so this pass never reaches the general path — the legacy direct spawn included (${ADR6} D7: "With the flag off this pass is refused")`);
+  }
+  const literals = [
+    ['taskName', 'R1'], ['pubkey', 'R1'], ['customerId', 'R1'], ['customerName', 'R1'],
+    ['determineExecutionMode', 'R3'], ['resolveTaskTimeout', 'R3'],
+    ['QUEUE_UNAVAILABLE', 'T12'], ['503', 'T12'], ['TASK_QUEUE_ENABLED', 'T13'],
+  ];
+  for (const [lit, pin] of literals) {
+    if (!new RegExp(`\\b${escapeRe(lit)}\\b`).test(src)) problems.push(`runTask.js lost the literal ${lit} that ${pin} pins (test/task-queue-bullmq.test.js) — every other task, and every existing literal, is unchanged (${ADR6} D7)`);
+  }
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR78: the processor\'s spawn environment gains BRAINSTORM_TASK_JOB_ID: String(job.id), for every task — a lined-up Run of the pass, a job with a scheduled run\'s id, and another task with a numeric id — beside the inherited environment and BRAINSTORM_STRUCTURED_LOGGING: \'true\', while the launcher\'s arguments stay as they are (launchChildTask.sh, the task, \'task-queue\', the options JSON, the task\'s own arguments) and carry no job id [ADR tagging-edges/0006 D10 "The processor", § Context "No job information reaches the pass"; § Constraints "Shared queue code changes only by opt-in"]', () => {
+  const registryEntry = taskEntry();
+  const cases = [
+    { label: 'a lined-up Run of the pass', job: { id: 'reconcileTaggingEdges-a00000000001', data: { taskName: TASK, customerArgs: null, timeoutMs: 1800000 } }, taskDef: 'registry', childArgs: '', idInArgv: false },
+    { label: 'a job with a scheduled run\'s id', job: { id: 'repeat:sched:seed:reconcileTaggingEdges:1761566400000', data: { taskName: TASK, customerArgs: null, timeoutMs: 1800000 } }, taskDef: 'registry', childArgs: '', idInArgv: false },
+    { label: 'another task, with a numeric job id', job: { id: 7, data: { taskName: 'someOtherTask', customerArgs: null, timeoutMs: 60000 } }, taskDef: { staticArgs: '--mode all' }, childArgs: '--mode all', idInArgv: null },
+  ];
+  const code = `${CHILD_SAY}
+const cp = require('child_process');
+const { EventEmitter } = require('events');
+const seen = [];
+cp.spawn = function (cmd, args, opts) {
+  const env = (opts && opts.env) || {};
+  seen.push({ cmd, args, has: Object.prototype.hasOwnProperty.call(env, 'BRAINSTORM_TASK_JOB_ID'), jobIdEnv: env.BRAINSTORM_TASK_JOB_ID, structured: env.BRAINSTORM_STRUCTURED_LOGGING, marker: env.TD6_INHERITED_MARKER });
+  const child = new EventEmitter();
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.stdin = { write() {}, end() {} };
+  child.pid = 424242;
+  setImmediate(() => child.emit('close', 0));
+  return child;
+};
+let processor = null;
+let err = null;
+try { processor = require(${JSON.stringify(PROCESSOR)}); } catch (e) { err = __first(e); }
+const entry = ${JSON.stringify(registryEntry)};
+const cases = ${JSON.stringify(cases)};
+(async () => {
+  const results = [];
+  for (const c of cases) {
+    const before = seen.length;
+    let error = null;
+    try { await processor.processJob(c.job, c.taskDef === 'registry' ? entry : c.taskDef); } catch (e) { error = __first(e); }
+    results.push({ label: c.label, error, spawns: seen.slice(before) });
+  }
+  __sayNow({ err, results });
+})();
+`;
+  const out = runChild(code, childEnv({ TD6_INHERITED_MARKER: 'inherited' }), 'the processor check');
+  assert(!out.err, `src/manage/taskQueue/queue/processor.js did not load: ${out.err}`);
+  const problems = [];
+  for (const c of cases) {
+    const r = (out.results || []).find((x) => x.label === c.label) || {};
+    const expectedOptions = JSON.stringify({ completion: { failure: { timeout: { duration: c.job.data.timeoutMs } } } });
+    if (r.error) { problems.push(`${c.label}: processJob failed: ${r.error}`); continue; }
+    if (!r.spawns || r.spawns.length !== 1) { problems.push(`${c.label}: processJob should spawn the launcher once; it spawned ${r.spawns ? r.spawns.length : 0} time(s)`); continue; }
+    const s = r.spawns[0];
+    const id = String(c.job.id);
+    if (!s.has || s.jobIdEnv !== id) problems.push(`${c.label}: the spawn environment should carry BRAINSTORM_TASK_JOB_ID ${show(id)} (String(job.id)); it ${s.has ? `carries ${show(s.jobIdEnv)}` : 'carries none'} (${ADR6} D10 "The processor": "gains BRAINSTORM_TASK_JOB_ID: String(job.id) for every task")`);
+    if (s.structured !== 'true') problems.push(`${c.label}: BRAINSTORM_STRUCTURED_LOGGING should stay 'true' in the spawn environment; got ${show(s.structured)}`);
+    if (s.marker !== 'inherited') problems.push(`${c.label}: the spawn environment should still inherit process.env (a marker set in the parent is ${show(s.marker)})`);
+    const args = Array.isArray(s.args) ? s.args : [];
+    const shapeOk = s.cmd === 'bash' && args.length === 5 && /taskQueue\/launchChildTask\.sh$/.test(String(args[0])) && args[1] === c.job.data.taskName && args[2] === 'task-queue' && args[3] === expectedOptions && args[4] === c.childArgs;
+    if (!shapeOk) problems.push(`${c.label}: the launcher's arguments should stay [launchChildTask.sh, ${show(c.job.data.taskName)}, 'task-queue', ${expectedOptions}, ${show(c.childArgs)}]; got ${s.cmd} ${show(args)}`);
+    if (c.idInArgv === false && args.some((a) => String(a).includes(id))) problems.push(`${c.label}: the job id ${id} reaches the launcher's arguments — it travels in the environment (${ADR6} D10)`);
+  }
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR79: queue/index.js exports queueHealth(), which answers \'off\' before initTaskQueue, \'ready\' while the shared Redis client\'s status is \'ready\', and \'not-ready\' for any other status (connecting, reconnecting, end), issuing no Redis command (ping is seen when isQueueAvailable() runs, so the recorder works); and it requires jobGates.js by the time initTaskQueue has built its workers [ADR tagging-edges/0006 D2 "A new export in queue/index.js", D3 "The opt-in"; § Seams "Load-time pins"]', () => {
+  const code = `${CHILD_SAY}
+const path = require('path');
+const Module = require('module');
+const QUEUE_DIR = ${JSON.stringify(QUEUE_DIR)};
+const QUEUE_INDEX = ${JSON.stringify(QUEUE_INDEX)};
+const JOB_GATES = ${JSON.stringify(JOB_GATES)};
+const commands = [];
+const redises = [];
+function plant(request, exports) {
+  const file = require.resolve(request, { paths: [QUEUE_DIR] });
+  const m = new Module(file);
+  m.filename = file;
+  m.loaded = true;
+  m.exports = exports;
+  require.cache[file] = m;
+}
+function FakeRedis(opts) {
+  const target = { opts, status: 'ready' };
+  const proxy = new Proxy(target, {
+    get(t, k) {
+      if (k === 'status' || k === 'opts') return t[k];
+      if (typeof k === 'symbol' || k === 'then' || k === 'constructor') return undefined;
+      return (...a) => {
+        commands.push(String(k));
+        if (k === 'ping') return Promise.resolve('PONG');
+        if (k === 'on' || k === 'once' || k === 'off' || k === 'removeListener') return proxy;
+        return Promise.resolve(null);
+      };
+    },
+    set(t, k, v) { t[k] = v; return true; },
+  });
+  redises.push(target);
+  return proxy;
+}
+class FakeQueue { constructor(name) { this.name = name; } on() { return this; } async close() {} }
+class FakeWorker { constructor(name) { this.name = name; } on() { return this; } async close() {} }
+class FakeQueueEvents { constructor(name) { this.name = name; } on() { return this; } async close() {} }
+plant('bullmq', { Queue: FakeQueue, Worker: FakeWorker, QueueEvents: FakeQueueEvents });
+plant('ioredis', FakeRedis);
+(async () => {
+  const out = { err: null };
+  let q = null;
+  try { q = require(QUEUE_INDEX); } catch (e) { out.err = __first(e); return __sayNow(out); }
+  out.type = typeof q.queueHealth;
+  out.jobGatesAtRequire = Object.prototype.hasOwnProperty.call(require.cache, JOB_GATES);
+  const health = async () => { try { return await q.queueHealth(); } catch (e) { return 'threw: ' + __first(e); } };
+  if (out.type === 'function') out.before = await health();
+  try {
+    await q.initTaskQueue({ registry: { tasks: { probeHeavyTask: { resourceClass: 'neo4j-heavy' }, probeLightTask: {} } } });
+  } catch (e) { out.initErr = __first(e); return __sayNow(out); }
+  out.jobGatesAfterInit = Object.prototype.hasOwnProperty.call(require.cache, JOB_GATES);
+  const r = redises[0];
+  out.redises = redises.length;
+  if (r && out.type === 'function') {
+    const n0 = commands.length;
+    out.answers = {};
+    for (const status of ['ready', 'connecting', 'reconnecting', 'end']) { r.status = status; out.answers[status] = await health(); }
+    out.commandsDuringHealth = commands.slice(n0);
+    r.status = 'ready';
+  }
+  const n1 = commands.length;
+  try { await q.isQueueAvailable(); } catch (_) { /* the recorder is what is checked */ }
+  out.pingSeen = commands.slice(n1).includes('ping');
+  __sayNow(out);
+})();
+`;
+  const dir = td6Temp('queue');
+  let out;
+  try { out = runChild(code, childEnv({ TAGGING_EDGES_STATE_DIR: dir }), 'the queue module check'); } finally { rmTemp(dir); }
+  assert(!out.err, `src/manage/taskQueue/queue/index.js did not load with bullmq and ioredis replaced by fakes: ${out.err}`);
+  const problems = [];
+  if (out.type !== 'function') problems.push(`queue/index.js does not export queueHealth() yet (it is ${out.type}) — it returns 'off', 'ready' or 'not-ready' and issues no Redis command (${ADR6} D2)`);
+  if (out.initErr) problems.push(`initTaskQueue failed over the fakes: ${out.initErr}`);
+  if (out.type === 'function') {
+    if (out.before !== 'off') problems.push(`queueHealth() before initTaskQueue: expected 'off' (_state is null), got ${show(out.before)} (${ADR6} D2)`);
+    const a = out.answers || {};
+    if (a.ready !== 'ready') problems.push(`queueHealth() with the client's status 'ready': expected 'ready', got ${show(a.ready)} (${ADR6} D2)`);
+    for (const s of ['connecting', 'reconnecting', 'end']) if (a[s] !== 'not-ready') problems.push(`queueHealth() with the client's status '${s}': expected 'not-ready', got ${show(a[s])} (${ADR6} D2)`);
+    if (out.commandsDuringHealth && out.commandsDuringHealth.length) problems.push(`queueHealth() issued Redis commands ${show(out.commandsDuringHealth)} — "It issues no Redis command" (${ADR6} D2; § Context "Redis can hang a caller")`);
+  }
+  if (!out.pingSeen) problems.push('fixture: isQueueAvailable()\'s ping was not seen by the fake client, so "no command" above would prove nothing');
+  if (!out.jobGatesAtRequire && !out.jobGatesAfterInit) problems.push(`queue/index.js never required src/manage/taskQueue/queue/jobGates.js, even after initTaskQueue built its workers — "initTaskQueue resolves it once per task, when it builds that task's worker" (${ADR6} D3)`);
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR80: requiring src/api/tagging-edges/pass.js does no disk or Redis work — over an empty temp TAGGING_EDGES_STATE_DIR, an fs tracer sees no call under it (nor under /var/lib/brainstorm), no <stateDir>/control/ is made, and no socket is opened — while the module loads and exports handlePassRun, handlePassStop and handleRunTaskForPass [ADR tagging-edges/0006 § Seams "Load-time pins": "pass.js, the controller and jobGates.js do no disk or Redis work when they load"; D6, D7, D9]', () => {
+  const out = loadTimeChild(String.raw`
+let mod = null;
+let err = null;
+try { mod = require(${JSON.stringify(PASS_API)}); } catch (e) { err = { code: e && e.code, message: __first(e) }; }
+setTimeout(() => {
+  const types = {};
+  for (const k of ['handlePassRun', 'handlePassStop', 'handleRunTaskForPass']) types[k] = mod ? typeof mod[k] : 'absent';
+  __say({ err, types, ops: __ops, conns: __conns, controlDir: __controlDirExists() });
+}, 250);
+`, 'the pass.js load check');
+  if (out.err) {
+    const absent = out.err.code === 'MODULE_NOT_FOUND' && String(out.err.message).includes(PASS_API);
+    throw new Error(absent ? `src/api/tagging-edges/pass.js does not exist yet (${ADR6} Implementation notes: "the routes" means src/api/tagging-edges/pass.js)` : `src/api/tagging-edges/pass.js did not load: ${out.err.message}`);
+  }
+  const problems = [];
+  for (const [k, t] of Object.entries(out.types || {})) if (t !== 'function') problems.push(`pass.js should export ${k}() (${ADR6} ${k === 'handleRunTaskForPass' ? 'D7' : k === 'handlePassRun' ? 'D6' : 'D9'}); it is ${t}`);
+  problems.push(...loadTimeProblems('pass.js', out));
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR81: requiring src/pipeline/tagging-edges/control/index.js builds the default controller with no disk or Redis work — no fs call under the empty temp state directory (no control/ made, no record read), no socket — and loads neither the queue module (required only lazily, through deps) nor any route module; the module exports createController and controller, whose shape is { lineUp, stop, snapshot, gate: { beforeAcquire, shouldAbandon, afterAcquire, ended, gaveUp, skipped } } [ADR tagging-edges/0006 D1 "Files", "Requires", "One instance"; § Seams "Load-time pins"]', () => {
+  const out = loadTimeChild(String.raw`
+let mod = null;
+let err = null;
+try { mod = require(${JSON.stringify(CONTROL_INDEX)}); } catch (e) { err = { code: e && e.code, message: __first(e) }; }
+setTimeout(() => {
+  const shape = {};
+  shape.createController = mod ? typeof mod.createController : 'absent';
+  const c = mod ? mod.controller : undefined;
+  shape.controller = c === null ? 'null' : typeof c;
+  for (const k of ['lineUp', 'stop', 'snapshot']) shape['controller.' + k] = c ? typeof c[k] : 'absent';
+  const g = c ? c.gate : undefined;
+  for (const k of ['beforeAcquire', 'shouldAbandon', 'afterAcquire', 'ended', 'gaveUp', 'skipped']) shape['controller.gate.' + k] = g ? typeof g[k] : 'absent';
+  const loaded = Object.keys(require.cache).map((f) => __path.relative(REPO, f).split(__path.sep).join('/'));
+  __say({ err, shape, ops: __ops, conns: __conns, controlDir: __controlDirExists(), queueLoaded: loaded.includes('src/manage/taskQueue/queue/index.js'), apiLoaded: loaded.filter((f) => f.startsWith('src/api/')) });
+}, 250);
+`, 'the controller load check');
+  if (out.err) {
+    const absent = out.err.code === 'MODULE_NOT_FOUND' && String(out.err.message).includes(CONTROL_INDEX);
+    throw new Error(absent ? `src/pipeline/tagging-edges/control/index.js does not exist yet (${ADR6} D1: "New directory src/pipeline/tagging-edges/control/")` : `src/pipeline/tagging-edges/control/index.js did not load: ${out.err.message}`);
+  }
+  const problems = [];
+  const want = { createController: 'function', controller: 'object' };
+  for (const k of ['lineUp', 'stop', 'snapshot']) want[`controller.${k}`] = 'function';
+  for (const k of ['beforeAcquire', 'shouldAbandon', 'afterAcquire', 'ended', 'gaveUp', 'skipped']) want[`controller.gate.${k}`] = 'function';
+  for (const [k, t] of Object.entries(want)) if ((out.shape || {})[k] !== t) problems.push(`the controller module's ${k} should be a ${t} (${ADR6} D1 "One instance"); it is ${(out.shape || {})[k]}`);
+  problems.push(...loadTimeProblems('the controller', out));
+  if (out.queueLoaded) problems.push(`requiring the controller loaded src/manage/taskQueue/queue/index.js — "It requires the queue module only lazily, through deps, so queue/index.js can require the gate at init without a cycle" (${ADR6} D1)`);
+  if (out.apiLoaded && out.apiLoaded.length) problems.push(`requiring the controller loaded route modules ${show(out.apiLoaded)} — "The controller requires no route module" (${ADR6} D1)`);
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR82: requiring src/manage/taskQueue/queue/jobGates.js does no disk or Redis work and does not load the controller; only gateFor(\'reconcileTaggingEdges\') does, answering the default controller\'s own gate (require(\'…/control\').controller.gate), while gateFor of any other task answers null — and still nothing touches the state directory or opens a socket [ADR tagging-edges/0006 D3 "The opt-in"; § Seams "Load-time pins": "gateFor requires the controller only when it is called"]', () => {
+  const out = loadTimeChild(String.raw`
+let mod = null;
+let err = null;
+try { mod = require(${JSON.stringify(JOB_GATES)}); } catch (e) { err = { code: e && e.code, message: __first(e) }; }
+const controlAtRequire = Object.prototype.hasOwnProperty.call(require.cache, ${JSON.stringify(CONTROL_INDEX)});
+setTimeout(() => {
+  const out = { err, gateForType: mod ? typeof mod.gateFor : 'absent', controlAtRequire, gateIsControllers: null, otherGate: null, gateErr: null };
+  if (mod && typeof mod.gateFor === 'function') {
+    try {
+      const gate = mod.gateFor('reconcileTaggingEdges');
+      const ctl = require(${JSON.stringify(CONTROL_INDEX)});
+      out.gateIsControllers = !!gate && !!ctl.controller && gate === ctl.controller.gate;
+      const other = mod.gateFor('someOtherTask');
+      out.otherGate = other === null ? 'null' : typeof other;
+    } catch (e) { out.gateErr = __first(e); }
+  }
+  setTimeout(() => { __say({ ...out, ops: __ops, conns: __conns, controlDir: __controlDirExists() }); }, 150);
+}, 250);
+`, 'the jobGates load check');
+  if (out.err) {
+    const absent = out.err.code === 'MODULE_NOT_FOUND' && String(out.err.message).includes(JOB_GATES);
+    throw new Error(absent ? `src/manage/taskQueue/queue/jobGates.js does not exist yet (${ADR6} D3: "New file src/manage/taskQueue/queue/jobGates.js exports gateFor(taskName)")` : `jobGates.js did not load: ${out.err.message}`);
+  }
+  const problems = [];
+  if (out.gateForType !== 'function') problems.push(`jobGates.js should export gateFor(taskName) (${ADR6} D3); it is ${out.gateForType}`);
+  if (out.controlAtRequire) problems.push(`requiring jobGates.js loaded the controller — "gateFor requires the controller only when it is called" (${ADR6} D3, § Seams "Load-time pins")`);
+  if (out.gateErr) problems.push(`gateFor threw: ${out.gateErr}`);
+  if (out.gateForType === 'function' && !out.gateErr) {
+    if (out.gateIsControllers !== true) problems.push(`gateFor('reconcileTaggingEdges') should answer the default controller's gate, require('../../../pipeline/tagging-edges/control').controller.gate, so the routes and the worker share one state (${ADR6} D1 "The default instance", D3)`);
+    if (out.otherGate !== 'null') problems.push(`gateFor('someOtherTask') should answer null — the gate is this one task's opt-in (${ADR6} D3); it answered a ${out.otherGate}`);
+  }
+  problems.push(...loadTimeProblems('jobGates.js (and its gateFor)', out));
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR83: src/api/tagging-edges/pass.js\'s defaultDeps reaches the configured admin list — an admin on the house list (settings.json adminPubkeys) is admitted by handlePassRun with no getAdminPubkeys injected, reaching the off-queue refusal (503 QUEUE_UNAVAILABLE), while a signed-in stranger is refused 403 — because every suite that admits an admin injects the lookup, so a missing default would refuse every admin in production while the suites stay green [ADR tagging-edges/0006 Implementation notes: "Its one defaultDeps serves every handler in it, and must include getAdminPubkeys (the SWR74 trap)"; D6 "Off-queue refusal"; story AC-4 "Who may"]', () => {
+  const dir = td6Temp('admins');
+  let out;
+  try {
+    const settings = path.join(dir, 'settings.json');
+    const stateDir = path.join(dir, 'state');
+    fs.mkdirSync(stateDir);
+    const ADMIN_KEY = 'd'.repeat(64); // the shared fakes' ADMIN (test/helpers/taggingEdgesPassFakes.js)
+    fs.writeFileSync(settings, JSON.stringify({ adminPubkeys: [ADMIN_KEY] }));
+    const code = `${CHILD_SAY}
+const P = require(${JSON.stringify(PASS_FAKES)});
+let houseAdmins = null;
+try { houseAdmins = require(${JSON.stringify(UTILS_CONFIG)}).getAdminPubkeys(); } catch (e) { houseAdmins = 'threw: ' + __first(e); }
+let mod = null;
+let err = null;
+try { mod = require(${JSON.stringify(PASS_API)}); } catch (e) { err = { code: e && e.code, message: __first(e) }; }
+(async () => {
+  const out = { err, houseAdmins, runType: mod ? typeof mod.handlePassRun : 'absent' };
+  if (mod && typeof mod.handlePassRun === 'function') {
+    const deps = { ownerPubkey: () => P.OWNER, getOwnerPubkey: () => P.OWNER, taskQueueEnabled: () => false, queueHealth: () => 'off' };
+    for (const as of ['admin', 'stranger']) {
+      try {
+        const r = await P.callHandler(mod.handlePassRun, P.passReq(as, { path: P.PATHS.run }), deps);
+        out[as] = { status: r.status, code: r.body && r.body.code, rejected: r.rejected ? __first(r.rejected) : null };
+      } catch (e) { out[as] = { error: __first(e) }; }
+    }
+  }
+  __sayNow(out);
+})();
+`;
+    const env = childEnv({ TAPESTRY_SETTINGS_PATH: settings, TAGGING_EDGES_STATE_DIR: stateDir });
+    delete env.BRAINSTORM_ADMIN_PUBKEYS;
+    out = runChild(code, env, 'the pass.js admin-default check');
+  } finally { rmTemp(dir); }
+  assert(Array.isArray(out.houseAdmins) && out.houseAdmins.includes('d'.repeat(64)), `fixture: the house admin list should name the admin (utils/config getAdminPubkeys answered ${show(out.houseAdmins)})`);
+  if (out.err) {
+    const absent = out.err.code === 'MODULE_NOT_FOUND' && String(out.err.message).includes(PASS_API);
+    throw new Error(absent ? `src/api/tagging-edges/pass.js does not exist yet (${ADR6} Implementation notes; D6)` : `src/api/tagging-edges/pass.js did not load: ${out.err.message}`);
+  }
+  const problems = [];
+  if (out.runType !== 'function') problems.push(`pass.js should export handlePassRun() (${ADR6} D6); it is ${out.runType}`);
+  else {
+    const a = out.admin || {};
+    if (a.error || a.rejected) problems.push(`the admin's Run: the handler ${a.error ? `failed: ${a.error}` : `rejected: ${a.rejected}`} (${ADR6} D6: every handler resolves and never rejects)`);
+    if (a.status !== 503 || a.code !== 'QUEUE_UNAVAILABLE') problems.push(`the admin's Run with no getAdminPubkeys injected: expected 503 QUEUE_UNAVAILABLE (admitted from the configured list, then refused with the queue off), got ${a.status} ${show(a.code)} — pass.js's defaultDeps must include getAdminPubkeys (${ADR6} Implementation notes; ADR tagging-edges/0005 D5)`);
+    const s = out.stranger || {};
+    if (s.status !== 403) problems.push(`fixture: a signed-in stranger's Run should be refused 403 in the same setup; got ${s.status} ${show(s.code)}`);
+  }
+  assert(problems.length === 0, problems.join('\n        '));
+});
+
+test('SWR84: src/api/tagging-edges/index.js\'s defaultDeps gains queueHealth, lineUp and snapshot from the default controller — with nothing injected but the owner and liveness, handleStatus asks the controller module\'s controller.snapshot, and the owner\'s confirmation of a held report consults queueHealth() and calls controller.lineUp({ who: { kind: "confirmation" }, mode: "confirm" }), never the queue module\'s isQueueAvailable or runViaQueueAsync — the control and queue modules replaced by recorders through the module resolver, so no real queue or controller runs [ADR tagging-edges/0006 D8 "What changes": "index.js\'s defaultDeps gains queueHealth, lineUp and snapshot, all from the default controller", D12; the SWR74 trap]', () => {
+  const dir = td6Temp('defaults');
+  let out;
+  try {
+    const code = `${CHILD_SAY}
+const fs = require('fs');
+const path = require('path');
+const Module = require('module');
+const P = require(${JSON.stringify(PASS_FAKES)});
+const CONTROL_INDEX = ${JSON.stringify(CONTROL_INDEX)};
+const CONTROL_DIR = path.dirname(CONTROL_INDEX);
+const QUEUE_INDEX = ${JSON.stringify(QUEUE_INDEX)};
+const QUEUE_DIR = path.dirname(QUEUE_INDEX);
+const calls = [];
+const note = (name, a) => { let args; try { args = JSON.parse(JSON.stringify(a)); } catch (_) { args = null; } calls.push({ name, args }); };
+const controller = {
+  lineUp: async (...a) => { note('controller.lineUp', a); return {}; },
+  snapshot: async (...a) => { note('controller.snapshot', []); return { queue: 'off', busy: [], items: [], gaveUp: null }; },
+  stop: async (...a) => { note('controller.stop', a); return {}; },
+  queueHealth: () => { note('controller.queueHealth', []); return 'ready'; },
+  gate: {},
+};
+const controlStub = { controller, createController: () => controller };
+const queueStub = {
+  queueHealth: () => { note('queue.queueHealth', []); return 'ready'; },
+  isQueueAvailable: async () => { note('queue.isQueueAvailable', []); return true; },
+  runViaQueueAsync: async (a) => { note('queue.runViaQueueAsync', [a]); return { success: true, queued: true, jobId: 'reconcileTaggingEdges' }; },
+  runViaQueueSync: async (a) => { note('queue.runViaQueueSync', [a]); return { success: true }; },
+  enqueueTask: async (a) => { note('queue.enqueueTask', [a]); return {}; },
+  getQueue: () => { note('queue.getQueue', []); return null; },
+};
+const resolve0 = Module._resolveFilename;
+Module._resolveFilename = function (request, parent, ...rest) {
+  if (typeof request === 'string' && parent && parent.filename && (request.startsWith('.') || path.isAbsolute(request))) {
+    const abs = path.resolve(path.dirname(parent.filename), request).replace(/\\.js$/, '').replace(/[\\\\/]index$/, '');
+    if (abs === CONTROL_DIR) return CONTROL_INDEX;
+    if (abs === QUEUE_DIR) return QUEUE_INDEX;
+  }
+  return resolve0.call(this, request, parent, ...rest);
+};
+for (const [file, exports] of [[CONTROL_INDEX, controlStub], [QUEUE_INDEX, queueStub]]) {
+  const m = new Module(file);
+  m.filename = file;
+  m.loaded = true;
+  m.exports = exports;
+  require.cache[file] = m;
+}
+const RUN = '20261027T110000Z-0a1b2c3d';
+(async () => {
+  const out = {};
+  try {
+    const st = require(${JSON.stringify(STATE_JS)});
+    const list = [0, 1, 2].map((i) => ({ address: '39999:' + String(i).repeat(64) + ':tag-' + i, seenEventId: String(i + 3).repeat(64), reason: 'not-on-relay' }));
+    const digest = st.writeHeld(RUN, list);
+    fs.writeFileSync(path.join(process.env.TAGGING_EDGES_STATE_DIR, 'report.json'), JSON.stringify({ reportVersion: 1, latest: {
+      runId: RUN, startedAt: '2026-10-27T11:00:00.000Z', endedAt: '2026-10-27T11:00:04.000Z', durationMs: 4000,
+      outcome: 'done-removals-held', reasonCode: 'removals-held', reason: 'removals held', stopped: false,
+      held: { total: list.length, byReason: { 'not-on-relay': list.length }, digest }, running: false,
+      process: { pid: 2147483646, startTime: '1' }, job: null }, previous: [] }));
+    const routes = require(${JSON.stringify(TE_ROUTES_INDEX)});
+    const status = await P.callHandler(routes.handleStatus, P.fakeReq({ method: 'GET', url: P.PATHS.status, headers: { host: P.HOST } }), { isAlive: () => false });
+    out.status = { status: status.status, rejected: status.rejected ? __first(status.rejected) : null };
+    out.afterStatus = calls.map((c) => c.name);
+    calls.length = 0;
+    const confirm = await P.callHandler(routes.handleConfirmHeldRemovals, P.fakeReq({ method: 'POST', url: P.PATHS.confirm,
+      headers: { host: P.HOST, 'content-type': 'application/json' }, body: { runId: RUN }, session: { authenticated: true, pubkey: P.OWNER } }),
+      { getOwnerPubkey: () => P.OWNER, isAlive: () => false });
+    out.confirm = { status: confirm.status, body: confirm.body, rejected: confirm.rejected ? __first(confirm.rejected) : null };
+    out.afterConfirm = calls;
+  } catch (e) { out.error = __first(e); }
+  __sayNow(out);
+})();
+`;
+    out = runChild(code, childEnv({ TAGGING_EDGES_STATE_DIR: dir }), 'the index.js default-deps check');
+  } finally { rmTemp(dir); }
+  assert(!out.error, `the check could not run: ${out.error}`);
+  const problems = [];
+  const asked = out.afterStatus || [];
+  if (!asked.includes('controller.snapshot')) problems.push(`handleStatus, with no snapshot injected, never asked the default controller's snapshot — "index.js's defaultDeps gains … snapshot … from the default controller" (${ADR6} D8, D12); it called ${show(asked)} (answer ${show(out.status)})`);
+  const calls = out.afterConfirm || [];
+  const names = calls.map((c) => c.name);
+  const lineUps = calls.filter((c) => c.name === 'controller.lineUp');
+  if (lineUps.length !== 1) problems.push(`the owner's confirmation, with no lineUp injected, should call the default controller's lineUp once; it called ${show(names)} (answer ${show(out.confirm && out.confirm.status)} ${show(out.confirm && out.confirm.body)}) (${ADR6} D8)`);
+  else {
+    const a = (lineUps[0].args || [])[0] || {};
+    if (a.mode !== 'confirm' || JSON.stringify(sortKeys(a.who)) !== JSON.stringify({ kind: 'confirmation' })) problems.push(`the default lineUp should be called with { who: { kind: 'confirmation' }, mode: 'confirm' }; got ${show(a)} (${ADR6} D8)`);
+  }
+  const h = names.findIndex((n) => n === 'queue.queueHealth' || n === 'controller.queueHealth');
+  const l = names.indexOf('controller.lineUp');
+  if (h < 0) problems.push(`the owner's confirmation, with no queueHealth injected, never consulted queueHealth() (${ADR6} D8: "the d.isQueueAvailable() guard becomes d.queueHealth() === 'ready'"; it called ${show(names)})`);
+  else if (l >= 0 && h > l) problems.push(`queueHealth() was consulted after lineUp, not before (${ADR6} D8)`);
+  const legacy = names.filter((n) => n === 'queue.isQueueAvailable' || n === 'queue.runViaQueueAsync' || n === 'queue.runViaQueueSync' || n === 'queue.enqueueTask');
+  if (legacy.length) problems.push(`the owner's confirmation still reaches the queue module's ${show([...new Set(legacy)])} — every start of this pass from app code goes through the controller (${ADR6} § Consequences "Constrains", D8)`);
+  assert(problems.length === 0, problems.join('\n        '));
 });
 
 async function run() {

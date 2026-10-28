@@ -22,8 +22,9 @@ const F = require('../../test/helpers/taggingPipelineFixtures');
  *   B6  — a running first pass is not "no pass yet".                                                   [AC-2; T1]
  *   B7  — the latest pass explained, its times and figures, and nine earlier passes newest first.       [AC-2]
  *   B8  — an outcome the panel does not know reads "not recognised" beside its code.                   [AC-2; explanations]
- *   B9  — no pass yet: says so, and names the two ways one starts.                                     [AC-2]
- *   B10 — the held list pages to every item, matches the report, gives reasons; pending until when.     [AC-2]
+ *   B9  — no pass yet: says so, and its line names Run beside the two other ways one starts (story 6). [AC-2; 0006 D19]
+ *   B10 — the held list pages to every item, matches the report, gives reasons; pending until when; no
+ *         Confirm (story 7's).                                                                         [AC-2]
  *   B11 — an expired confirmation is shown as expired, not pending.                                    [AC-2]
  *   B12 — an unreadable confirmation is shown as unreadable.                                           [AC-2]
  *   B13 — schedule: none enabled, a disabled one mentioned, the button opens Scheduled Tasks.          [AC-2]
@@ -52,7 +53,8 @@ const F = require('../../test/helpers/taggingPipelineFixtures');
  *   B36 — a failed read (path status, pass report, schedule list, held list) names itself, its code,
  *         Retry; the others stay ready; Retry (not a poll) recovers.                                   [AC-5; page.clock]
  *   B37 — a failed drift read: both counts unknown, the read named, Retry.                            [AC-5, AC-4]
- *   B38 — a minute open, two Recounts, closed: only GETs, exactly three counts, no reads after close.   [AC-1, AC-4; page.clock]
+ *   B38 — a minute open, two Recounts, closed: only GETs, exactly three counts, no reads after close;
+ *         the reads gain the switch record (story 5) and the pass record (story 6).                   [AC-1, AC-4; page.clock]
  *   B40 — the held list of a run that is no longer the latest: re-read the status, restart, no error.   [AC-2; ADR § UI "The held list"]
  *   B39 — the five existing sub-tabs send the requests of the baseline (T10).                          [AC-6]
  *
@@ -111,10 +113,59 @@ const F = require('../../test/helpers/taggingPipelineFixtures');
  *   Story 5's review, round 1:
  *   B82 — the prompt while the schedule list's first read loads: still being checked, no verdict and no "could not
  *         be checked"; once the read answers, the verdict, in the prompt already open.                         [AC-2]
+ *   Story 5's review carry-forward C5-4 (story 6; ADR 0006 D20):
+ *   B113 — during a Retry after a failed schedule read, the open off prompt says still being checked.      [C5-4; D20]
+ *
+ *   Story 6, running and stopping the pass (engineering-team/stories/tagging-edges/6-pass-run-and-stop.md; ADR
+ *   engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md D15–D19, § Seams "Request pins"). Revised, not
+ *   deleted: B9 (the empty-state line names Run, D19), B10 (its message names story 7 for Confirm), B38 (the allowed
+ *   reads and counts gain the pass record; still no non-GET for a viewer who never presses). Fixtures: F.SCENE,
+ *   F.STOP_CASES, F.WHO_EACH, F.HISTORY6, F.RUN_ANSWER, F.STOP_ANSWER; the mock's Run and Stop act as the server would
+ *   (F.applyRun, F.applyStop).
+ *   B83 — Run with nothing busy: asks nothing, one POST {}, the pass waiting with who, from the reads after.  [AC-1, AC-5]
+ *   B84 — Run while busy (a Run waiting; a due scheduled run, the seed id): refused plainly, the pass shown.  [AC-1]
+ *   B85 — two passes busy: each shown, with its state, time and who.                                         [AC-1, AC-5]
+ *   B86 — Run under way: disabled, aria-busy, "Lining up a pass…"; then the pass waiting.                     [AC-1]
+ *   B87 — no answer to Run in 15 s: enabled again, "outcome unknown", then the next read.                     [AC-1]
+ *   B88 — the pending-confirmation line beside Run; none without a pending confirmation.                     [AC-1]
+ *   B89 — a first pass, no report: the empty branch keeps "No pass has run yet", shows Run, then the wait.   [AC-1; D17]
+ *   B90 — waiting (asked for; behind heavy work; behind a pass ahead), since when, by a viewer who did not
+ *         press, and after a reload.                                                                         [AC-2]
+ *   B91 — a stop asked for, since when and who, by a viewer who did not press, after a reload; no Stop.     [AC-2, AC-3]
+ *   B92 — the server cannot tell whether a pass is waiting (read-failed, not-ready, off, no control).        [AC-2]
+ *   B93 — a waiting pass that gave up: not waiting, gave up and never began, its start kept; with a due run. [AC-2]
+ *   B94 — Stop only while some pass has no stop asked; the waiting pass's prompt.                             [AC-3]
+ *   B95 — the running pass's prompt.                                                                          [AC-3]
+ *   B96 — two busy passes: what happens to each, "Stop the passes".                                           [AC-3]
+ *   B97 — the confirmation warning (taken up; cannot tell) and the "stays pending" line.                     [AC-3, AC-4]
+ *   B98 — Cancel sends nothing.                                                                               [AC-3]
+ *   B99 — confirming a waiting pass's stop: the POST, "Stopping…" with the prompt open, gone within 10 s.    [AC-3, AC-4, AC-5]
+ *   B100 — no answer to Stop in 15 s: the prompt closes, "outcome unknown", then the next read.              [AC-3]
+ *   B101 — an out-of-date prompt: refused, nothing changed, the new state, Stop again.                       [AC-3]
+ *   B102 — a running pass's stop: asked for until it ends, then "stopped on request by … at …", not failed.  [AC-3, AC-4, AC-5]
+ *   B103 — stopped with its start unrecorded; a stopped hand run; a signal no one recorded.                  [AC-3, AC-5]
+ *   B104 — a stop that came too late: the pass's own outcome, "but the pass ended first" — a pass that finished,
+ *         and one killed (time-out, deploy or restart) after it was asked to stop; never "stopped on request".  [AC-3]
+ *   B105 — refused Run (403) and Stop (401): sign in again, the state unchanged.                              [AC-4]
+ *   B106 — a Run that fails: queue unavailable, record unavailable, a failure with its code.                 [AC-1, AC-4, AC-5]
+ *   B107 — a Stop refused or failed: nothing to stop, not reachable, queue unavailable, a failure.           [AC-3, AC-4]
+ *   B108 — who started each pass: admin, owner (and stopped), schedule, confirmation, local, another way,
+ *         not recorded.                                                                                      [AC-5]
+ *   B109 — the last 10 actions newest first; the empty state; a pass from before story 6.                    [AC-5]
+ *   B110 — actions not recorded: a Stop (no who), a running pass's stop, a scheduled and a lined-up start.   [AC-5]
+ *   B111 — a failed pass-record read: its own failure, no kept who, Retry.                                    [AC-5]
+ *   B112 — the opening line names running and stopping a pass.                                               [AC-6; D19]
+ *   Story 6's Test Design review (COV-3, COV-4): B104 gains the killed twin (above), and
+ *   B114 — a poll with the Stop prompt open never rewrites it: its text, its label and what it sends are the
+ *         snapshot's.                                                                                       [AC-3; D17]
+ *   B115 — the prompt closes by itself on a read of nothing busy, but not while its stop is under way; the
+ *         stop's outcome shows until the next Run is sent.                                                  [AC-3; D17]
  *
  * ── Hermetic by construction ──────────────────────────────────────────────────────────────────────────────────────
  * Every /api route is mocked, story 5's switch included (GET its record, POST a change, on one route; the default
- * POST acts as the server would, so the status and the record follow it). The catch-all is registered FIRST (so every later route wins) and answers 599
+ * POST acts as the server would, so the status and the record follow it), and story 6's pass record (GET), Run and
+ * Stop (POSTs), whose defaults are as quiet: no action recorded, and Run and Stop as the server would answer them
+ * (F.applyRun, F.applyStop). Story 4's and 5's status bodies carry no `control` (a server before story 6). The catch-all is registered FIRST (so every later route wins) and answers 599
  * { success: false }: readSection treats any 2xx JSON object as good, so an unmocked route must never look like a good
  * answer (ADR 0004 § Seams). App routes (/tapestry/**) are answered with the served app shell, so client routing works
  * on a static server. The panel's tests run in UTC with the en-GB locale and a page clock that starts at the fixtures'
@@ -377,6 +428,9 @@ async function mock(page, o = {}) {
     heldList: F.HELD_LIST,
     record: undefined,
     switch: undefined,
+    passRecord: undefined,
+    run: undefined,
+    stop: undefined,
     ...o,
   };
   const log = { api: [], nonGet: [], sent: [], navigations: 0 };
@@ -453,6 +507,43 @@ async function mock(page, o = {}) {
     }
     return typeof cur.record === 'function' ? answerOf(await cur.record(req)) : recordNow();
   }));
+
+  // Story 6's routes (ADR 0006 D6, D9, D13): GET the pass record, POST Run, POST Stop. Their quiet defaults keep the
+  // 599 catch-all for routes no story names: `passRecord` left undefined answers F.PASS_RECORD.EMPTY (no action
+  // recorded), and `run` / `stop` left undefined act as the server would (F.applyRun, F.applyStop, at F.NOW, as the
+  // viewer): the status and the record follow them. Each may be a body, fail(…), an F.RUN_ANSWER / F.STOP_ANSWER
+  // { status, body }, or a function of (request, theServersAnswer).
+  let lineUps = 0;
+  const passRecordNow = () => (cur.passRecord === undefined ? F.PASS_RECORD.EMPTY : cur.passRecord);
+  const plainBody = (v) => (v && typeof v === 'object' && !v.__http && typeof v.then !== 'function' ? v : null);
+  const viewer = () => (who() ? { role: who().classification, key: who().pubkey.slice(0, 8) } : null);
+  const postBody = (req) => { try { return JSON.parse(req.postData() || 'null'); } catch (_) { return undefined; } };
+  /** Apply a server action's result: the status and the record follow it, unless a test holds them as functions. */
+  const follow = (res) => {
+    if (res.status && typeof cur.status !== 'function') cur.status = res.status;
+    if (res.passRecord && (cur.passRecord === undefined || plainBody(cur.passRecord))) cur.passRecord = res.passRecord;
+    return res.answer;
+  };
+  const statusBodyNow = () => (typeof cur.status === 'function' ? null : plainBody(cur.status));
+  const recordBodyNow = () => (typeof cur.passRecord === 'function' ? null : plainBody(passRecordNow()));
+  const serverRun = (req) => {
+    lineUps += 1;
+    const key = F.lineUpKey((0x5e7000000000 + lineUps).toString(16));
+    return follow(F.applyRun({ status: statusBodyNow(), passRecord: recordBodyNow(), viewer: viewer(), body: postBody(req), key }));
+  };
+  const serverStop = (req) => follow(F.applyStop({ status: statusBodyNow(), passRecord: recordBodyNow(), viewer: viewer(), body: postBody(req) }));
+  await page.route('**/api/tagging-edges/pass/record**', (r) => fulfil(r, async (req) => (typeof cur.passRecord === 'function'
+    ? answerOf(await cur.passRecord(req))
+    : answerOf(passRecordNow()))));
+  const action = (k, server) => async (req) => {
+    if (req.method() !== 'POST') return fail(404, { success: false, error: 'POST only' });
+    let v;
+    if (typeof cur[k] === 'function') v = await cur[k](req, () => server(req));
+    else v = cur[k] === undefined ? server(req) : cur[k];
+    return answerOf(v);
+  };
+  await page.route('**/api/tagging-edges/pass/run', (r) => fulfil(r, action('run', serverRun)));
+  await page.route('**/api/tagging-edges/pass/stop', (r) => fulfil(r, action('stop', serverStop)));
 
   const set = (patch) => Object.assign(cur, patch);
   return { log, set };
@@ -602,6 +693,142 @@ async function busyControl(page) {
   await expect(busy, 'and that pending control is disabled (ADR 0005 D12)').toBeDisabled();
   return busy;
 }
+
+/* ── Story 6: Run, Stop, the busy list and who (ADR 0006 D15–D19) ──────────────────────────────────────────────── */
+
+const RUN_POST = `POST ${F.ROUTES.run}`;
+const STOP_POST = `POST ${F.ROUTES.stop}`;
+/** D17 fixes the labels: "Run a pass now", "Stop", and the prompt's "Stop the pass" / "Stop the passes". */
+const RUN_LABEL = 'Run a pass now';
+const runButton = (page) => section(page, 'tp-pass').getByRole('button', { name: RUN_LABEL, exact: true });
+const stopButton = (page) => section(page, 'tp-pass').getByRole('button', { name: 'Stop', exact: true });
+const passCancel = (page) => section(page, 'tp-pass').getByRole('button', { name: 'Cancel', exact: true });
+/** A button in tp-pass that itself carries aria-busy="true" (D17: a pending Run, or the prompt's pending stop). */
+const passBusyButtons = (page) => section(page, 'tp-pass').locator('button[aria-busy="true"]');
+const STOP_THE_PASS = /^\s*Stop the pass(?:es)?\s*$/;
+
+/** Press "Run a pass now"; fails by name within 5 s when there is no such control (ADR 0006 D17). */
+async function pressRun(page) {
+  const b = runButton(page);
+  await expect(b, `the pass section has a "${RUN_LABEL}" control for the owner or an admin (story 6 AC-1; ADR 0006 D17) — not implemented yet if missing`).toBeVisible({ timeout: 5000 });
+  await expect(b, `"${RUN_LABEL}" is enabled`).toBeEnabled();
+  await b.click();
+}
+
+/**
+ * The Stop prompt (ADR 0006 D17, the ADR 0005 D13 pattern): the nearest element around its "Cancel" that also holds
+ * a "Stop the pass(es)" button and a heading — an inline confirmation inside tp-pass.
+ */
+const STOP_PROMPT_XPATH = 'xpath=.//button[normalize-space(.)="Cancel"]/ancestor::*[.//button[starts-with(normalize-space(.),"Stop the pass")]]'
+  + '[.//h1 or .//h2 or .//h3 or .//h4 or .//h5 or .//h6 or .//*[@role="heading"]][1]';
+
+/** Press "Stop" and return the prompt it opens: { prompt, cancel, confirm, heading, text() }. */
+async function openStopPrompt(page) {
+  const b = stopButton(page);
+  await expect(b, 'the pass section shows "Stop" while some busy pass has no stop asked for (story 6 AC-3; ADR 0006 D16 canStop, D17) — not implemented yet if missing').toBeVisible({ timeout: 5000 });
+  await b.click();
+  const cancel = passCancel(page);
+  await expect(cancel, 'pressing "Stop" opens a prompt inside the pass section, with a "Cancel" button (story 6 AC-3 "A prompt comes first"; ADR 0006 D17)').toBeVisible({ timeout: 5000 });
+  const prompt = section(page, 'tp-pass').locator(STOP_PROMPT_XPATH).first();
+  await expect(prompt, 'the prompt is one element holding its heading, its text, and its "Stop the pass(es)" and "Cancel" buttons (ADR 0006 D17: settings-group, h4)').toHaveCount(1);
+  expect(await prompt.getAttribute('data-testid'), 'the prompt is its own element inside tp-pass, not the whole section (ADR 0006 D17: an inline prompt)').not.toBe('tp-pass');
+  const heading = squash(await prompt.locator('h1, h2, h3, h4, h5, h6, [role="heading"]').first().innerText());
+  return {
+    prompt,
+    cancel,
+    heading,
+    confirm: prompt.getByRole('button', { name: STOP_THE_PASS }),
+    text: async () => squash(await prompt.innerText()),
+  };
+}
+
+/**
+ * Whether section `id` shows one thing — a busy pass, a pass's who, a history row — that says every one of `must` and
+ * none of `mustNot`: one sentence of its text (its buttons left out, so a label never runs into a line), or one block
+ * (li, tr, td, p, div, dd) holding all of `must` with no smaller such block inside it. A block or sentence that runs
+ * two passes together cannot pass a `mustNot`. No regex here may carry the g flag.
+ */
+async function shows(page, id, must, mustNot = []) {
+  const ok = (s) => must.every((re) => re.test(s)) && !mustNot.some((re) => re.test(s));
+  const text = await textOutsideButtons(page, id);
+  if (sentencesWith(text, ...must).some(ok)) return true;
+  const blocks = await section(page, id).evaluate((el, srcs) => {
+    const res = srcs.map(([s, f]) => new RegExp(s, f));
+    const all = (t) => res.every((re) => re.test(t.replace(/\s+/g, ' ')));
+    const found = [...el.querySelectorAll('li, tr, td, p, div, dd')].filter((c) => all(c.innerText || ''));
+    return found.filter((c) => !found.some((d) => d !== c && c.contains(d))).map((c) => c.innerText);
+  }, must.map((re) => [re.source, re.flags]));
+  return blocks.map(squash).some(ok);
+}
+/** Wait until `shows` holds. */
+async function untilShows(page, id, must, mustNot, message, timeout = 5000) {
+  await expect.poll(() => shows(page, id, must, mustNot), { message: `${message} (${must.join(' & ')}${mustNot.length ? ` and not ${mustNot.join(', ')}` : ''})`, timeout }).toBe(true);
+}
+/** A section's text with its buttons left out (their labels are not lines), read in one synchronous pass. */
+async function textOutsideButtons(page, id) {
+  return squash(await section(page, id).evaluate((el) => {
+    const bs = [...el.querySelectorAll('button')];
+    const before = bs.map((b) => b.style.display);
+    bs.forEach((b) => { b.style.display = 'none'; });
+    try {
+      return el.innerText;
+    } finally {
+      bs.forEach((b, i) => { b.style.display = before[i]; });
+    }
+  }));
+}
+
+/* Story 6's ideas (AC-1..AC-5; ADR 0006 D16–D19), matched by idea as above. D17 fixes "Lining up a pass…", "Stopping…". */
+const WAITING = /\bwaiting\b/i;
+const RUNNING_NOW = /\brunning\b/i;
+const BEHIND_HEAVY = /\bheavy\b|\bscoring\b|\bdatabase work\b/i;
+const BEHIND_PASS = /\bpass(?:es)? ahead\b|\bbehind (?:another|a|the|an earlier) pass\b|\banother pass\b[^.]*\b(?:ahead|first|before)\b/i;
+const STOP_ASKED = /\bstop (?:was |has been )?(?:asked for|requested)\b|\basked to stop\b/i;
+const LINING_UP = /\blining up\b/i;
+const STOPPING = /\bstopping\b/i;
+const START_WORD = /\bstart\w*\b|\blined up\b|\basked for\b/i;
+const STOPPED_ON_REQUEST = /\bstopped on request\b/i;
+const OWNER_WHO = [/\bowner\b/i, new RegExp(esc(F.OWNER_KEY))];
+const ADMIN_WHO = [/\badmin\b/i, new RegExp(esc(F.ADMIN_KEY))];
+const SCHEDULE_WHO = /\bschedul\w*\b/i;
+const CONFIRMATION_WHO = /\bconfirmation\b/i;
+const LOCAL_WHO = /\blocal\b/i;
+const OTHER_WHO = /\banother way\b/i;
+const START_NOT_RECORDED = /\bstart\w*\b[^.]*\bnot (?:been )?recorded\b|\bnot recorded\b[^.]*\bstart\w*\b/i;
+const NO_ACTION_RECORDED = /\bno (?:actions?|starts?|stops?)\b[^.]*\brecorded\b|\bnothing (?:has been |was )?recorded\b|\bno actions? (?:has|have) been recorded\b/i;
+const CANNOT_TELL = /\b(?:cannot|can't|could not|couldn't|unable to)\b[^.]*\btell\b[^.]*\bwaiting\b|\bwhether\b[^.]*\bwaiting\b[^.]*\b(?:unknown|not known)\b|\b(?:unknown|not known)\b[^.]*\bwhether\b[^.]*\bwaiting\b/i;
+const NOTHING_WAITING = /\b(?:nothing|no pass(?:es)?|none)\b[^.]*\b(?:is |are )?(?:waiting|busy|queued|in line)\b/i;
+const GAVE_UP_WAITING = /\b(?:gave|given) up\b[^.]*\bwait\w*\b|\bwait\w*\b[^.]*\b(?:gave|given) up\b/i;
+const NEVER_BEGAN = /\bnever (?:began|begun|started|got to run)\b|\bdid not (?:begin|start) running\b/i;
+const ALREADY_BUSY = /\balready\b[^.]*\b(?:waiting|running|busy)\b|\b(?:waiting|running|busy)\b[^.]*\balready\b/i;
+const NOTHING_LINED_UP = /\bnothing (?:new )?(?:was |has been |is )?lined up\b|\bno (?:new )?pass (?:was |has been )?lined up\b|\bnot lined up\b|\bdid not line up\b|\bnothing new\b/i;
+const QUEUE_DOWN = /\bqueue\b[^.]*\b(?:unavailable|not available|down|not ready|unreachable|off)\b|\bunavailable\b[^.]*\bqueue\b/i;
+const NOTHING_STARTED = /\bnothing (?:was |has been )?(?:started|lined up|changed)\b|\bno pass (?:was |has been )?(?:started|lined up)\b|\bstarted nothing\b|\bnothing new\b/i;
+const NOT_RECORDABLE = /\b(?:could not|couldn't|cannot|can't)\b[^.]*\brecord\w*\b|\brecord\b[^.]*\b(?:unavailable|could not be (?:written|read))\b/i;
+const FAILED_IDEA = /\b(?:could not|couldn't|failed|did not|didn't|was not|wasn't)\b/i;
+const NEXT_PASS_TAKES_UP = (text) => sentencesWith(text, /\bnext pass\b/i, /\bstart checks?\b/i);
+const TAKEN_OUT = /\bout of (?:the )?(?:line|queue)\b|\bremoved from the (?:line|queue)\b/i;
+const BEFORE_RUNNING = /\bbefore it (?:begins|starts|has begun|has started) running\b|\bnever (?:begins|starts) running\b|\bbefore it (?:begins|starts|runs)\b/i;
+const WRITES_NOTHING = /\bwrites nothing\b|\bnothing (?:is |gets )?written\b|\bwrites? no\b|\bwill not write\b|\bdoes not write\b/i;
+const NO_SCHEDULE_CHANGE = /\bno schedul\w* entr\w*\b[^.]*\bchang\w*\b|\bschedul\w* entr\w*\b[^.]*\b(?:not|never|unchanged|stays?|stay)\b|\b(?:does not|doesn't|never|not) chang\w*\b[^.]*\bschedul\w*\b|\bschedul\w*\b[^.]*\bunchanged\b/i;
+const SAFE_POINT = /\bsafe point\b/i;
+const SECONDS = /\bseconds\b/i;
+const MINUTES_WHEN_SLOW = (text) => sentencesWith(text, /\bminutes\b/i, /\bslow\b/i);
+const TIMEOUT_30 = (text) => sentencesWith(text, /\b30[- ]?minute\b|\b30 min\w*\b|\bthirty[- ]minute\b|\bhalf an hour\b/i, /\btime-?\s?out\b|\btimes out\b/i);
+const WROTE_STANDS = /\b(?:wrote|written)\b[^.]*\b(?:stands?|kept|stays?|remains?)\b/i;
+const NEXT_PASS_FINISHES = /\bnext pass\b[^.]*\b(?:finish\w*|complet\w*|does the rest|picks? up|catch\w* up)\b/i;
+const USED_UP = /\bused up\b|\buses? (?:it |the confirmation |the owner's confirmation )?up\b|\bspen[dt]s?\b/i;
+const CONFIRM_AGAIN = /\bconfirm\w*\b[^.]*\bagain\b|\bagain\b[^.]*\bconfirm\w*\b/i;
+const LATER_HOLDS = /\b(?:later|next|another) pass\b[^.]*\bhold\w*\b|\bhold\w*\b[^.]*\bagain\b/i;
+const STAYS_PENDING = /\b(?:stays?|remains?|kept|left|still)\b[^.]*\bpending\b|\bpending\b[^.]*\bnext pass\b/i;
+const confirmationWarning = (text) => sentencesWith(text, USED_UP).filter((s) => /\bconfirm\w*\b/i.test(s));
+const STALE_PROMPT = /\bout of date\b|\b(?:has|had|have) changed\b|\bchanged since\b|\bsince the prompt\b|\bno longer\b|\b(?:began|begun|started) running\b/i;
+const NOTHING_CHANGED = /\bnothing (?:was |has )?(?:changed|stopped)\b|\bchanged nothing\b|\bnot stopped\b|\bno pass was stopped\b/i;
+const NOTHING_TO_STOP = /\bnothing (?:left )?to stop\b|\bno pass (?:left )?to stop\b|\balready (?:has|had) a stop\b/i;
+const NOT_REACHABLE = (text) => sentencesWith(text, /\bstarting\b/i, /\bprocess\b/i).length > 0 && /\bpress Stop again\b/i.test(text);
+const TOO_LATE = /\btoo late\b|\bended (?:first|before)\b/i;
+const ENDED_FIRST = /\bended first\b|\bended before\b|\btoo late\b/i;
+const RECORD_FAILED = /\brecord\b[^.]*(?:(?:could not|couldn't|cannot|can't) be read|\bunreadable\b|\bnot readable\b)/i;
 
 /* ── B0 ─────────────────────────────────────────────────────────────────────────────────────────────────────────── */
 
@@ -775,14 +1002,18 @@ test.describe('The tagging pipeline panel (tagging-edges #4, ADR 0004)', () => {
     expect(pass).toContain(NOT_RECOGNISED);
   });
 
-  test('B9: with no pass in the report, the panel says no pass has run yet and names the two ways one starts [AC-2 "No pass yet"]', async ({ page }) => {
+  // Revised for story 6 (ADR 0006 § Seams "Request pins": "B9 follows the new empty-state line"; D19): the line on how
+  // a pass starts names "Run a pass now" beside the Scheduled Tasks entry and the Task Explorer. It is read with the
+  // section's buttons left out, so the Run control's own label does not count as the line.
+  test('B9: with no pass in the report, the panel says no pass has run yet, and its line on how a pass starts names "Run a pass now" beside an enabled Scheduled Tasks entry and the Task Explorer [AC-2 "No pass yet"; story 6 AC-6 "the pass section\'s line on how a pass starts, which names Run", Test tasks "B9\'s pin … follows the new line"; ADR 0006 D19]', async ({ page }) => {
     await mock(page, { status: F.STATUS.NO_PASS });
     await openAndSettle(page);
     await expect(section(page, 'tp-pass')).toHaveAttribute('data-state', 'empty');
-    const pass = await textOf(page, 'tp-pass');
-    expect(pass, 'no pass has run yet').toMatch(NO_PASS_YET);
-    expect(pass, 'an enabled Scheduled Tasks entry').toMatch(/Scheduled Tasks/i);
-    expect(pass, 'or the Task Explorer').toMatch(/Task Explorer/i);
+    const lines = await textOutsideButtons(page, 'tp-pass');
+    expect(lines, 'no pass has run yet').toMatch(NO_PASS_YET);
+    expect(lines, 'an enabled Scheduled Tasks entry').toMatch(/Scheduled Tasks/i);
+    expect(lines, 'or the Task Explorer').toMatch(/Task Explorer/i);
+    expect(lines, `the line on how a pass starts names "${RUN_LABEL}" (ADR 0006 D19: the empty state keeps "No pass has run yet" and names "Run a pass now" beside the Scheduled Tasks entry and the Task Explorer; the button's own label is not counted) — not implemented yet`).toMatch(/\bRun a pass now\b/i);
   });
 
   test('B10: the held list pages to every held removal, the count matches the report, each shows why, a pending confirmation is said with its end, and nothing offers to confirm [AC-2 "Held removals"]', async ({ page }) => {
@@ -814,7 +1045,7 @@ test.describe('The tagging pipeline panel (tagging-edges #4, ADR 0004)', () => {
     expect(seen.size, `every one of the ${F.HELD_TOTAL} held removals is reachable by paging`).toBe(F.HELD_TOTAL);
     expect([...reasons].sort(), 'each held removal shows why it was held').toEqual(['non-tagging', 'not-on-relay']);
     expect(requestsTo(m.log, F.ROUTES.held).every((l) => l.includes(`runId=${F.HELD_RECORD.runId}`)), 'the held list is read for the latest run id').toBe(true);
-    await expect(page.getByRole('button', { name: /confirm/i }), 'the panel offers no way to confirm (story 6, since story 5\'s Planning split the controls)').toHaveCount(0);
+    await expect(page.getByRole('button', { name: /confirm/i }), 'the panel offers no way to confirm: Confirm is story 7\'s (story 6\'s Planning moved it there, 2026-10-02; ADR 0006 D17 "No button name may match /confirm/i (B10)")').toHaveCount(0);
   });
 
   test('B11: an expired confirmation is shown as expired, not as pending [AC-2 "Confirmation"; ADR 0004 § UI passView]', async ({ page }) => {
@@ -1513,7 +1744,10 @@ test.describe('The tagging pipeline panel (tagging-edges #4, ADR 0004)', () => {
 
   /* ── AC-1: it changes nothing ────────────────────────────────────────────────────────────────────────────────── */
 
-  test('B38: open for a minute with two Recounts and then closed, by a viewer who never presses the switch, the panel sends only GETs, exactly three counts, and no read after it closes; it reads its five routes and story 5\'s switch record, which it re-reads with the status [AC-1 "It changes nothing", AC-4 "Reads only"; story 5 AC-6 "The panel\'s reads still change nothing", Test tasks "the browser spec\'s non-GET log allow[s] exactly this control\'s request"; ADR 0005 D12 "The record read … polled with the status reads", § Consequences "B38\'s allowed set gains the record read", § Seams "log.nonGet … [] … for a viewer who never presses"; ADR 0004 § Seams page.clock]', async ({ page }) => {
+  // Revised for story 6 (ADR 0006 § Seams "Request pins": "B38's allowed set gains the record read"; D15 "The record
+  // read is one more useRead in the panel's 5 s Promise.allSettled tick"): the allowed reads gain the pass record, re-read
+  // with the status, and a viewer who never presses Run, Stop or the switch still sends nothing but GETs.
+  test('B38: open for a minute with two Recounts and then closed, by a viewer who never presses the switch, Run or Stop, the panel sends only GETs, exactly three counts, and no read after it closes; it reads its five routes, story 5\'s switch record and story 6\'s pass record, which it re-reads with the status [AC-1 "It changes nothing", AC-4 "Reads only"; story 5 AC-6, story 6 AC-6 "The panel\'s reads still change nothing", story 6 Test tasks "the browser spec\'s non-GET log allow[s] exactly this story\'s requests, and any read route the Architecture adds"; ADR 0005 D12; ADR 0006 D13, D15, § Seams "Request pins"; ADR 0004 § Seams page.clock]', async ({ page }) => {
     const m = await mock(page, { status: F.STATUS.CLEAN, realtime: F.REALTIME.OFF_WITH_FIGURES, schedule: F.SCHEDULE.ONE, drift: F.DRIFT.CLEAN });
     await openRelays(page);
     await wait(1500);
@@ -1538,13 +1772,16 @@ test.describe('The tagging pipeline panel (tagging-edges #4, ADR 0004)', () => {
     expect(m.log.nonGet.slice(startNonGet), 'every request the panel sends is a GET').toEqual([]);
     expect(requestsTo({ api: open }, F.ROUTES.drift).length, 'exactly three counts: on opening and on each Recount, none on a timer').toBe(3);
     const reads = open.map((l) => l.split(' ')[1].split('?')[0]).filter((p) => /^\/api\/(tagging-edges|scheduled-tasks)\//.test(p));
-    // Story 5 (ADR 0005 § Consequences): the allowed reads gain the switch's record, GET on the switch path.
-    const allowed = new Set([F.ROUTES.status, F.ROUTES.realtime, F.ROUTES.schedule, F.ROUTES.drift, F.ROUTES.held, F.ROUTES.switch]);
-    expect([...new Set(reads)].filter((p) => !allowed.has(p)), 'the panel reads only its five routes and the switch\'s record').toEqual([]);
+    // Story 5 (ADR 0005 § Consequences): the allowed reads gain the switch's record, GET on the switch path. Story 6
+    // (ADR 0006 § Seams "Request pins", D13): and the pass record's GET.
+    const allowed = new Set([F.ROUTES.status, F.ROUTES.realtime, F.ROUTES.schedule, F.ROUTES.drift, F.ROUTES.held, F.ROUTES.switch, F.ROUTES.passRecord]);
+    expect([...new Set(reads)].filter((p) => !allowed.has(p)), 'the panel reads only its five routes, the switch\'s record and the pass record').toEqual([]);
     expect(requestsTo({ api: open }, F.ROUTES.status).length, 'the pass status is re-read at least every 10 s while open (≥ 6 in a minute)').toBeGreaterThanOrEqual(6);
     expect(requestsTo({ api: open }, F.ROUTES.realtime).length, 'the path status is re-read at least every 10 s while open (≥ 6 in a minute)').toBeGreaterThanOrEqual(6);
     expect(requestsTo({ api: open }, F.ROUTES.switch).filter((l) => l.startsWith('GET ')).length,
       'the switch\'s record is read and re-read with the status, at least every 10 s while open (≥ 6 in a minute), so other viewers see a change within POLL_MS (ADR 0005 D12)').toBeGreaterThanOrEqual(6);
+    expect(requestsTo({ api: open }, F.ROUTES.passRecord).filter((l) => l.startsWith('GET ')).length,
+      `the pass record (${F.ROUTES.passRecord}) is read and re-read with the status, at least every 10 s while open (≥ 6 in a minute), so every viewer sees who started or stopped a pass within POLL_MS (ADR 0006 D15 "one more useRead in the panel's 5 s Promise.allSettled tick") — not implemented yet`).toBeGreaterThanOrEqual(6);
     // Close it: open another sub-tab, and let the clock run on.
     await subTab(page, EXISTING_TABS[3]).click();
     const closedAt = m.log.api.length;
@@ -1552,7 +1789,7 @@ test.describe('The tagging pipeline panel (tagging-edges #4, ADR 0004)', () => {
     await wait(500);
     const after = m.log.api.slice(closedAt).filter((l) => /\/api\/tagging-edges\//.test(l));
     expect(after, 'no read after the panel closes (its timer is cleared)').toEqual([]);
-    expect(m.log.nonGet, 'nothing but GETs in the whole visit').toEqual([]);
+    expect(m.log.nonGet, 'nothing but GETs in the whole visit: a viewer who never presses the switch, Run or Stop sends none of their POSTs (ADR 0005 § Seams; ADR 0006 D15)').toEqual([]);
   });
 });
 
@@ -1803,6 +2040,43 @@ test.describe('The real-time path\'s switch on the panel (tagging-edges #5, ADR 
     }
     await p.cancel.click();
     expect(m.log.nonGet, 'opening and cancelling the prompt sends nothing').toEqual([]);
+  });
+
+  test('B113: during a Retry of the schedule list after its read failed, the off prompt already open says the backstop is still being checked, not that it could not be checked; once the Retry answers, the prompt shows the real verdict, without being reopened [story 5 review carry-forward C5-4 (story 6 Carry-forwards; ADR 0006 D20: schedPending={schedule.state === \'loading\'}, "During a Retry after a failed read, the open off prompt now says the backstop is still being checked"); story 5 AC-2; ADR 0005 D13\'s note]', async ({ page }) => {
+    const one = F.SCHEDULE.ONE;
+    const ONE_VERDICT = [/\b6\s?(?:hours?|hrs?|h)\b/i, clockRe(one.entries[1].timer.nextRunAt)];
+    const m = await mock(page, { schedule: fail(500) });
+    await openAndSettle(page);
+    const sched = section(page, 'tp-schedule');
+    await expect(sched, 'the schedule list\'s first read failed').toHaveAttribute('data-state', 'error');
+    const p = await openPrompt(page);
+    expect(await p.text(), 'with the read failed, the open prompt says the backstop could not be checked (B57\'s state, today\'s behaviour)').toMatch(BACKSTOP_UNCHECKED);
+    await pauseClock(page); // no poll re-reads the schedule list but the Retry
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    // The Retry's read is held, then released well within readSection's own 15 s time-out.
+    m.set({ schedule: () => gate.then(() => one) });
+    try {
+      await sched.getByRole('button', { name: 'Retry', exact: true }).click();
+      await expect(sched, 'the Retry is in flight: the schedule list is loading again').toHaveAttribute('data-state', 'loading', { timeout: 5000 });
+      await expect(p.cancel, 'the prompt is still open: the Retry did not close it').toBeVisible();
+      await expect.poll(() => p.text(), {
+        message: `during the Retry the open prompt says the backstop is still being checked (${BACKSTOP_CHECKING}) — ADR 0006 D20 (C5-4): schedPending must follow schedule.state === 'loading', not "no answer yet", so a Retry after a failed read counts as pending; not implemented yet: the prompt still says it could not be checked`,
+        timeout: 5000,
+      }).toMatch(BACKSTOP_CHECKING);
+      expect(await p.text(), 'and not that it could not be checked while the Retry is still loading').not.toMatch(BACKSTOP_UNCHECKED);
+    } finally {
+      release();
+    }
+    await expect(sched, 'the Retry answers').toHaveAttribute('data-state', 'ready', { timeout: 10000 });
+    for (const re of ONE_VERDICT) {
+      await expect.poll(() => p.text(), { message: `the open prompt now shows the real verdict (${re}), without being reopened`, timeout: 5000 }).toMatch(re);
+    }
+    const after = await p.text();
+    expect(after, 'no longer "still being checked"').not.toMatch(BACKSTOP_CHECKING);
+    expect(after, 'and not "could not be checked"').not.toMatch(BACKSTOP_UNCHECKED);
+    await p.cancel.click();
+    expect(m.log.nonGet, 'a Retry and the prompt send nothing but GETs').toEqual([]);
   });
 
   test('B58: before the path has completed its first start, the prompt says instead that what it has gathered so far is dropped, that the next "Turn on" is a first start again, and that a pass should run after the path shows live [AC-2 "Before the path has completed its first start"; ADR 0005 D8 offPromptVariant "first-start" (firstStartedAt not served), D13; OPERATIONS §12.9\'s order]', async ({ page }) => {
@@ -2175,6 +2449,758 @@ test.describe('The real-time path\'s switch on the panel (tagging-edges #5, ADR 
     await wait(1500);
     const after = m.log.api.slice(closedAt).filter((l) => /\/api\/tagging-edges\//.test(l));
     expect(after, 'no read after the panel closed, though the answer came after').toEqual([]);
+  });
+});
+
+/* ══ Story 6: running and stopping the pass (ADR 0006) ═══════════════════════════════════════════════════════════ */
+
+test.describe('Running and stopping the pass on the panel (tagging-edges #6, ADR 0006)', () => {
+  test.use({ timezoneId: 'UTC', locale: 'en-GB' });
+
+  test.beforeAll(async () => { await loadView(); });
+
+  test.beforeEach(async ({ page }) => {
+    if (process.env.BRAINSTORM_SERVER_ACCESSIBLE !== 'true') test.skip(true, 'Brainstorm server not accessible (set BRAINSTORM_SERVER_ACCESSIBLE=true)');
+    if (RECORDING) test.skip(true, 'TP_RECORD_BASELINE=1: only the AC-6 baseline is recorded');
+    await page.clock.install({ time: new Date(F.NOW) });
+  });
+
+  const T = F.PASS_TIMES;
+  const K = F.PASS_KEYS;
+  /** The sentences that claim a pass was lined up (a negated one, "nothing new was lined up", claims nothing). */
+  const linedUpClaims = (text) => sentencesWith(text, /\blined up\b/i).filter((s) => !NEGATED.test(s));
+  const heading = (page, name) => section(page, 'tp-pass').getByRole('heading', { name, exact: true });
+
+  /* ── AC-1: Run a pass now ───────────────────────────────────────────────────────────────────────────────────── */
+
+  test('B83: with nothing busy, the owner sees "Run a pass now" once the status has a body; pressing it asks nothing, sends one POST {} as JSON to the run route, and the reads that follow — with no poll — show the pass waiting since it was asked for, started by the owner and its shortened key [AC-1 "What it shows", "When nothing is busy … within 10 seconds every viewer sees it waiting"; AC-5; ADR 0006 D6, D15 sendRun, D16 busyView, passWho, D17 "Run … asks nothing", "after an answer: await the status and record re-reads"]', async ({ page }) => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const m = await mock(page, { ...F.SCENE.IDLE, status: async () => { await gate; return F.SCENE.IDLE.status; } });
+    try {
+      await openPanel(page);
+      await expect(section(page, 'tp-pass'), 'the status read is in flight').toHaveAttribute('data-state', 'loading');
+      await expect(runButton(page), 'no Run control while the status has no body (ADR 0006 D17 "It shows once the status has a body")').toHaveCount(0);
+    } finally {
+      release();
+    }
+    m.set({ status: F.SCENE.IDLE.status });
+    await settled(page, 'tp-pass');
+    await pauseClock(page);
+    const mark = m.log.api.length;
+    await pressRun(page);
+    await expect(passCancel(page), 'Run asks nothing: no prompt opens (story 6 Planning: "Run asks nothing")').toHaveCount(0);
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(F.NOW), ...OWNER_WHO], [],
+      'within 10 s, with no poll, the pass shows waiting since it was asked for (12:00), started by the owner and its shortened key (D16 busyView, passWho; D17)', 10000);
+    expect(m.log.nonGet, 'exactly one request that is not a GET: Run\'s POST').toEqual([RUN_POST]);
+    const sent = m.log.sent[0];
+    expect(JSON.parse(sent.body || 'null'), 'its body is {} (D6: "The body is {}", D15)').toEqual({});
+    expect(sent.contentType || '', 'sent as JSON (D6: 415 otherwise)').toMatch(/^application\/json\b/i);
+    const reread = m.log.api.slice(mark).filter((l) => l.startsWith('GET ')).map((l) => l.split(' ')[1].split('?')[0]);
+    expect(reread, 'the status is read again after the answer (D17)').toContain(F.ROUTES.status);
+    expect(reread, 'and the pass record (D17)').toContain(F.ROUTES.passRecord);
+  });
+
+  test('B84: a Run while a pass is busy is refused plainly — a pass is already waiting or running, and nothing new was lined up — and the panel then shows that pass; the same for a scheduled run that has come due and is waiting (the seed backstop\'s id), shown as the schedule\'s [AC-1 "When a pass is busy" (a scheduled run whose time has come included); AC-5; ADR 0006 D5, D6 "If busy → 409 {code: \'pass-busy\', busy: items}", D16 runOutcome refused-busy, passWho "a repeat:sched: key is the schedule, at the id\'s millis"; § Seams "the seed form of the id"]', async ({ page }) => {
+    test.setTimeout(90000);
+    const CASES = [
+      { what: 'another viewer\'s Run, waiting since 11:58', scene: F.SCENE.WAITING_ASKED, item: [WAITING, clockRe(T.waitAsked), ...OWNER_WHO] },
+      { what: 'the seed backstop\'s run, come due at 11:55 and waiting', scene: F.SCENE.SEED_DUE, item: [WAITING, clockRe(T.seedDue), SCHEDULE_WHO] },
+    ];
+    const m = await mock(page, F.SCENE.IDLE);
+    for (const [i, c] of CASES.entries()) {
+      if (i === 0) await openAndSettle(page);
+      else {
+        await page.clock.resume();
+        await reopenWith(page, m, F.SCENE.IDLE);
+      }
+      await expect(runButton(page), `${c.what}: "${RUN_LABEL}" shows — not implemented yet if missing (D17)`).toBeEnabled({ timeout: 5000 });
+      expect(await textOf(page, 'tp-pass'), `${c.what}: before the press, nothing says a pass is already busy`).not.toMatch(ALREADY_BUSY);
+      await pauseClock(page);
+      m.set(c.scene); // the pass became busy after this panel's last read: the server refuses (F.applyRun, 409 pass-busy)
+      await pressRun(page);
+      await untilText(page, 'tp-pass', ALREADY_BUSY, `${c.what}: the panel says plainly that a pass is already waiting or running (D16 refused-busy)`, 10000);
+      expect(await textOf(page, 'tp-pass'), `${c.what}: and that nothing new was lined up (AC-1)`).toMatch(NOTHING_LINED_UP);
+      await untilShows(page, 'tp-pass', c.item, [], `${c.what}: the panel then shows the busy pass, from the reads after the answer`, 10000);
+    }
+    expect(m.log.nonGet, 'one POST each, never retried').toEqual([RUN_POST, RUN_POST]);
+  });
+
+  test('B85: with two passes busy the panel shows each — the owner\'s running since 11:57, and an admin\'s waiting since 11:58 behind a pass ahead of it — each with its own state, time and who, to an admin viewer [AC-1 "When more than one pass is busy, the panel shows each"; AC-2; AC-5 "for each pass it shows, who started it"; ADR 0006 D5, D12, D16 busyView, passWho "A running busy item with a run takes who from its run", D17 "The busy list"]', async ({ page }) => {
+    const m = await mock(page, { who: 'admin', ...F.SCENE.TWO_BUSY });
+    await openAndSettle(page);
+    await untilShows(page, 'tp-pass', [RUNNING_NOW, clockRe(T.runStarted), ...OWNER_WHO], [new RegExp(esc(F.ADMIN_KEY))],
+      'the owner\'s pass: running since 11:57, started by the owner — a line of its own, without the admin\'s pass — not implemented yet if missing (D16, D17)');
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked), BEHIND_PASS, ...ADMIN_WHO], [new RegExp(esc(F.OWNER_KEY))],
+      'the admin\'s pass: waiting since 11:58 behind a pass ahead of it, started by an admin — a line of its own');
+    expect(m.log.nonGet, 'showing them sends nothing').toEqual([]);
+  });
+
+  test('B86: while a Run is under way the control is disabled and says so — "Lining up a pass…", with aria-busy — and when the answer comes the panel shows the pass waiting and the control is free again [AC-1 "While a Run is under way, the control is disabled and says so"; ADR 0006 D17 "while pending: disabled, aria-busy, with the text Lining up a pass…"]', async ({ page }) => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const m = await mock(page, F.SCENE.IDLE);
+    m.set({ run: async (req, server) => { await gate; return server(); } });
+    await openAndSettle(page);
+    try {
+      await pressRun(page);
+      await expect.poll(() => m.log.nonGet, { message: 'pressing Run sends it' }).toEqual([RUN_POST]);
+      const busy = passBusyButtons(page).first();
+      await expect(busy, 'while the Run is under way, the control — the button itself — carries aria-busy="true" (D17) — not implemented yet if missing').toBeVisible({ timeout: 5000 });
+      await expect(busy, 'and is disabled').toBeDisabled();
+      expect(squash(await busy.innerText()), 'and says a pass is being lined up (D17 "Lining up a pass…")').toMatch(LINING_UP);
+      for (const b of await runButton(page).all()) await expect(b, 'no enabled "Run a pass now" meanwhile').toBeDisabled();
+    } finally {
+      release();
+    }
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(F.NOW), ...OWNER_WHO], [], 'the answer came: the pass shows waiting, the owner\'s', 10000);
+    await expect(passBusyButtons(page), 'the control is no longer busy').toHaveCount(0);
+    await expect(runButton(page), '"Run a pass now" is back').toBeEnabled();
+    expect(m.log.nonGet, 'one Run, sent once').toEqual([RUN_POST]);
+  });
+
+  test('B87: when the server does not answer a Run within 15 s — Run, the status and the pass record all hang — the control is enabled again and the panel says the outcome is unknown; it then shows the state from its next read [AC-1 "If the server has not answered within 15 seconds"; ADR 0006 D15 "raced(15000, …)", D17 "on unknown: clear pending at once and fire the re-reads"]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.IDLE);
+    await openAndSettle(page);
+    await expect(runButton(page), `"${RUN_LABEL}" — not implemented yet if missing (D17)`).toBeEnabled({ timeout: 5000 });
+    expect(await textOf(page, 'tp-pass'), 'before the press, no "outcome unknown"').not.toMatch(OUTCOME_UNKNOWN);
+    await pauseClock(page);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    m.set({
+      run: async () => { await gate; return F.RUN_ANSWER.linedUp(K.WAITING); },
+      status: async () => { await gate; return F.SCENE.WAITING_ASKED.status; },
+      passRecord: async () => { await gate; return F.SCENE.WAITING_ASKED.passRecord; },
+    });
+    try {
+      await pressRun(page);
+      await expect.poll(() => m.log.nonGet, { message: 'Run is sent' }).toEqual([RUN_POST]);
+      await expect(passBusyButtons(page).first(), 'under way: the control is busy and disabled (D17)').toBeDisabled({ timeout: 5000 });
+      await page.clock.runFor(15000);
+      await expect(runButton(page), 'after 15 s with no answer, "Run a pass now" is enabled again').toBeEnabled({ timeout: 5000 });
+      await expect(passBusyButtons(page), 'and is no longer busy').toHaveCount(0);
+      await untilText(page, 'tp-pass', OUTCOME_UNKNOWN, 'and the panel says the outcome is unknown (D16 "unknown (timeout, network or bad-json)")', 5000);
+    } finally {
+      release();
+    }
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked)], [], 'it then shows the state from its next read: the pass waiting', 10000);
+    expect(m.log.nonGet, 'Run was sent once and never retried').toEqual([RUN_POST]);
+  });
+
+  test('B88: when the owner\'s confirmation of held removals is pending, the pass section says beside "Run a pass now" that the next pass to get past its start checks takes it up; it says nothing of the kind with no confirmation, or an expired one [AC-1 "When the owner\'s confirmation of held removals is pending"; ADR 0006 D17 "The pending-confirmation line … HeldSection\'s ConfirmationLine is unchanged"]', async ({ page }) => {
+    test.setTimeout(90000);
+    const m = await mock(page, F.SCENE.IDLE_PENDING);
+    await openAndSettle(page);
+    await expect(runButton(page), `"${RUN_LABEL}" shows — not implemented yet if missing (D17)`).toBeVisible({ timeout: 5000 });
+    expect(NEXT_PASS_TAKES_UP(await textOf(page, 'tp-pass')).length,
+      'a confirmation pending: a line in the pass section, beside Run, says the next pass to get past its start checks takes it up (D17: "The owner\'s confirmation is pending. The next pass to get past its start checks takes it up.")').toBeGreaterThan(0);
+    for (const [scene, why] of [[F.SCENE.IDLE, 'no confirmation'], [F.SCENE.IDLE_EXPIRED, 'an expired confirmation']]) {
+      await reopenWith(page, m, scene);
+      await expect(runButton(page), `${why}: Run shows`).toBeVisible({ timeout: 5000 });
+      expect(NEXT_PASS_TAKES_UP(await textOf(page, 'tp-pass')), `${why}: no such line (D17: only when passView.confirmation.state is 'pending')`).toEqual([]);
+    }
+    expect(m.log.nonGet).toEqual([]);
+  });
+
+  test('B89: with no pass in the report and none busy, the empty pass section keeps "No pass has run yet" and shows "Run a pass now"; pressing it lines up the first pass, which shows waiting while the section stays empty and still says no pass has run yet [AC-1; ADR 0006 D17 "in both the empty-report branch (after the No pass has run yet lines; data-state stays empty) and the ready branch", D19; § Seams "New cases the review named": "A first pass waits, and Run is pressed, with no report yet"]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.FIRST_IDLE);
+    await openAndSettle(page);
+    const pass = section(page, 'tp-pass');
+    await expect(pass, 'no report yet: the section is empty').toHaveAttribute('data-state', 'empty');
+    expect(await textOf(page, 'tp-pass'), 'no pass has run yet').toMatch(NO_PASS_YET);
+    await pauseClock(page);
+    await pressRun(page);
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(F.NOW), ...OWNER_WHO], [], 'the first pass shows waiting, the owner\'s', 10000);
+    await expect(pass, 'the section stays empty: still no report (D17; PS12)').toHaveAttribute('data-state', 'empty');
+    expect(await textOf(page, 'tp-pass'), 'and still says no pass has run yet').toMatch(NO_PASS_YET);
+    await expect(runButton(page), 'the controls stay in the empty branch').toBeVisible();
+    expect(m.log.nonGet).toEqual([RUN_POST]);
+  });
+
+  /* ── AC-2: waiting and stopping, seen by every viewer ──────────────────────────────────────────────────────── */
+
+  test('B90: a pass waiting — asked for with nothing ahead, behind other heavy database work, or behind a pass ahead of it — is shown with since when to a viewer who did not press, within POLL_MS, and a reload keeps it; that viewer sends nothing [AC-2 "What the server reports, for each busy pass", "Every viewer sees the same, whoever pressed, and a reload keeps it"; ADR 0006 D5, D12, D16 busyView "waiting since <time>, behind a pass ahead or other heavy database work"]', async ({ page }) => {
+    test.setTimeout(150000);
+    const CASES = [
+      { what: 'asked for, nothing ahead of it', scene: F.SCENE.WAITING_ASKED, must: [WAITING, clockRe(T.waitAsked)], lacks: [BEHIND_HEAVY, BEHIND_PASS] },
+      { what: 'behind other heavy database work', scene: F.SCENE.WAITING_HEAVY, must: [WAITING, clockRe(T.heavySince), BEHIND_HEAVY], lacks: [BEHIND_PASS] },
+      { what: 'behind a pass ahead of it', scene: F.SCENE.TWO_BUSY, must: [WAITING, clockRe(T.waitAsked), BEHIND_PASS], lacks: [BEHIND_HEAVY] },
+    ];
+    const m = await mock(page, F.SCENE.IDLE);
+    for (const [i, c] of CASES.entries()) {
+      if (i === 0) await openAndSettle(page);
+      else {
+        await page.clock.resume();
+        await reopenWith(page, m, F.SCENE.IDLE);
+      }
+      expect(await shows(page, 'tp-pass', c.must, c.lacks), `${c.what}: not shown before it is busy`).toBe(false);
+      await pauseClock(page);
+      m.set(c.scene); // another viewer pressed Run, or the heavy-task lock is held: this viewer pressed nothing
+      await page.clock.runFor(POLL_MS);
+      await untilShows(page, 'tp-pass', c.must, c.lacks, `${c.what}: within POLL_MS this viewer sees it waiting, and since when — not implemented yet if missing (D16 busyView)`, 3000);
+      await page.clock.resume();
+      await openAndSettle(page); // a reload
+      await untilShows(page, 'tp-pass', c.must, c.lacks, `${c.what}: after a reload, still shown`, 5000);
+    }
+    expect(m.log.nonGet, 'a viewer who did not press sends nothing').toEqual([]);
+  });
+
+  test('B91: a stop asked for — the owner\'s running pass, a stop asked for at 11:59 by an admin — is shown with since when and who asked to a viewer who did not press, within POLL_MS, and a reload keeps it; the pass still shows running, and with every busy pass asked to stop "Stop" is not shown [AC-2 "whether a stop has been asked for it, and since when"; AC-3 "What it shows … Otherwise it is not shown", "No force-stop"; AC-5 "who asked it to stop"; ADR 0006 D12, D16 busyView canStop, "a stop was asked for at <time>", passWho]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.RUNNING);
+    await openAndSettle(page);
+    await expect(stopButton(page), 'the pass running, no stop asked for: "Stop" shows (D16 canStop) — not implemented yet if missing').toBeVisible({ timeout: 5000 });
+    await pauseClock(page);
+    m.set(F.SCENE.STOP_ASKED);
+    await page.clock.runFor(POLL_MS);
+    const must = [STOP_ASKED, clockRe(T.stopAsked), ...ADMIN_WHO];
+    await untilShows(page, 'tp-pass', must, [], 'within POLL_MS: a stop was asked for at 11:59, by an admin', 3000);
+    await expect(stopButton(page), 'every busy pass has a stop asked for: "Stop" is not shown').toHaveCount(0);
+    await untilShows(page, 'tp-pass', [RUNNING_NOW, clockRe(T.runStarted)], [], 'and the pass still shows running until it ends');
+    await page.clock.resume();
+    await openAndSettle(page); // a reload
+    await untilShows(page, 'tp-pass', must, [], 'after a reload, still shown', 5000);
+    await expect(stopButton(page), 'and still no "Stop"').toHaveCount(0);
+    expect(m.log.nonGet, 'a viewer who did not press sends nothing').toEqual([]);
+  });
+
+  test('B92: when the server cannot tell whether a pass is waiting — its queue read failed, the queue is not ready or off, or the status carries no control member at all — the panel says so, never that nothing is waiting; a live pass still shows running beside it [AC-2 "When the server cannot tell whether a pass is waiting, every viewer is told so. It is never shown as nothing waiting"; ADR 0006 D5 "When queue !== \'ok\', only the liveness item is known, and the panel says it cannot tell whether a pass is waiting", D12, D16 "An absent control reads as not known"; R5]', async ({ page }) => {
+    test.setTimeout(150000);
+    const idle = F.STATUS.HELD_NONE;
+    const CASES = [
+      { what: 'the queue read failed', status: F.withControl(idle, F.controlBody({ queue: 'read-failed' })) },
+      { what: 'the queue is not ready', status: F.withControl(idle, F.controlBody({ queue: 'not-ready' })) },
+      { what: 'the task queue is off', status: F.withControl(idle, F.controlBody({ queue: 'off' })) },
+      { what: 'the status carries no control member', status: idle },
+      { what: 'the queue read failed while a pass is alive', status: F.withControl(F.SCENE.RUNNING.status, F.controlBody({ queue: 'read-failed', busy: [F.ITEM.RUNNING] })), running: true },
+    ];
+    const m = await mock(page, F.SCENE.IDLE);
+    await openAndSettle(page);
+    await expect(runButton(page), 'the controls show (D17) — not implemented yet if missing').toBeVisible({ timeout: 5000 });
+    expect(await textOf(page, 'tp-pass'), 'the queue read ok and nothing busy: no "cannot tell"').not.toMatch(CANNOT_TELL);
+    for (const c of CASES) {
+      await reopenWith(page, m, { status: c.status, passRecord: c.running ? F.SCENE.RUNNING.passRecord : F.PASS_RECORD.EMPTY });
+      await untilText(page, 'tp-pass', CANNOT_TELL, `${c.what}: the panel says the server cannot tell whether a pass is waiting`, 5000);
+      expect(await textOf(page, 'tp-pass'), `${c.what}: never that nothing is waiting`).not.toMatch(NOTHING_WAITING);
+      if (c.running) await untilShows(page, 'tp-pass', [RUNNING_NOW, clockRe(T.runStarted)], [], `${c.what}: the live pass still shows running ("Liveness comes first", D5)`);
+    }
+    expect(m.log.nonGet).toEqual([]);
+  });
+
+  test('B93: a waiting pass that gave up after 4 hours behind other heavy database work no longer shows as waiting; the panel says it gave up waiting and never began running, the latest pass is unchanged (it left no report), and the history keeps its start, saying it gave up; the gave-up line still shows while a due scheduled run waits on, which shows as the schedule\'s [AC-2 "A waiting pass that gives up"; ADR 0006 D12 gaveUp, D17 "A gave-up line shows from control.gaveUp", D18 "A start whose entry has gaveUpAt says it gave up waiting and never began running"; § Seams "New cases the review named": "A pass gives up while a due scheduled run waits behind it, and the gave-up line still shows"]', async ({ page }) => {
+    const GAVE_UP = /\b(?:gave|given) up\b/i;
+    const m = await mock(page, F.SCENE.GAVE_UP);
+    await openAndSettle(page);
+    await untilText(page, 'tp-pass', GAVE_UP_WAITING, 'the panel says the pass gave up waiting (D17 gave-up line) — not implemented yet if missing', 5000);
+    const text = await textOf(page, 'tp-pass');
+    expect(text, 'and that it never began running').toMatch(NEVER_BEGAN);
+    expect(await shows(page, 'tp-pass', [WAITING, clockRe(T.gaveUpAsked)], [GAVE_UP]), 'it is no longer shown as waiting').toBe(false);
+    expect(text, 'it left no pass report: the latest pass is still the one before it').toContain(F.HELD_RECORD.runId);
+    await untilShows(page, 'tp-pass', [START_WORD, clockRe(T.gaveUpAsked), ...OWNER_WHO, GAVE_UP], [], 'the history keeps its start (the owner\'s, at 07:54) and says it gave up waiting (D18)');
+    await reopenWith(page, m, F.SCENE.GAVE_UP_SEED_WAITING);
+    await untilText(page, 'tp-pass', GAVE_UP_WAITING, 'with the seed backstop\'s due run waiting on, the gave-up line still shows', 5000);
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(T.seedDue), SCHEDULE_WHO], [], 'and the due run shows waiting since 11:55, the schedule\'s (D16 passWho)');
+    expect(m.log.nonGet).toEqual([]);
+  });
+
+  /* ── AC-3: Stop ────────────────────────────────────────────────────────────────────────────────────────────── */
+
+  test('B94: "Stop" shows only while some busy pass has no stop asked for; for a waiting pass its prompt — inside the pass section, with a heading, focus on Cancel and one "Stop the pass" — says the pass is taken out of line before it begins running, so it writes nothing, and that no schedule entry changes; no button is named "confirm"; opening and cancelling it sends nothing [AC-3 "What it shows", "A prompt comes first … for a waiting pass"; ADR 0006 D16 canStop, stopPromptView, D17 "Stop … opens an inline prompt", "No button name may match /confirm/i"]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.IDLE);
+    await openAndSettle(page);
+    await expect(runButton(page), 'the controls show — not implemented yet if missing (D17)').toBeVisible({ timeout: 5000 });
+    await expect(stopButton(page), 'nothing busy: no "Stop" (it never applies to the backstop\'s next scheduled run, whose time has not come)').toHaveCount(0);
+    await reopenWith(page, m, F.SCENE.WAITING_ASKED);
+    const p = await openStopPrompt(page);
+    await expect(p.cancel, 'focus moves to Cancel when the prompt opens (D17)').toBeFocused();
+    await expect(p.confirm, 'one pass: its button reads "Stop the pass" (D17)').toHaveText(/^\s*Stop the pass\s*$/);
+    await expect(page.getByRole('button', { name: /confirm/i }), 'no button is named "confirm" (B10; D17)').toHaveCount(0);
+    const text = await p.text();
+    expect(text, 'the pass is taken out of line').toMatch(TAKEN_OUT);
+    expect(text, 'before it begins running').toMatch(BEFORE_RUNNING);
+    expect(text, 'so it writes nothing').toMatch(WRITES_NOTHING);
+    expect(text, 'and no schedule entry changes').toMatch(NO_SCHEDULE_CHANGE);
+    expect(text, 'not a running pass\'s text (no safe point)').not.toMatch(SAFE_POINT);
+    expect(confirmationWarning(text), 'no confirmation involved: no warning').toEqual([]);
+    await p.cancel.click();
+    expect(m.log.nonGet, 'opening and cancelling the prompt sends nothing').toEqual([]);
+  });
+
+  test('B95: for a running pass the prompt says it stops at its next safe point, usually within seconds, several minutes when the graph or the relay is slow, at worst its 30-minute time-out; that everything it wrote before then stands and the next pass finishes the rest; and that no schedule entry changes [AC-3 "A prompt comes first … for a running pass"; ADR 0006 D16 stopPromptView "a running item"]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.RUNNING);
+    await openAndSettle(page);
+    const p = await openStopPrompt(page);
+    await expect(p.confirm, 'one pass: "Stop the pass"').toHaveText(/^\s*Stop the pass\s*$/);
+    const text = await p.text();
+    expect(text, 'it stops at its next safe point').toMatch(SAFE_POINT);
+    expect(text, 'usually within seconds').toMatch(SECONDS);
+    expect(MINUTES_WHEN_SLOW(text).length, 'when the graph or the relay is slow it can take several minutes').toBeGreaterThan(0);
+    expect(TIMEOUT_30(text).length, 'at worst it runs until its 30-minute time-out').toBeGreaterThan(0);
+    expect(text, 'everything it wrote before then stands').toMatch(WROTE_STANDS);
+    expect(text, 'and the next pass finishes the rest').toMatch(NEXT_PASS_FINISHES);
+    expect(text, 'no schedule entry changes').toMatch(NO_SCHEDULE_CHANGE);
+    expect(text, 'not a waiting pass\'s text').not.toMatch(TAKEN_OUT);
+    expect(confirmationWarning(text), 'no confirmation involved: no warning').toEqual([]);
+    await p.cancel.click();
+    expect(m.log.nonGet).toEqual([]);
+  });
+
+  test('B96: with two passes busy the prompt says what happens to each — the running one stops at its next safe point, the waiting one is taken out of line before it begins running — and its button reads "Stop the passes" [AC-3 "When more than one pass is busy, it says what happens to each"; ADR 0006 D16 stopPromptView "each item\'s block", D17 "Stop the passes for more than one"]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.TWO_BUSY);
+    await openAndSettle(page);
+    const p = await openStopPrompt(page);
+    await expect(p.confirm, 'two passes: its button reads "Stop the passes" (D17)').toHaveText(/^\s*Stop the passes\s*$/);
+    const text = await p.text();
+    expect(text, 'the running pass: its next safe point').toMatch(SAFE_POINT);
+    expect(text, 'and what it wrote stands').toMatch(WROTE_STANDS);
+    expect(text, 'the waiting pass: taken out of line').toMatch(TAKEN_OUT);
+    expect(text, 'before it begins running').toMatch(BEFORE_RUNNING);
+    expect(text, 'no schedule entry changes').toMatch(NO_SCHEDULE_CHANGE);
+    await p.cancel.click();
+    expect(m.log.nonGet).toEqual([]);
+  });
+
+  test('B97: the prompt warns, when the running pass has taken up the owner\'s confirmation or the panel cannot yet tell whether it has, that stopping uses it up and the owner must confirm again after a later pass holds those removals again; for a waiting pass with the confirmation pending it says instead that the confirmation stays pending for the next pass [AC-3 "about the owner\'s confirmation of held removals"; AC-4 "Either may act on the other\'s pass … after the prompt\'s warning"; ADR 0006 D12 confirmation, D16 stopPromptView "the warning", "the stays pending line"]', async ({ page }) => {
+    test.setTimeout(120000);
+    const CASES = [
+      { what: 'the running pass has taken it up', scene: F.SCENE.CONFIRM_TAKEN_UP, warns: true },
+      { what: 'the panel cannot yet tell whether it has', scene: F.SCENE.CONFIRM_CANNOT_TELL, warns: true },
+      { what: 'a waiting pass, the confirmation pending', scene: F.SCENE.WAITING_WITH_PENDING, warns: false },
+    ];
+    const m = await mock(page, { who: 'admin', ...CASES[0].scene });
+    for (const [i, c] of CASES.entries()) {
+      if (i === 0) await openAndSettle(page);
+      else await reopenWith(page, m, c.scene);
+      const p = await openStopPrompt(page);
+      const text = await p.text();
+      if (c.warns) {
+        expect(confirmationWarning(text).length, `${c.what}: the prompt warns that stopping uses up the owner's confirmation`).toBeGreaterThan(0);
+        expect(text, `${c.what}: that the owner must confirm again`).toMatch(CONFIRM_AGAIN);
+        expect(text, `${c.what}: after a later pass holds those removals again`).toMatch(LATER_HOLDS);
+      } else {
+        expect(text, `${c.what}: the confirmation stays pending for the next pass`).toMatch(STAYS_PENDING);
+        expect(confirmationWarning(text), `${c.what}: and no warning that it is used up`).toEqual([]);
+      }
+      await p.cancel.click();
+    }
+    expect(m.log.nonGet, 'opening and cancelling sends nothing').toEqual([]);
+  });
+
+  test('B98: Cancel closes the prompt and sends nothing: "Stop" is back and the pass still waits [AC-3 "Cancelling the prompt sends nothing and changes nothing"; ADR 0006 D17]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.WAITING_ASKED);
+    await openAndSettle(page);
+    const p = await openStopPrompt(page);
+    await p.cancel.click();
+    await expect(passCancel(page), 'the prompt is closed').toHaveCount(0, { timeout: 5000 });
+    await expect(stopButton(page), '"Stop" is back').toBeEnabled();
+    await wait(1000);
+    expect(m.log.nonGet, 'Cancel sends nothing').toEqual([]);
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked)], [], 'and changes nothing: the pass still waits');
+  });
+
+  test('B99: confirming a stop of a waiting pass — an admin stopping the owner\'s — sends one POST {"targets":[{key, state:"waiting"}]} as JSON; while under way the prompt stays open, its button disabled, aria-busy and "Stopping…"; on the answer the prompt closes and, with no poll, the pass is gone from the line within 10 s, the latest pass and its held list as they were, the confirmation still pending, and the record shows the admin\'s stop [AC-3 "Confirming a stop of a waiting pass", "While a stop is under way"; AC-4 "Either may act on the other\'s pass"; AC-5; ADR 0006 D9, D15 sendStop, D17 "the prompt stays open with that button disabled, aria-busy and Stopping…", "sendStop(snapshot.map(({key, state}) => ({key, state})))"]', async ({ page }) => {
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    const m = await mock(page, { who: 'admin', ...F.SCENE.WAITING_WITH_PENDING });
+    m.set({ stop: async (req, server) => { await gate; return server(); } });
+    await openAndSettle(page);
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked), ...OWNER_WHO], [], 'the owner\'s pass waits, since 11:58 — not implemented yet if missing (D16, D17)');
+    const p = await openStopPrompt(page);
+    await pauseClock(page);
+    try {
+      await p.confirm.click();
+      await expect.poll(() => m.log.nonGet, { message: 'confirming sends the stop' }).toEqual([STOP_POST]);
+      const busy = passBusyButtons(page).first();
+      await expect(busy, 'while the stop is under way the prompt\'s button carries aria-busy="true" (D17)').toBeVisible({ timeout: 5000 });
+      await expect(busy, 'and is disabled').toBeDisabled();
+      expect(squash(await busy.innerText()), 'and says "Stopping…" (D17)').toMatch(STOPPING);
+      await expect(heading(page, p.heading), 'the prompt stays open while the stop is under way (AC-3; D17: unlike story 5\'s switch, on purpose)').toBeVisible();
+    } finally {
+      release();
+    }
+    await expect(heading(page, p.heading), 'on the answer the prompt closes').toHaveCount(0, { timeout: 10000 });
+    await expect.poll(() => shows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked)], [TAKEN_OUT]), { message: 'within 10 s, with no poll, the pass is gone from the line (AC-3)', timeout: 10000 }).toBe(false);
+    const sent = m.log.sent[0];
+    expect(JSON.parse(sent.body || 'null'), 'its body names the prompt\'s pass and the state the prompt showed (D9, D17)').toEqual({ targets: [{ key: K.WAITING, state: 'waiting' }] });
+    expect(sent.contentType || '', 'sent as JSON').toMatch(/^application\/json\b/i);
+    expect(await textOf(page, 'tp-pass'), 'it left no pass report: the latest pass is as it was').toContain(F.HELD_RECORD.runId);
+    const held = await textOf(page, 'tp-held');
+    expect(held, 'its held list as it was').toMatch(numRe(F.HELD_TOTAL));
+    expect(held, 'and the owner\'s confirmation still pending').toMatch(PENDING);
+    await untilShows(page, 'tp-pass', [/\bstop\w*\b/i, clockRe(F.NOW), ...ADMIN_WHO], [], 'the record shows the admin\'s stop, at 12:00 (AC-5)');
+    expect(m.log.nonGet, 'one stop, sent once').toEqual([STOP_POST]);
+  });
+
+  test('B100: when the server does not answer a stop within 15 s — the stop, the status and the pass record all hang — the prompt closes and the panel says the outcome is unknown; it then shows the state from its next read [AC-3 "If the server has not answered within 15 seconds, the prompt closes, the panel says the outcome is unknown"; ADR 0006 D15, D17 "On unknown, it clears at once, fires the re-reads"]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.WAITING_ASKED);
+    await openAndSettle(page);
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked)], [], 'the pass waits — not implemented yet if missing (D16, D17)');
+    expect(await textOf(page, 'tp-pass'), 'before the stop, no "outcome unknown"').not.toMatch(OUTCOME_UNKNOWN);
+    const p = await openStopPrompt(page);
+    await pauseClock(page);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    m.set({
+      stop: async () => { await gate; return F.STOP_ANSWER.stopped([{ key: K.WAITING, how: 'taken-out-of-line' }]); },
+      status: async () => { await gate; return F.SCENE.IDLE.status; },
+      passRecord: async () => { await gate; return F.foldPassRecord(F.SCENE.WAITING_ASKED.passRecord, { action: 'stop', key: K.WAITING, at: F.NOW, who: F.ACTOR.owner }); },
+    });
+    try {
+      await p.confirm.click();
+      await expect.poll(() => m.log.nonGet, { message: 'the stop is sent' }).toEqual([STOP_POST]);
+      await expect(passBusyButtons(page).first(), 'under way (D17)').toBeDisabled({ timeout: 5000 });
+      await page.clock.runFor(15000);
+      await expect(passCancel(page), 'after 15 s with no answer, the prompt closes').toHaveCount(0, { timeout: 5000 });
+      await expect(passBusyButtons(page), 'and nothing is busy').toHaveCount(0);
+      await untilText(page, 'tp-pass', OUTCOME_UNKNOWN, 'and the panel says the outcome is unknown', 5000);
+    } finally {
+      release();
+    }
+    await expect.poll(() => shows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked)], [TAKEN_OUT]), { message: 'it then shows the state from its next read: the pass gone from the line', timeout: 10000 }).toBe(false);
+    expect(m.log.nonGet, 'the stop was sent once and never retried').toEqual([STOP_POST]);
+  });
+
+  test('B101: a stop whose prompt is out of date — the waiting pass began running after the prompt opened — is refused plainly and changes nothing; the panel then shows the new state, and "Stop" can be pressed again, its prompt now a running pass\'s [AC-3 "What it acts on … If what is busy has changed since the prompt opened … the stop is refused plainly and changes nothing. The panel then shows the new state, so the viewer can press Stop again"; ADR 0006 D9 409 prompt-out-of-date, D16 stopOutcome refused-stale, D17 "It never rewrites its text from later polls"]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.WAITING_ASKED);
+    await openAndSettle(page);
+    await pauseClock(page);
+    const p = await openStopPrompt(page);
+    expect(await p.text(), 'the prompt says what it shows: a waiting pass, taken out of line').toMatch(TAKEN_OUT);
+    m.set(F.SCENE.WAITING_NOW_RUNNING); // the pass began running since the prompt opened (no poll has shown it)
+    await p.confirm.click();
+    await untilText(page, 'tp-pass', STALE_PROMPT, 'the stop is refused plainly: what is busy changed since the prompt opened (D16 refused-stale)', 10000);
+    expect(await textOf(page, 'tp-pass'), 'and nothing changed').toMatch(NOTHING_CHANGED);
+    await untilShows(page, 'tp-pass', [RUNNING_NOW, clockRe(F.ITEM.WAITING_NOW_RUNNING.since)], [STOP_ASKED], 'the panel then shows the new state: the pass running since 11:59, no stop asked for', 10000);
+    const again = await openStopPrompt(page);
+    expect(await again.text(), '"Stop" can be pressed again, and its prompt now says what happens to a running pass').toMatch(SAFE_POINT);
+    await again.cancel.click();
+    expect(m.log.nonGet, 'one stop sent and refused; nothing retried').toEqual([STOP_POST]);
+  });
+
+  test('B102: an admin confirms a stop of the owner\'s running pass: one POST with {key, state:"running"}; the panel then shows a stop asked for, at its time and by whom, with the pass still running until it ends and no "Stop"; when the pass stops at a safe point it shows its own outcome, stopped and its reason explained, "stopped on request by" the admin "at" the time the stop was asked for, never "failed", and who started it [AC-3 "Confirming a stop of a running pass", "No force-stop"; AC-4 "Either may act on the other\'s pass"; AC-5; ADR 0006 D9, D10 stopped/requested, D16 "EXPLANATIONS.passOutcome.stopped and passReason.requested", D18; § Seams "New cases the review named": listed as running with stopAskedAt until it ends]', async ({ page }) => {
+    const m = await mock(page, { who: 'admin', ...F.SCENE.RUNNING });
+    await openAndSettle(page);
+    const p = await openStopPrompt(page);
+    expect(await p.text(), 'the prompt is a running pass\'s').toMatch(SAFE_POINT);
+    await pauseClock(page);
+    await p.confirm.click();
+    await untilShows(page, 'tp-pass', [STOP_ASKED, clockRe(F.NOW), ...ADMIN_WHO], [], 'with no poll, a stop asked for at 12:00, by the admin', 10000);
+    expect(JSON.parse(m.log.sent[0].body || 'null'), 'its body names the running pass').toEqual({ targets: [{ key: K.RUNNING, state: 'running' }] });
+    await untilShows(page, 'tp-pass', [RUNNING_NOW, clockRe(T.runStarted)], [], 'the pass still shows running until it ends (no force-stop)');
+    await expect(stopButton(page), 'every busy pass has a stop asked for: no "Stop"').toHaveCount(0);
+    // The pass reaches a safe point and ends: its report reads stopped, and nothing is busy.
+    m.set(F.SCENE.STOPPED_BY_ADMIN);
+    await page.clock.runFor(POLL_MS);
+    await untilText(page, 'tp-pass', STOPPED_ON_REQUEST, 'the stopped pass shows "stopped on request" (D18)', 5000);
+    const text = await textOf(page, 'tp-pass');
+    expect(text, 'its outcome code, stopped').toMatch(codeRe('stopped'));
+    expect(text, 'the stopped outcome explained (D16 EXPLANATIONS.passOutcome.stopped)').toContain(explanation('passOutcome', 'stopped'));
+    expect(text, 'and its reason (D16 passReason.requested)').toContain(explanation('passReason', 'requested'));
+    expect(text, 'never as failed').not.toContain(explanation('passOutcome', 'failed'));
+    await untilShows(page, 'tp-pass', [STOPPED_ON_REQUEST, clockRe(F.NOW), ...ADMIN_WHO], [], '"stopped on request by" the admin "at" 12:00, the time the stop was asked for (D18)');
+    await untilShows(page, 'tp-pass', [START_WORD, clockRe(T.runAsked), ...OWNER_WHO], [], 'and who started it: the owner, at 11:56');
+    expect(m.log.nonGet).toEqual([STOP_POST]);
+  });
+
+  test('B103: a stopped run whose start was not recorded shows "start not recorded" and still "stopped on request by" its stopper "at" its time; so does a stopped hand run, which has no job id; a pass stopped by a signal no one recorded reads "stopped on request" with who and when not recorded, and no who [AC-3; AC-5 "When the server cannot record an action", "Before story 6"; ADR 0006 D9 (a run: key), D16 passWho "A run\'s stop … under any key", D18 "or stopped on request (who and when not recorded)"; R6; § Seams "New cases the review named"]', async ({ page }) => {
+    const CASES = [
+      ['a run whose start was not recorded', F.STOP_CASES.UNRECORDED_START],
+      ['a hand run, with no job id', F.STOP_CASES.HAND_RUN],
+    ];
+    const m = await mock(page, CASES[0][1]);
+    for (const [i, [what, scene]] of CASES.entries()) {
+      if (i === 0) await openAndSettle(page);
+      else await reopenWith(page, m, scene);
+      await untilShows(page, 'tp-pass', [STOPPED_ON_REQUEST, clockRe(F.STOP_CASE_TIMES.stopAsked), ...ADMIN_WHO], [], `${what}: stopped on request by an admin at 11:53`);
+      await untilText(page, 'tp-pass', START_NOT_RECORDED, `${what}: its start reads not recorded`);
+    }
+    await reopenWith(page, m, F.STOP_CASES.NO_ENTRY);
+    await untilText(page, 'tp-pass', STOPPED_ON_REQUEST, 'a signal no one recorded: "stopped on request"', 5000);
+    const text = await textOf(page, 'tp-pass');
+    expect(sentencesWith(text, STOPPED_ON_REQUEST, NOT_RECORDED).length, 'with who and when not recorded (D18)').toBeGreaterThan(0);
+    for (const k of KEYS) expect(text, 'and no who').not.toContain(k);
+    expect(m.log.nonGet).toEqual([]);
+  });
+
+  test('B104: a stop that came too late keeps the pass\'s own outcome — for a pass that finished before its next safe point the panel says the stop came too late to take effect, and the latest pass, done, says a stop was asked for at its time by whom, but the pass ended first; for a pass asked to stop and then ended by its time-out, a deploy or a restart (its pessimistic record left as the latest: failed, reason stopped, no end, nothing busy), the latest pass says the same, its own outcome explained, never "stopped on request" [AC-3 "A stop that comes too late … it finishes, is refused, fails, hits its time-out, or is ended by a deploy or a restart. Its outcome is then what it was"; ADR 0006 D9 how \'too-late\', step 4 "If the pass has ended by then … the stop came too late", D16 stopOutcome, D18 "a stop was asked for at <time> by <who>, but the pass ended first"; Test Design review COV-3]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.RUNNING);
+    await openAndSettle(page);
+    const p = await openStopPrompt(page);
+    await pauseClock(page);
+    m.set({
+      stop: () => {
+        // The pass finished first: the server records the stop and sends no signal (D9 step 4, "too-late").
+        m.set({
+          status: F.withControl(F.statusBody({ latest: F.TOO_LATE_DONE_RECORD, previous: [F.LATEST_DONE] }), F.controlBody()),
+          passRecord: F.foldPassRecord(F.SCENE.RUNNING.passRecord, { action: 'stop', key: K.RUNNING, at: F.NOW, who: F.ACTOR.owner, runId: F.RUNNING6_RECORD.runId, state: 'running' }),
+        });
+        return F.STOP_ANSWER.stopped([{ key: K.RUNNING, how: 'too-late' }]);
+      },
+    });
+    await p.confirm.click();
+    await untilText(page, 'tp-pass', TOO_LATE, 'the panel says the stop came too late to take effect', 10000);
+    const text = await textOf(page, 'tp-pass');
+    expect(text, 'the pass\'s own outcome stands: done, explained').toContain(explanation('passOutcome', 'done'));
+    expect(text, 'never "stopped on request"').not.toMatch(STOPPED_ON_REQUEST);
+    await untilShows(page, 'tp-pass', [STOP_ASKED, clockRe(F.NOW), ...OWNER_WHO, ENDED_FIRST], [], 'the latest pass says a stop was asked for at 12:00 by the owner, but the pass ended first (D18)');
+    expect(m.log.nonGet).toEqual([STOP_POST]);
+
+    // The killed twin: an admin asks the owner's running pass to stop, and it is then ended by its time-out, a deploy or
+    // a restart before its next safe point. Its pessimistic record (failed, reason stopped, stopped: true, no end) is
+    // left as the latest, no longer alive — the case most easily misread as stopped on request.
+    await page.clock.resume();
+    await reopenWith(page, m, { who: 'admin', ...F.SCENE.RUNNING, stop: undefined });
+    const asked = await openStopPrompt(page);
+    expect(await asked.text(), 'the killed twin: the prompt is a running pass\'s').toMatch(SAFE_POINT);
+    await pauseClock(page);
+    await asked.confirm.click();
+    await untilShows(page, 'tp-pass', [STOP_ASKED, clockRe(F.NOW), ...ADMIN_WHO], [], 'the killed twin: the server asks the pass to stop (D9 asked-to-stop), and with no poll the panel shows a stop asked for at 12:00 by the admin', 10000);
+    m.set(F.SCENE.KILLED_AFTER_STOP);
+    await page.clock.runFor(POLL_MS);
+    await untilShows(page, 'tp-pass', [STOP_ASKED, clockRe(F.NOW), ...ADMIN_WHO, ENDED_FIRST], [], 'the killed twin: the next read shows the pass ended another way, and the latest pass says a stop was asked for at 12:00 by the admin, but the pass ended first (D18)', 10000);
+    const killed = await textOf(page, 'tp-pass');
+    expect(killed, 'the killed pass\'s own outcome stands: failed, explained').toContain(explanation('passOutcome', 'failed'));
+    expect(killed, 'with its own reason: it never recorded its end (a time-out, a restart or a deploy), explained').toContain(explanation('passReason', 'stopped'));
+    expect(killed, 'never "stopped on request": its record says stopped: true and reason stopped, but no stop reached a safe point').not.toMatch(STOPPED_ON_REQUEST);
+    await expect(stopButton(page), 'nothing is busy: no "Stop"').toHaveCount(0);
+    expect(m.log.nonGet, 'one stop in each case, each sent once').toEqual([STOP_POST, STOP_POST]);
+  });
+
+  /* ── AC-3: the prompt while reads land (Test Design review COV-4) ──────────────────────────────────────────────── */
+
+  test('B114: a poll that lands while the Stop prompt is open never rewrites it — the owner\'s waiting pass has begun running and an admin\'s Run has lined up behind it, yet the prompt still says what happens to the one waiting pass it opened on, never a running pass\'s safe point, and its button still reads "Stop the pass"; confirming sends only what the prompt showed, and the server refuses it as out of date [AC-3 "What it acts on … never does more than its prompt said. If what is busy has changed since the prompt opened … the stop is refused plainly"; ADR 0006 D17 "The snapshot … taken when the prompt opens. stopPromptView, the button\'s label and sendStop use only those", "It never rewrites its text from later polls", "sendStop(snapshot.map(({key, state}) => ({key, state})))", D9 prompt-out-of-date; Test Design review COV-4]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.WAITING_ASKED);
+    await openAndSettle(page);
+    const p = await openStopPrompt(page);
+    expect(await p.text(), 'the prompt opens on the waiting pass: taken out of line').toMatch(TAKEN_OUT);
+    await pauseClock(page);
+    m.set(F.SCENE.NOW_RUNNING_AND_ANOTHER_WAITING);
+    await page.clock.runFor(POLL_MS);
+    await untilShows(page, 'tp-pass', [RUNNING_NOW, clockRe(F.ITEM.WAITING_NOW_RUNNING.since)], [STOP_ASKED], 'a poll lands with the prompt open: the panel shows the pass running since 11:59', 10000);
+    await expect(heading(page, p.heading), 'a read that shows passes busy leaves the prompt open (D17 closes it by itself only on nothing busy)').toBeVisible();
+    const text = await p.text();
+    expect(text, 'the prompt still says what happens to the waiting pass it opened on: taken out of line').toMatch(TAKEN_OUT);
+    expect(text, 'it is never rewritten to a running pass\'s text (no safe point)').not.toMatch(SAFE_POINT);
+    await expect(p.confirm, 'its button still reads "Stop the pass", for the one pass it opened on, never "Stop the passes" (D17)').toHaveText(/^\s*Stop the pass\s*$/);
+    await p.confirm.click();
+    await expect.poll(() => m.log.nonGet, { message: 'confirming sends the stop' }).toEqual([STOP_POST]);
+    expect(JSON.parse(m.log.sent[0].body || 'null'), 'its body names only the pass and the state the prompt showed, never the running state nor the admin\'s pass (D17 "sendStop(snapshot…)")').toEqual({ targets: [{ key: K.WAITING, state: 'waiting' }] });
+    await untilText(page, 'tp-pass', STALE_PROMPT, 'and the server refuses it plainly: what is busy changed since the prompt opened (D9 prompt-out-of-date; D16 refused-stale)', 10000);
+    expect(m.log.nonGet, 'one stop sent and refused; nothing retried').toEqual([STOP_POST]);
+  });
+
+  test('B115: the Stop prompt closes by itself when a read shows nothing busy, and sends nothing; but while its own stop is under way, a read showing nothing busy leaves it open, its button disabled, aria-busy and "Stopping…", until the answer closes it; the stop\'s outcome then shows until the next Run is sent [ADR 0006 D17 "It closes by itself when a read shows nothing busy, but only while it is not pending", "While the request is under way, the prompt stays open with that button disabled, aria-busy and Stopping…", "The outcomes of Run and Stop show … until the next Run or Stop is sent"; story 6 AC-3 "While a stop is under way, the prompt\'s confirm is disabled and says so"; Test Design review COV-4]', async ({ page }) => {
+    // Not pending: a read that shows nothing busy (another viewer stopped the pass) closes the prompt.
+    const m = await mock(page, F.SCENE.WAITING_ASKED);
+    await openAndSettle(page);
+    let p = await openStopPrompt(page);
+    await pauseClock(page);
+    m.set(F.SCENE.IDLE);
+    await page.clock.runFor(POLL_MS);
+    await expect(heading(page, p.heading), 'a read that shows nothing busy closes the prompt by itself (D17)').toHaveCount(0, { timeout: 10000 });
+    await expect(passCancel(page), 'its Cancel goes with it').toHaveCount(0);
+    await expect(stopButton(page), 'and the panel shows nothing busy: no "Stop"').toHaveCount(0);
+    await wait(1000);
+    expect(m.log.nonGet, 'a prompt that closes by itself sends nothing').toEqual([]);
+
+    // Pending: with its own stop under way, the same read leaves the prompt open.
+    await page.clock.resume();
+    await reopenWith(page, m, F.SCENE.WAITING_ASKED);
+    p = await openStopPrompt(page);
+    await pauseClock(page);
+    let release;
+    const gate = new Promise((resolve) => { release = resolve; });
+    m.set({ stop: async () => { await gate; return F.STOP_ANSWER.stopped([{ key: K.WAITING, how: 'taken-out-of-line' }]); } });
+    try {
+      await p.confirm.click();
+      await expect.poll(() => m.log.nonGet, { message: 'confirming sends the stop' }).toEqual([STOP_POST]);
+      await expect(passBusyButtons(page).first(), 'the stop is under way (D17)').toBeDisabled({ timeout: 5000 });
+      // The server has taken the pass out of line; its answer has not come yet.
+      m.set({ status: F.SCENE.IDLE.status, passRecord: F.foldPassRecord(F.SCENE.WAITING_ASKED.passRecord, { action: 'stop', key: K.WAITING, at: F.NOW, who: F.ACTOR.owner }) });
+      const landed = page.waitForResponse((r) => new URL(r.url()).pathname === F.ROUTES.status, { timeout: 10000 });
+      await page.clock.runFor(POLL_MS);
+      await landed;
+      await wait(1000);
+      await expect(heading(page, p.heading), 'a read that shows nothing busy, landing while the stop is under way, leaves the prompt open (D17 "only while it is not pending")').toBeVisible();
+      const busy = passBusyButtons(page).first();
+      await expect(busy, 'its button still carries aria-busy="true"').toBeVisible();
+      await expect(busy, 'and is disabled').toBeDisabled();
+      expect(squash(await busy.innerText()), 'and says "Stopping…"').toMatch(STOPPING);
+    } finally {
+      release();
+    }
+    await expect(heading(page, p.heading), 'the answer closes it').toHaveCount(0, { timeout: 10000 });
+    await untilText(page, 'tp-pass', TAKEN_OUT, 'the stop\'s outcome shows: the pass was taken out of line (D16 stopOutcome)', 10000);
+    await pressRun(page);
+    await expect.poll(() => m.log.nonGet, { message: 'the next Run is sent' }).toEqual([STOP_POST, RUN_POST]);
+    await expect.poll(async () => TAKEN_OUT.test(await textOf(page, 'tp-pass')), { message: 'once the next Run is sent, the stop\'s outcome is gone (D17 "until the next Run or Stop is sent")', timeout: 10000 }).toBe(false);
+  });
+
+  /* ── AC-4: refused or failed ───────────────────────────────────────────────────────────────────────────────── */
+
+  test('B105: a refused Run (403: no longer the owner or an admin) and a refused Stop (a lapsed session\'s 401) each show why — sign in again as the owner or an admin — with the pass\'s state unchanged, never as done [AC-4 "Refused or failed", "A refusal can come from a lapsed session, or from a viewer who is no longer owner or admin"; ADR 0006 D14, D16 runOutcome/stopOutcome "refused (401 or 403, with the sign in again as the owner or an admin sentence)"]', async ({ page }) => {
+    const m = await mock(page, { ...F.SCENE.IDLE, run: F.RUN_ANSWER.REFUSED_403 });
+    await openAndSettle(page);
+    await pressRun(page);
+    await expect.poll(async () => refusedSentences(await textOf(page, 'tp-pass')).length, {
+      message: `a 403 on Run: one sentence says to sign in again as the owner or an admin (D16 "refused") (${SIGN_IN_AGAIN}, ${OWNER_OR_AN_ADMIN})`,
+      timeout: 10000,
+    }).toBeGreaterThan(0);
+    expect(linedUpClaims(await textOf(page, 'tp-pass')), 'never said to be lined up').toEqual([]);
+    await expect(runButton(page), 'Run is free again').toBeEnabled({ timeout: 5000 });
+    await reopenWith(page, m, { ...F.SCENE.WAITING_ASKED, stop: F.STOP_ANSWER.REFUSED_401 });
+    const p = await openStopPrompt(page);
+    await p.confirm.click();
+    await expect.poll(async () => refusedSentences(await textOf(page, 'tp-pass')).length, {
+      message: `a lapsed session's 401 on Stop: one sentence says to sign in again as the owner or an admin (${SIGN_IN_AGAIN}, ${OWNER_OR_AN_ADMIN})`,
+      timeout: 10000,
+    }).toBeGreaterThan(0);
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked)], [], 'the pass\'s state unchanged: still waiting');
+    expect(await textOf(page, 'tp-pass'), 'never said to be taken out of line').not.toMatch(/\bwas taken out of line\b/i);
+    expect(m.log.nonGet, 'one POST each, nothing retried').toEqual([RUN_POST, STOP_POST]);
+  });
+
+  test('B106: a Run the server cannot carry out shows the reason and starts nothing: the task queue unavailable (503), the record unavailable (500 record-unavailable), and a failure with its code (500) — never said to be lined up [AC-1 "When the task queue is unavailable, the server refuses plainly and starts nothing"; AC-4 "Refused or failed"; AC-5 "When the server cannot record an action: a Run is refused and changes nothing"; ADR 0006 D6, D14, D16 runOutcome queue-unavailable, record-unavailable, failed]', async ({ page }) => {
+    test.setTimeout(120000);
+    const CASES = [
+      { what: 'the task queue unavailable (503 QUEUE_UNAVAILABLE)', answer: F.RUN_ANSWER.QUEUE_UNAVAILABLE, says: [QUEUE_DOWN, NOTHING_STARTED] },
+      { what: 'the record could not be written (500 record-unavailable)', answer: F.RUN_ANSWER.RECORD_UNAVAILABLE, says: [NOT_RECORDABLE, NOTHING_STARTED] },
+      { what: 'a failure (500, code error, cause EIO)', answer: F.RUN_ANSWER.FAILED, says: [FAILED_IDEA, new RegExp(`${codeRe('error').source}|${codeRe('EIO').source}`)] },
+    ];
+    const m = await mock(page, { ...F.SCENE.IDLE, run: CASES[0].answer });
+    for (const [i, c] of CASES.entries()) {
+      if (i === 0) await openAndSettle(page);
+      else await reopenWith(page, m, { ...F.SCENE.IDLE, run: c.answer });
+      await pressRun(page);
+      for (const re of c.says) await untilText(page, 'tp-pass', re, `${c.what}: the panel says why`, 10000);
+      expect(linedUpClaims(await textOf(page, 'tp-pass')), `${c.what}: never said to be lined up`).toEqual([]);
+      await expect(runButton(page), `${c.what}: Run is free again`).toBeEnabled({ timeout: 5000 });
+    }
+    expect(m.log.nonGet, 'one POST each, nothing retried').toEqual([RUN_POST, RUN_POST, RUN_POST]);
+  });
+
+  test('B107: a Stop refused or failed shows the reason with the pass\'s state unchanged: nothing to stop (409), a pass not yet reachable (409 pass-not-reachable: press Stop again), the task queue unavailable (503), and a failure with its code (500) [AC-3 "Nothing to stop"; AC-4 "Refused or failed"; ADR 0006 D9, D14, D16 stopOutcome nothing-to-stop, not-reachable ("The stop was refused: the pass was starting and had not yet recorded its process, so nothing changed. Press Stop again."), queue-unavailable, failed]', async ({ page }) => {
+    test.setTimeout(150000);
+    const CASES = [
+      { what: 'nothing to stop (409 nothing-to-stop)', answer: F.STOP_ANSWER.NOTHING, says: (t) => NOTHING_TO_STOP.test(t) },
+      { what: 'the pass not yet reachable (409 pass-not-reachable)', answer: F.STOP_ANSWER.NOT_REACHABLE, says: NOT_REACHABLE },
+      { what: 'the task queue unavailable (503)', answer: F.STOP_ANSWER.QUEUE_UNAVAILABLE, says: (t) => QUEUE_DOWN.test(t) },
+      { what: 'a failure (500, code error, cause EIO)', answer: F.STOP_ANSWER.FAILED, says: (t) => FAILED_IDEA.test(t) && (codeRe('error').test(t) || codeRe('EIO').test(t)) },
+    ];
+    const m = await mock(page, { ...F.SCENE.WAITING_ASKED, stop: CASES[0].answer });
+    for (const [i, c] of CASES.entries()) {
+      if (i === 0) await openAndSettle(page);
+      else await reopenWith(page, m, { ...F.SCENE.WAITING_ASKED, stop: c.answer });
+      const p = await openStopPrompt(page);
+      await p.confirm.click();
+      await expect.poll(async () => c.says(await textOf(page, 'tp-pass')), { message: `${c.what}: the panel says why`, timeout: 10000 }).toBe(true);
+      await untilShows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked)], [], `${c.what}: the pass's state unchanged, still waiting`);
+      expect(await textOf(page, 'tp-pass'), `${c.what}: never said to be taken out of line`).not.toMatch(/\bwas taken out of line\b/i);
+    }
+    expect(m.log.nonGet, 'one POST each, nothing retried').toEqual([STOP_POST, STOP_POST, STOP_POST, STOP_POST]);
+  });
+
+  /* ── AC-5: who did it ──────────────────────────────────────────────────────────────────────────────────────── */
+
+  test('B108: who started each pass shows, from the record: the latest pass started by an admin, with the shortened key and when it was asked for; the earlier passes by the owner (and stopped on request by the owner), the schedule, the owner\'s confirmation, a local call, "started another way" for a legacy-id job, and "start not recorded" for a pass from before story 6 [AC-5 "What is recorded", "What the panel shows: for each pass it shows, who started it, and who asked it to stop", "Before story 6"; ADR 0006 D16 passWho, D18 "LatestPass and EarlierPasses add … Started by <who> at <time>"; R7]', async ({ page }) => {
+    const W = F.WHO_EACH;
+    const R = W.records;
+    const m = await mock(page, W);
+    await openAndSettle(page);
+    await untilShows(page, 'tp-pass', [START_WORD, clockRe(W.starts.latest), ...ADMIN_WHO], [], 'the latest pass: started by an admin, at the time it was asked for (D18) — not implemented yet if missing');
+    const ROWS = [
+      ['the owner\'s pass', R.ownerStopped, [...OWNER_WHO]],
+      ['the owner\'s pass, stopped on request by the owner', R.ownerStopped, [STOPPED_ON_REQUEST, ...OWNER_WHO]],
+      ['a scheduled run', R.scheduled, [SCHEDULE_WHO]],
+      ['a pass the owner\'s confirmation started', R.confirmed, [CONFIRMATION_WHO]],
+      ['a local call\'s pass', R.local, [LOCAL_WHO]],
+      ['a legacy-id job (R7)', R.legacyRun, [OTHER_WHO]],
+      ['a pass from before story 6, with no job', R.before6, [START_NOT_RECORDED]],
+    ];
+    for (const [what, r, who] of ROWS) {
+      await untilShows(page, 'tp-pass', [clockRe(r.startedAt), ...who], [], `${what} (started ${r.startedAt}): shown with who started it`);
+    }
+    expect(m.log.nonGet).toEqual([]);
+  });
+
+  test('B109: the last 10 actions show newest first, each with what it was (a start or a stop), who took it and when; with no action recorded the panel says so and the history is empty, and a pass from before story 6 shows its start as not recorded [AC-5 "the last 10 actions, newest first", "Before story 6 … With no action recorded, the panel says so and the history is empty"; ADR 0006 D11, D13, D18 "The history list shows the last 10 actions, newest first, with an empty state"]', async ({ page }) => {
+    const H = F.HISTORY6;
+    const WHO_RE = { owner: OWNER_WHO, admin: ADMIN_WHO, schedule: [SCHEDULE_WHO], confirmation: [CONFIRMATION_WHO], local: [LOCAL_WHO], other: [OTHER_WHO] };
+    const m = await mock(page, H);
+    await openAndSettle(page);
+    for (const [i, l] of H.lines.entries()) {
+      await untilShows(page, 'tp-pass', [clockRe(l.at), l.action === 'start' ? START_WORD : /\bstop\w*\b/i, ...WHO_RE[l.who.kind]], [],
+        `history action ${i + 1} of 10: a ${l.action} by ${l.who.kind} at ${l.at}${i === 0 ? ' — not implemented yet if missing (D18)' : ''}`);
+    }
+    const text = await textOf(page, 'tp-pass');
+    const order = H.lines.map((l) => text.search(clockRe(l.at)));
+    expect(order.every((x, i) => i === 0 || x > order[i - 1]), `newest first: each action after the one newer than it (positions ${order.join(', ')})`).toBe(true);
+    await reopenWith(page, m, { status: H.status, passRecord: F.PASS_RECORD.EMPTY });
+    await untilText(page, 'tp-pass', NO_ACTION_RECORDED, 'no action recorded: the panel says so', 5000);
+    const empty = await textOf(page, 'tp-pass');
+    for (const l of H.lines) expect(empty, `the history is empty: no action at ${l.at}`).not.toMatch(clockRe(l.at));
+    for (const k of KEYS) expect(empty, 'and no who').not.toContain(k);
+    expect(empty, 'the latest pass, from before story 6 (no job), shows its start as not recorded').toMatch(START_NOT_RECORDED);
+    expect(m.log.nonGet).toEqual([]);
+  });
+
+  test('B110: an action that could not be recorded: a Stop whose answer says it was not recorded takes effect and says so, with no who for it; a running pass whose stop could not be recorded shows the stop asked for with no who; a scheduled run\'s start, and a lined-up pass\'s, that could not be recorded read "start not recorded" [AC-5 "When the server cannot record an action": "a Stop still takes effect, its answer says it was not recorded, and the panel shows it with no who", "a start that cannot be refused … shows as not recorded"; ADR 0006 D9 recorded false, D11, D16 stopOutcome done-unrecorded, passWho (startRecorded false)]', async ({ page }) => {
+    test.setTimeout(120000);
+    const m = await mock(page, F.SCENE.WAITING_ASKED);
+    await openAndSettle(page);
+    await untilShows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked)], [], 'the pass waits — not implemented yet if missing (D16, D17)');
+    const p = await openStopPrompt(page);
+    await pauseClock(page);
+    m.set({
+      stop: () => {
+        // Taken out of line in memory; the record write failed (D9: "A failed or refused write leaves the effect in place and sets recorded: false").
+        m.set({ status: F.SCENE.IDLE.status });
+        return F.STOP_ANSWER.stopped([{ key: K.WAITING, how: 'taken-out-of-line' }], false);
+      },
+    });
+    await p.confirm.click();
+    await expect.poll(async () => sentencesWith(await textOutsideButtons(page, 'tp-pass'), /\bstop\w*\b/i, NOT_RECORDED).length, { message: 'the answer said the stop was not recorded: the panel says so (D16 done-unrecorded)', timeout: 10000 }).toBeGreaterThan(0);
+    await expect.poll(() => shows(page, 'tp-pass', [WAITING, clockRe(T.waitAsked)], [TAKEN_OUT]), { message: 'the stop took effect: the pass is gone from the line', timeout: 10000 }).toBe(false);
+    expect(sentencesWith(await textOutsideButtons(page, 'tp-pass'), /\bstop\w*\b/i, new RegExp(esc(F.OWNER_KEY))), 'and no who for that stop').toEqual([]);
+    await page.clock.resume();
+    await reopenWith(page, m, F.SCENE.STOP_ASKED_UNRECORDED);
+    await untilShows(page, 'tp-pass', [STOP_ASKED, clockRe(T.stopAsked)], [], 'a running pass whose stop was not recorded still shows the stop asked for, at 11:59');
+    expect(await textOf(page, 'tp-pass'), 'with no who for it').not.toContain(F.ADMIN_KEY);
+    await reopenWith(page, m, F.SCENE.SCHED_START_UNRECORDED);
+    await untilShows(page, 'tp-pass', [WAITING, BEHIND_HEAVY, START_NOT_RECORDED], [], 'a scheduled run waiting for the lock whose start could not be recorded: start not recorded');
+    await reopenWith(page, m, F.SCENE.LINEUP_START_UNRECORDED);
+    await untilShows(page, 'tp-pass', [WAITING, BEHIND_PASS, clockRe(T.waitAsked), START_NOT_RECORDED], [], 'a lined-up pass behind the running one whose start could not be recorded: start not recorded');
+    expect(m.log.nonGet).toEqual([STOP_POST]);
+  });
+
+  test('B111: a failed read of the pass record shows its own failure inside the pass section — its code and Retry — with no kept who, the section\'s state unchanged; Retry brings who back [AC-5; ADR 0006 D16 "Kept bodies. Like switchRecordView, it says loading or failed rather than showing a kept body", D17 "A record failure renders its own ReadFailed inside the controls", "tp-pass\'s data-state stays as it is (PS12)"]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.RUNNING);
+    await openAndSettle(page);
+    await untilShows(page, 'tp-pass', [START_WORD, clockRe(T.runAsked), ...OWNER_WHO], [], 'a good record read: who started the running pass shows — not implemented yet if missing (D16, D17)');
+    expect(await textOf(page, 'tp-pass'), 'no read failure yet').not.toMatch(UNREADABLE);
+    await pauseClock(page);
+    m.set({ passRecord: fail(500) });
+    await page.clock.runFor(POLL_MS);
+    await expect.poll(async () => (await textOf(page, 'tp-pass')).includes(F.OWNER_KEY), { message: 'after the failed read, no kept who', timeout: 5000 }).toBe(false);
+    const text = await textOf(page, 'tp-pass');
+    expect(text, 'the record could not be read').toMatch(UNREADABLE);
+    expect(text, 'with its code').toMatch(codeRe('http-500'));
+    await expect(section(page, 'tp-pass'), 'the section\'s own state is unchanged (PS12)').toHaveAttribute('data-state', 'ready');
+    await untilShows(page, 'tp-pass', [RUNNING_NOW, clockRe(T.runStarted)], [], 'the running pass itself still shows');
+    m.set({ passRecord: F.SCENE.RUNNING.passRecord });
+    await section(page, 'tp-pass').getByRole('button', { name: 'Retry', exact: true }).click();
+    await expect.poll(async () => (await textOf(page, 'tp-pass')).includes(F.OWNER_KEY), { message: 'Retry reads the record again: who shows again', timeout: 10000 }).toBe(true);
+  });
+
+  /* ── AC-6: the copy that changes ───────────────────────────────────────────────────────────────────────────── */
+
+  test('B112: the panel\'s opening line says it lets the owner or an admin switch the path and run or stop a pass, and no longer says the switch is the only thing it changes [AC-6 "the panel\'s opening line, which today says it changes nothing but the path\'s switch"; ADR 0006 D19 "The opening line … lets the owner or an admin switch the path and run or stop a pass"]', async ({ page }) => {
+    await mock(page, F.SCENE.IDLE);
+    await openAndSettle(page);
+    const line = squash(await page.locator('h2', { hasText: TAB }).locator('xpath=following-sibling::p[1]').innerText());
+    expect(line, 'it names running a pass (D19) — not implemented yet').toMatch(/\brun\b/i);
+    expect(line, 'and stopping one').toMatch(/\bstop\b/i);
+    expect(line, 'and the path\'s switch').toMatch(/\bswitch\b/i);
+    expect(line, 'not "apart from the real-time path\'s switch, it changes nothing"').not.toMatch(/\bapart from\b[^.]*\bswitch\b[^.]*\bchanges nothing\b/i);
   });
 });
 

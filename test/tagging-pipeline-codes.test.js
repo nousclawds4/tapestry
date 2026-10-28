@@ -19,6 +19,8 @@
  *               assistant-identification-tags-page precedent) or one exported enum, and asserts at least TODAY's count
  *               (computed on 88af7df3 and written below), so a literal that moves out of the extraction's reach fails
  *               loudly instead of silently shrinking the inventory. These PASS now: the producers exist.
+ *               Story 6 (ADR tagging-edges/0006 D10) moved five floors (see FLOORS): passOutcome up to 5, so PC1 fails
+ *               until the runner finishes 'stopped'; four down by one, for the 'signal' literals D10 removes.
  *   PC18–PC34 — own sentence. Every extracted code of a fixed-code kind has its OWN entry in EXPLANATIONS[kind]
  *               (own property), and explain(kind, code) returns { code: as given, text: that entry, recognised: true }
  *               — ADR § UI: "one sentence per code the guard test lists", so a FAMILIES pattern cannot stand in for
@@ -147,7 +149,8 @@ function floor(kind, codes, n, where) {
   assert(codes.length >= n,
     `${kind}: the extraction from ${where} found ${codes.length} code(s), below today's floor of ${n} — a literal moved out ` +
     `of the guard's reach, or the producer changed shape; update the extraction, never lower the floor to pass ` +
-    `(ADR 0004 § Seams: "Each extraction asserts a floor at today's count"). Found: ${show(codes)}`);
+    `(ADR 0004 § Seams: "Each extraction asserts a floor at today's count"). Found: ${show(codes)}` +
+    `${FLOOR_NOTES[kind] ? ` — ${FLOOR_NOTES[kind]}` : ''}`);
 }
 
 /* ─── The extractions (ADR 0004 § Seams for Test Design → "The guard test") ─── */
@@ -370,11 +373,18 @@ const extract = {
   },
 };
 
-/* Today's counts (88af7df3), computed by running the extractions above against the current source. */
+/*
+ * Today's counts (88af7df3), computed by running the extractions above against the current source.
+ * Story 6 (ADR tagging-edges/0006 D10, § Seams "Revised pins" → "Codes guard"; set at its Test Design, 2026-10-27):
+ * stopNow() becomes finish('stopped', { reasonCode: 'requested', …, failure: null }), which adds the outcome 'stopped'
+ * and removes the runner's only stage: 'signal' and code: 'signal' literals. So passOutcome rises to 5 (PC1 fails until
+ * it lands), and failureStage, failureCodeRunnerLiterals, codeValues and codeValueLiterals each drop by one. passReason
+ * stays 12 ('requested' replaces 'signal'), and failureCode stays 29: 'signal' is still in SCAN_ERROR_CODES.
+ */
 const FLOORS = {
-  passOutcome: 4,
+  passOutcome: 5, // ADR tagging-edges/0006 D10: + 'stopped' (was 4)
   passReason: 12,
-  failureStage: 9,
+  failureStage: 8, // ADR tagging-edges/0006 D10: − the runner's stage: 'signal' (was 9)
   failureRead: 3,
   confirmationWhy: 7,
   confirmationWhyPrefixes: 2,
@@ -393,15 +403,21 @@ const FLOORS = {
   scanErrorCodes: 12,
   countCode: 14,
   // T12 (story 4's review, round 1), computed on 3a672f68.
-  failureCodeRunnerLiterals: 9,
+  failureCodeRunnerLiterals: 8, // ADR tagging-edges/0006 D10: − the runner's code: 'signal' (was 9)
   failureCodeConfig: 2,
   failureCodeSchemaTernary: 2,
   failureCodeGraph: 1,
   failureCodeIdentity: 4,
   failureCode: 29,
   // R2-13 (story 5), computed on 8a082b75: the values the runner gives a code, and the distinct literals among them.
-  codeValues: 20,
-  codeValueLiterals: 11,
+  codeValues: 19, // ADR tagging-edges/0006 D10: − stopNow()'s code: 'signal' value (was 20)
+  codeValueLiterals: 10, // ADR tagging-edges/0006 D10: − the literal 'signal' (was 11)
+};
+
+/** Why a floor moved, appended to that kind's floor() message (story 6's Test Design, 2026-10-27). */
+const FLOOR_NOTES = {
+  passOutcome: "ADR tagging-edges/0006 D10 raised this floor to 5: stopNow() finishes 'stopped' (finish('stopped', …)), " +
+    "the pass's own outcome for a stop on request, beside refused, failed, done-removals-held and done",
 };
 
 /** The eight states AC-3 names: off, starting, waiting on a setup problem / the graph / the relay, catching up, live, stopped. */
@@ -500,7 +516,7 @@ function bareErrorOccurred(sentence) {
 
 /* ═══ PC1–PC17 — extraction and floors (pass now) ═══ */
 
-test("PC1: passOutcome — finish('…') plus the pessimistic record's outcome 'failed' yields at least today's 4 outcomes (refused, failed, done-removals-held, done) [AC-2 \"its outcome and reason (with explanations)\"; story \"Explanations\"; ADR 0004 § Seams → passOutcome]", () => {
+test("PC1: passOutcome — finish('…') plus the pessimistic record's outcome 'failed' yields at least 5 outcomes (refused, failed, done-removals-held, done, and story 6's stopped) [AC-2 \"its outcome and reason (with explanations)\"; story \"Explanations\"; ADR 0004 § Seams → passOutcome; floor raised from 4 at story 6: ADR tagging-edges/0006 D10]", () => {
   const codes = extract.passOutcome();
   floor('passOutcome', codes, FLOORS.passOutcome, RUNNER_REL);
   assert(!codes.includes('not-started'), `passOutcome must not take 'not-started' (never written to the report): ${show(codes)}`);
@@ -512,7 +528,7 @@ test("PC2: passReason — the first argument of refuse('…')/fail('…') and ev
   for (const c of NOT_STARTED) assert(!codes.includes(c), `passReason must exclude '${c}' (ADR 0004 § Seams): ${show(codes)}`);
 });
 
-test("PC3: failureStage — stage: '…' and fsFailure('…') in the runner yield at least today's 9 stages [AC-2 \"its outcome and reason (with explanations)\"; story \"Explanations\"; ADR 0004 § Seams → failureStage]", () => {
+test("PC3: failureStage — stage: '…' and fsFailure('…') in the runner yield at least 8 stages [AC-2 \"its outcome and reason (with explanations)\"; story \"Explanations\"; ADR 0004 § Seams → failureStage; floor lowered from 9 at story 6: ADR tagging-edges/0006 D10 removes the runner's stage: 'signal']", () => {
   floor('failureStage', extract.failureStage(), FLOORS.failureStage, RUNNER_REL);
 });
 
@@ -742,10 +758,11 @@ const T12_NAMED = [
   'plan-error', 'invariant', 'signal', 'error',
 ];
 
-test("PC42: failureCode — every code: '…' literal in a failure object or a thrown error in the runner (a plain literal, or the literal fallback after the driver's own code, `(err && err.code) || '…'`) yields at least today's 9 codes, plan-error, no-status, signal, driver and error among them [AC-5; review Blocking 1; ADR 0004 T12 \"The guard\"]", () => {
+test("PC42: failureCode — every code: '…' literal in a failure object or a thrown error in the runner (a plain literal, or the literal fallback after the driver's own code, `(err && err.code) || '…'`) yields at least 8 codes, plan-error, no-status, driver and error among them [AC-5; review Blocking 1; ADR 0004 T12 \"The guard\"; story 6: ADR tagging-edges/0006 D10 removes the runner's code: 'signal', so the floor is 8 (was 9) and 'signal' leaves this list — it stays in T12_NAMED, which PC45 reads, through SCAN_ERROR_CODES]", () => {
   const codes = extract.failureCodeRunnerLiterals();
   floor('failureCode (runner code literals)', codes, FLOORS.failureCodeRunnerLiterals, RUNNER_REL);
-  for (const c of ['plan-error', 'no-status', 'signal', 'driver', 'error', 'incomplete', 'missing-column', 'uniqueness-not-holding', 'nostrUser_pubkey-missing']) {
+  // 'signal' dropped at story 6's Test Design (ADR tagging-edges/0006 D10): a stop on request now has failure null.
+  for (const c of ['plan-error', 'no-status', 'driver', 'error', 'incomplete', 'missing-column', 'uniqueness-not-holding', 'nostrUser_pubkey-missing']) {
     assert(codes.includes(c), `the runner's code literal ${show(c)} (ADR 0004 T12) was not extracted: ${show(codes)}`);
   }
 });

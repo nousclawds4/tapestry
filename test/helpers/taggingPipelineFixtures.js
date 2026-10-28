@@ -23,6 +23,19 @@
  *     takesEffectWithinSeconds }, or a refusal / failure body with `code`.
  *   - The realtime status gains `inStartWindow` (ADR 0005 D7), false unless a fixture says otherwise.
  *
+ * tagging-edges #6 — running and stopping the pass (story engineering-team/stories/tagging-edges/6-pass-run-and-stop.md;
+ * ADR engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md D5, D6, D9–D13; § Seams "Request pins"):
+ *   - GET /api/tagging-edges/status           gains `control: { queue, busy, gaveUp }` (D12), each busy item
+ *     { key, jobId, state, since, behind, runId, stopAskedAt, startRecorded, confirmation }, times ISO strings. The
+ *     story 4 and 5 bodies above have no `control` (a server before story 6: D16 reads it as "not known").
+ *   - A pass record gains `job: { id } | null` (D10); the records above have none (a report from before story 6).
+ *   - GET /api/tagging-edges/pass/record      { success, state, readError?, history, passes } (D11, D13).
+ *   - POST /api/tagging-edges/pass/run        { success, linedUp, key, recorded }, or 409 pass-busy { busy },
+ *     503 QUEUE_UNAVAILABLE, 500 record-unavailable / error { cause }, 401/403 (D6, D14).
+ *   - POST /api/tagging-edges/pass/stop       { success, stopped[{ key, how }], recorded }, or 409
+ *     prompt-out-of-date { busy } / nothing-to-stop / pass-not-reachable, 503, 500, 401/403 (D9, D14).
+ *   applyRun and applyStop act on a status and a record as the server would, for the browser mock's defaults.
+ *
  * CommonJS, no dependencies: the browser spec (tests/brainstorm/tagging-pipeline-panel.spec.js) and any Node suite
  * can require it. Every exported body, record and list is frozen deep; take a copy (`clone`) before changing one.
  *
@@ -894,6 +907,544 @@ const EXPECTED_DRIFT = deepFreeze({
   CONFIRMED_FAILED_RECORD, CONFIRMED_APPLIED_RECORD, PATH_TIMES, OTHER_ENTRY, PHASES_DONE,
   STOPPED_CONFIRMED_RECORD, STOPPED_CONFIRMED_NONE_RECORD, RELAY_EXIT_RECORD, HISTORY_TEN].forEach(deepFreeze);
 
+/* ── Story 6: running and stopping the pass (ADR 0006 D2, D5, D6, D9–D13) ───────────────────────────────────── */
+
+/** D2: the id of a job lineUp adds; the legacy fixed id (R7); a scheduled run's id and its millis. */
+const LINEUP_ID = /^reconcileTaggingEdges-[0-9a-f]{12}$/;
+const LEGACY_JOB_ID = 'reconcileTaggingEdges';
+function lineUpKey(hex12) {
+  const key = `reconcileTaggingEdges-${hex12}`;
+  if (!LINEUP_ID.test(key)) throw new Error(`lineUpKey: ${key} does not match LINEUP_ID (ADR 0006 D2)`);
+  if (key.includes(OWNER_KEY) || key.includes(ADMIN_KEY)) throw new Error(`lineUpKey: ${key} holds a who key`);
+  return key;
+}
+/** A scheduled run's job id, `repeat:sched:<entryId>:<millis>` (the entry id may hold ':'; D2). */
+const schedKey = (entryId, iso) => `repeat:sched:${entryId}:${Date.parse(iso)}`;
+/** A job with the legacy fixed id is keyed `${job.id}@${job.timestamp}` (D2). */
+const legacyKey = (timestampMs) => `${LEGACY_JOB_ID}@${timestampMs}`;
+/** D2 jobIdOf: the key itself, but the legacy id for a legacy key and null for a `run:` key (D5 liveness). */
+function jobIdOf(key) {
+  if (typeof key !== 'string') return null;
+  if (key.startsWith(`${LEGACY_JOB_ID}@`)) return LEGACY_JOB_ID;
+  if (key.startsWith('run:')) return null;
+  return key;
+}
+
+/*
+ * Story 6's times, each its own minute near NOW, so a clock time names one moment: a pass waiting behind other heavy
+ * database work since 11:50; a due scheduled run at 11:55; a running pass whose start was asked for at 11:56 and that
+ * began running at 11:57; a waiting pass asked for at 11:58; a stop asked for at 11:59. The browser mock's own
+ * actions (applyRun, applyStop) happen at NOW, 12:00.
+ */
+const PASS_TIMES = Object.freeze({
+  heavySince: at(10),
+  seedDue: at(5),
+  runAsked: at(4),
+  runStarted: at(3),
+  waitAsked: at(2),
+  stopAsked: at(1),
+  /** A pass asked for at 07:54 that gave up its 4 h wait for the heavy-task lock at 11:54. */
+  gaveUpAsked: at(246),
+  gaveUpAt: at(6),
+});
+
+/** The keys (job ids) story 6's fixtures use. None holds OWNER_KEY or ADMIN_KEY, so "no who" can be checked. */
+const PASS_KEYS = Object.freeze({
+  RUNNING: lineUpKey('1c2d3e4f5061'),
+  WAITING: lineUpKey('0b1c2d3e4f50'),
+  WAITING_ADMIN: lineUpKey('6a7b8c9d0e1f'),
+  HEAVY: lineUpKey('2d3e4f506172'),
+  GAVE_UP: lineUpKey('3e4f50617283'),
+  /** The seed backstop's scheduled run, come due at 11:55 (the seed form: `repeat:sched:seed:…`; D2). */
+  SEED: schedKey('seed:reconcileTaggingEdges', PASS_TIMES.seedDue),
+  /** An entry's scheduled run, come due at 11:50 and picked up (waiting for the lock). */
+  ENTRY: schedKey('entry-tagging-6h', PASS_TIMES.heavySince),
+});
+
+/** Who took an action, as the record holds it (D11): a kind, and an 8-hex key for the owner or an admin only. */
+const ACTOR = deepFreeze({
+  owner: { kind: 'owner', key: OWNER_KEY },
+  admin: { kind: 'admin', key: ADMIN_KEY },
+  schedule: { kind: 'schedule' },
+  confirmation: { kind: 'confirmation' },
+  local: { kind: 'local' },
+  other: { kind: 'other' },
+});
+
+/** One busy item as the status serves it (D12). `jobId` defaults to jobIdOf(key). */
+function busyItem({
+  key, jobId, state = 'waiting', since, behind = null, runId = null, stopAskedAt = null, startRecorded = true,
+  confirmation = null,
+}) {
+  return {
+    key,
+    jobId: jobId === undefined ? jobIdOf(key) : jobId,
+    state,
+    since,
+    behind,
+    runId,
+    stopAskedAt,
+    startRecorded,
+    confirmation,
+  };
+}
+
+/** The status's `control` member (D12): { queue, busy, gaveUp }. */
+const controlBody = ({ queue = 'ok', busy = [], gaveUp = null } = {}) => ({ queue, busy, gaveUp });
+
+/** A copy of a status body with a `control` member. */
+const withControl = (status, control = controlBody()) => ({ ...clone(status), control: clone(control) });
+
+/** One pass's record entry (D11). */
+function passEntry({ jobId, start = null, stop = null, skip = false, noRerun = false, gaveUpAt = null }) {
+  return { jobId, start, stop, skip, noRerun, gaveUpAt };
+}
+const startOf = (iso, who) => ({ at: iso, who });
+const stopOf = (iso, runId, who) => ({ at: iso, runId, who });
+/** One history line (D11), newest first in `history`. */
+const historyLine = (action, key, iso, who) => ({ action, key, at: iso, who });
+
+/** The record read's answer (D13): { success, state, readError?, history, passes }. */
+function passRecordBody({ state = 'recorded', history = [], passes = {}, readError } = {}) {
+  const b = { success: true, state, history, passes };
+  if (readError !== undefined) b.readError = readError;
+  return b;
+}
+
+/**
+ * The record after one action the server recorded (D9, D11): the entry gains its start or stop (a waiting target's
+ * stop sets `skip`, a running one's `noRerun`), and the history gains the line, newest first by `at`, at most 10.
+ */
+function foldPassRecord(prev, { action, key, at: iso, who, runId = null, state = 'waiting', jobId }) {
+  const p = prev && prev.passes && typeof prev.passes === 'object' ? clone(prev.passes) : {};
+  const entry = p[key] || passEntry({ jobId: jobId === undefined ? jobIdOf(key) : jobId });
+  if (action === 'start') entry.start = startOf(iso, who);
+  else {
+    entry.stop = stopOf(iso, runId, who);
+    if (state === 'waiting') entry.skip = true;
+    else entry.noRerun = true;
+  }
+  p[key] = entry;
+  const before = prev && Array.isArray(prev.history) ? clone(prev.history) : [];
+  const history = [historyLine(action, key, iso, who), ...before]
+    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at))
+    .slice(0, 10);
+  return passRecordBody({ state: 'recorded', history, passes: p });
+}
+
+/* The pass's records with a job id (D10). */
+
+/** A pass alive now: the owner's Run, asked for at 11:56, running since 11:57 (its pessimistic record). */
+const RUNNING6_RECORD = { ...pessimisticRecord({ startedMinutesAgo: 3, suffix: '5a11e7a1', phases: [{ phase: 'schema', ms: 40, batches: 0, transientRetries: 0 }, { phase: 'graph-read', ms: 1900, batches: 0, transientRetries: 0 }] }), job: { id: PASS_KEYS.RUNNING } };
+/** ... the same pass, its first record only (the claim may be in progress: D12 'cannot-tell'). */
+const RUNNING6_SCHEMA_RECORD = { ...RUNNING6_RECORD, phases: [{ phase: 'schema', ms: 40, batches: 0, transientRetries: 0 }] };
+/** ... the same pass, having taken up the owner's confirmation (D12 'taken-up'). */
+const RUNNING6_CLAIMED_RECORD = { ...RUNNING6_RECORD, confirmation: { found: true, honoured: true } };
+
+/**
+ * A pass that stopped on request at a safe point (D10): outcome `stopped`, reasonCode `requested`, failure null. By
+ * default the running pass above, ended at 12:00:15 after a stop asked for at NOW.
+ */
+function stoppedRecord({ startedMinutesAgo = 3, suffix = '5a11e7a1', job = { id: PASS_KEYS.RUNNING }, endedAt = after(0.25), ...o } = {}) {
+  const r = passRecord({
+    startedMinutesAgo,
+    suffix,
+    outcome: 'stopped',
+    reasonCode: 'requested',
+    reason: 'stopped on request at a safe point',
+    stopped: true,
+    failure: null,
+    phases: clone(PHASES_DONE).slice(0, 2),
+    job,
+    ...o,
+  });
+  r.endedAt = endedAt;
+  r.durationMs = Date.parse(endedAt) - Date.parse(r.startedAt);
+  return r;
+}
+
+/** The running pass above, ended `done` before its next safe point: a stop that came too late. */
+const TOO_LATE_DONE_RECORD = (() => {
+  const r = passRecord({ startedMinutesAgo: 3, suffix: '5a11e7a1', job: { id: PASS_KEYS.RUNNING } });
+  r.endedAt = after(0.25);
+  r.durationMs = Date.parse(r.endedAt) - Date.parse(r.startedAt);
+  return r;
+})();
+
+/** The busy items story 6's scenes use. */
+const ITEM = deepFreeze({
+  /** The owner's pass, running since 11:57 (its run RUNNING6_RECORD). */
+  RUNNING: busyItem({ key: PASS_KEYS.RUNNING, state: 'running', since: PASS_TIMES.runStarted, runId: RUNNING6_RECORD.runId }),
+  /** ... with a stop asked for at 11:59. */
+  RUNNING_STOP_ASKED: busyItem({ key: PASS_KEYS.RUNNING, state: 'running', since: PASS_TIMES.runStarted, runId: RUNNING6_RECORD.runId, stopAskedAt: PASS_TIMES.stopAsked }),
+  /** ... having taken up the owner's confirmation. */
+  RUNNING_TAKEN_UP: busyItem({ key: PASS_KEYS.RUNNING, state: 'running', since: PASS_TIMES.runStarted, runId: RUNNING6_RECORD.runId, confirmation: 'taken-up' }),
+  /** ... and the panel cannot yet tell whether it has. */
+  RUNNING_CANNOT_TELL: busyItem({ key: PASS_KEYS.RUNNING, state: 'running', since: PASS_TIMES.runStarted, runId: RUNNING6_RECORD.runId, confirmation: 'cannot-tell' }),
+  /** The owner's Run, asked for at 11:58, waiting with nothing ahead of it. */
+  WAITING: busyItem({ key: PASS_KEYS.WAITING, since: PASS_TIMES.waitAsked }),
+  /** An admin's Run, asked for at 11:58, waiting behind a pass ahead of it. */
+  WAITING_ADMIN_BEHIND_PASS: busyItem({ key: PASS_KEYS.WAITING_ADMIN, since: PASS_TIMES.waitAsked, behind: 'pass' }),
+  /** An admin's Run, asked for at 11:50, picked up and waiting behind other heavy database work. */
+  HEAVY: busyItem({ key: PASS_KEYS.HEAVY, since: PASS_TIMES.heavySince, behind: 'heavy-work' }),
+  /** The seed backstop's run, come due at 11:55, not yet picked up; no start recorded yet (D3: recorded at pickup). */
+  SEED_DUE: busyItem({ key: PASS_KEYS.SEED, since: PASS_TIMES.seedDue, startRecorded: false }),
+  /** ... waiting behind a pass ahead of it. */
+  SEED_DUE_BEHIND_PASS: busyItem({ key: PASS_KEYS.SEED, since: PASS_TIMES.seedDue, behind: 'pass', startRecorded: false }),
+  /** An entry's scheduled run, picked up and waiting for the lock, whose start could not be recorded. */
+  ENTRY_UNRECORDED: busyItem({ key: PASS_KEYS.ENTRY, since: PASS_TIMES.heavySince, behind: 'heavy-work', startRecorded: false }),
+  /** A lined-up pass waiting behind a pass ahead of it, whose start could not be recorded. */
+  WAITING_UNRECORDED_BEHIND_PASS: busyItem({ key: PASS_KEYS.WAITING, since: PASS_TIMES.waitAsked, behind: 'pass', startRecorded: false }),
+  /** The owner's waiting pass after it began running at 11:59:30, with its own run (the prompt went out of date). */
+  WAITING_NOW_RUNNING: busyItem({ key: PASS_KEYS.WAITING, state: 'running', since: at(0.5), runId: runIdAt(at(0.5), '0b1c2d3e') }),
+  /** An admin's Run lined up at 12:00:06, after a Stop prompt opened, waiting behind the pass ahead of it. */
+  WAITING_ADMIN_AFTER_PROMPT: busyItem({ key: PASS_KEYS.WAITING_ADMIN, since: after(0.1), behind: 'pass' }),
+});
+
+/** The record entries the scenes use. */
+const ENTRY = deepFreeze({
+  RUNNING: passEntry({ jobId: PASS_KEYS.RUNNING, start: startOf(PASS_TIMES.runAsked, ACTOR.owner) }),
+  RUNNING_STOPPED_BY_ADMIN: passEntry({ jobId: PASS_KEYS.RUNNING, start: startOf(PASS_TIMES.runAsked, ACTOR.owner), stop: stopOf(PASS_TIMES.stopAsked, RUNNING6_RECORD.runId, ACTOR.admin), noRerun: true }),
+  WAITING: passEntry({ jobId: PASS_KEYS.WAITING, start: startOf(PASS_TIMES.waitAsked, ACTOR.owner) }),
+  WAITING_ADMIN: passEntry({ jobId: PASS_KEYS.WAITING_ADMIN, start: startOf(PASS_TIMES.waitAsked, ACTOR.admin) }),
+  HEAVY: passEntry({ jobId: PASS_KEYS.HEAVY, start: startOf(PASS_TIMES.heavySince, ACTOR.admin) }),
+  GAVE_UP: passEntry({ jobId: PASS_KEYS.GAVE_UP, start: startOf(PASS_TIMES.gaveUpAsked, ACTOR.owner), gaveUpAt: PASS_TIMES.gaveUpAt }),
+  WAITING_ADMIN_AFTER_PROMPT: passEntry({ jobId: PASS_KEYS.WAITING_ADMIN, start: startOf(after(0.1), ACTOR.admin) }),
+  /** The owner's running pass, with an admin's stop asked for at NOW (12:00): the record a confirmed Stop leaves. */
+  RUNNING_STOPPED_BY_ADMIN_NOW: passEntry({ jobId: PASS_KEYS.RUNNING, start: startOf(PASS_TIMES.runAsked, ACTOR.owner), stop: stopOf(NOW, RUNNING6_RECORD.runId, ACTOR.admin), noRerun: true }),
+});
+
+/** A record body from entries keyed by their job key, its history the entries' starts and stops, newest first. */
+function recordOf(entries) {
+  const passes = {};
+  const lines = [];
+  for (const [key, e] of Object.entries(entries)) {
+    passes[key] = clone(e);
+    if (e.start) lines.push(historyLine('start', key, e.start.at, e.start.who));
+    if (e.stop) lines.push(historyLine('stop', key, e.stop.at, e.stop.who));
+  }
+  lines.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  return passRecordBody({ state: lines.length || Object.keys(passes).length ? 'recorded' : 'empty', history: lines.slice(0, 10), passes });
+}
+
+const PASS_RECORD = deepFreeze({
+  /** No action recorded yet (a new instance, or one that has run no pass since story 6). */
+  EMPTY: passRecordBody({ state: 'empty' }),
+  /** The record cannot be read (a read error on the data volume): the server's answer says so (D11, D13). */
+  UNREADABLE: passRecordBody({ state: 'unreadable', readError: 'EACCES' }),
+});
+
+/** A status body of the latest report and its earlier passes, with `control`. */
+const status6 = (base, control) => withControl(base, control);
+
+/*
+ * Story 6's scenes, each { status, passRecord } as the browser mock takes them (mock(page, F.SCENE.X)). The status
+ * bases are story 4's, so the latest pass and the held list read as before.
+ */
+const BASE_RUNNING = statusBody({ running: true, latest: RUNNING6_RECORD, previous: [LATEST_DONE] });
+/** The owner's waiting pass after it began running at 11:59:30: its pessimistic record (ITEM.WAITING_NOW_RUNNING's run). */
+const WAITING_NOW_RUNNING_RECORD = { ...pessimisticRecord({ startedMinutesAgo: 0.5, suffix: '0b1c2d3e' }), job: { id: PASS_KEYS.WAITING } };
+const SCENE = deepFreeze({
+  /** Nothing busy; the latest pass held 120 removals, no confirmation (story 4's HELD_NONE). */
+  IDLE: { status: status6(STATUS.HELD_NONE, controlBody()), passRecord: PASS_RECORD.EMPTY },
+  /** ... with the owner's confirmation pending (story 4's HELD_PENDING). */
+  IDLE_PENDING: { status: status6(STATUS.HELD_PENDING, controlBody()), passRecord: PASS_RECORD.EMPTY },
+  /** ... with an expired confirmation (story 4's HELD_EXPIRED). */
+  IDLE_EXPIRED: { status: status6(STATUS.HELD_EXPIRED, controlBody()), passRecord: PASS_RECORD.EMPTY },
+  /** No pass in the report and nothing busy: an instance whose first pass has not run. */
+  FIRST_IDLE: { status: status6(STATUS.NO_PASS, controlBody()), passRecord: PASS_RECORD.EMPTY },
+  /** The owner's Run, waiting since 11:58 with nothing ahead of it. */
+  WAITING_ASKED: { status: status6(STATUS.HELD_NONE, controlBody({ busy: [ITEM.WAITING] })), passRecord: recordOf({ [PASS_KEYS.WAITING]: ENTRY.WAITING }) },
+  /** ... with the owner's confirmation pending (a waiting pass taken out of line leaves it pending). */
+  WAITING_WITH_PENDING: { status: status6(STATUS.HELD_PENDING, controlBody({ busy: [ITEM.WAITING] })), passRecord: recordOf({ [PASS_KEYS.WAITING]: ENTRY.WAITING }) },
+  /** An admin's Run, waiting since 11:50 behind other heavy database work (scoring holds the lock). */
+  WAITING_HEAVY: { status: status6(STATUS.HELD_NONE, controlBody({ busy: [ITEM.HEAVY] })), passRecord: recordOf({ [PASS_KEYS.HEAVY]: ENTRY.HEAVY }) },
+  /** The seed backstop's run, come due at 11:55 and waiting; no pass ahead, its start not yet recorded. */
+  SEED_DUE: { status: status6(STATUS.HELD_NONE, controlBody({ busy: [ITEM.SEED_DUE] })), passRecord: PASS_RECORD.EMPTY },
+  /** The owner's pass running since 11:57. */
+  RUNNING: { status: status6(BASE_RUNNING, controlBody({ busy: [ITEM.RUNNING] })), passRecord: recordOf({ [PASS_KEYS.RUNNING]: ENTRY.RUNNING }) },
+  /** Two busy: the owner's pass running since 11:57, and an admin's waiting since 11:58 behind it. */
+  TWO_BUSY: {
+    status: status6(BASE_RUNNING, controlBody({ busy: [ITEM.RUNNING, ITEM.WAITING_ADMIN_BEHIND_PASS] })),
+    passRecord: recordOf({ [PASS_KEYS.RUNNING]: ENTRY.RUNNING, [PASS_KEYS.WAITING_ADMIN]: ENTRY.WAITING_ADMIN }),
+  },
+  /** The seed backstop's due run waiting behind the owner's running pass: "the schedule", not yet picked up. */
+  SEED_DUE_BEHIND_PASS: {
+    status: status6(BASE_RUNNING, controlBody({ busy: [ITEM.RUNNING, ITEM.SEED_DUE_BEHIND_PASS] })),
+    passRecord: recordOf({ [PASS_KEYS.RUNNING]: ENTRY.RUNNING }),
+  },
+  /** The owner's running pass, with a stop asked for at 11:59 by an admin. */
+  STOP_ASKED: { status: status6(BASE_RUNNING, controlBody({ busy: [ITEM.RUNNING_STOP_ASKED] })), passRecord: recordOf({ [PASS_KEYS.RUNNING]: ENTRY.RUNNING_STOPPED_BY_ADMIN }) },
+  /** ... a stop asked for at 11:59 that could not be recorded: no stop entry, so no who. */
+  STOP_ASKED_UNRECORDED: { status: status6(BASE_RUNNING, controlBody({ busy: [ITEM.RUNNING_STOP_ASKED] })), passRecord: recordOf({ [PASS_KEYS.RUNNING]: ENTRY.RUNNING }) },
+  /** The owner's running pass has taken up the owner's confirmation (D12 'taken-up'). */
+  CONFIRM_TAKEN_UP: {
+    status: status6(statusBody({ running: true, latest: RUNNING6_CLAIMED_RECORD, previous: [HELD_RECORD] }), controlBody({ busy: [ITEM.RUNNING_TAKEN_UP] })),
+    passRecord: recordOf({ [PASS_KEYS.RUNNING]: ENTRY.RUNNING }),
+  },
+  /** ... the panel cannot yet tell whether it has: a confirmation pending, the run at its schema step (D12). */
+  CONFIRM_CANNOT_TELL: {
+    status: status6(statusBody({ running: true, latest: RUNNING6_SCHEMA_RECORD, previous: [HELD_RECORD], confirmationPending: confirmation() }), controlBody({ busy: [ITEM.RUNNING_CANNOT_TELL] })),
+    passRecord: recordOf({ [PASS_KEYS.RUNNING]: ENTRY.RUNNING }),
+  },
+  /** A pass asked for at 07:54 gave up waiting at 11:54, nothing busy now; the history keeps its start. */
+  GAVE_UP: {
+    status: status6(STATUS.HELD_NONE, controlBody({ gaveUp: { key: PASS_KEYS.GAVE_UP, at: PASS_TIMES.gaveUpAt } })),
+    passRecord: recordOf({ [PASS_KEYS.GAVE_UP]: ENTRY.GAVE_UP }),
+  },
+  /** ... and the seed backstop's due run, which waited behind it, waits on (review: the gave-up line still shows). */
+  GAVE_UP_SEED_WAITING: {
+    status: status6(STATUS.HELD_NONE, controlBody({ busy: [ITEM.SEED_DUE], gaveUp: { key: PASS_KEYS.GAVE_UP, at: PASS_TIMES.gaveUpAt } })),
+    passRecord: recordOf({ [PASS_KEYS.GAVE_UP]: ENTRY.GAVE_UP }),
+  },
+  /** An entry's scheduled run waiting for the lock, its start not recorded (D3: a failed write goes ahead). */
+  SCHED_START_UNRECORDED: { status: status6(STATUS.HELD_NONE, controlBody({ busy: [ITEM.ENTRY_UNRECORDED] })), passRecord: PASS_RECORD.EMPTY },
+  /** A lined-up pass behind the owner's running one, its start not recorded. */
+  LINEUP_START_UNRECORDED: {
+    status: status6(BASE_RUNNING, controlBody({ busy: [ITEM.RUNNING, ITEM.WAITING_UNRECORDED_BEHIND_PASS] })),
+    passRecord: recordOf({ [PASS_KEYS.RUNNING]: ENTRY.RUNNING }),
+  },
+  /** The owner's waiting pass has begun running since the prompt opened (D9 prompt-out-of-date). */
+  WAITING_NOW_RUNNING: {
+    status: status6(statusBody({ running: true, latest: WAITING_NOW_RUNNING_RECORD, previous: [HELD_RECORD] }), controlBody({ busy: [ITEM.WAITING_NOW_RUNNING] })),
+    passRecord: recordOf({ [PASS_KEYS.WAITING]: ENTRY.WAITING }),
+  },
+  /**
+   * ... and an admin's Run has lined up behind it since the prompt opened (12:00:06): both of AC-3's "what is busy has
+   * changed" at once, two passes busy. A prompt still open from WAITING_ASKED must not take either up (D17).
+   */
+  NOW_RUNNING_AND_ANOTHER_WAITING: {
+    status: status6(statusBody({ running: true, latest: WAITING_NOW_RUNNING_RECORD, previous: [HELD_RECORD] }), controlBody({ busy: [ITEM.WAITING_NOW_RUNNING, ITEM.WAITING_ADMIN_AFTER_PROMPT] })),
+    passRecord: recordOf({ [PASS_KEYS.WAITING]: ENTRY.WAITING, [PASS_KEYS.WAITING_ADMIN]: ENTRY.WAITING_ADMIN_AFTER_PROMPT }),
+  },
+  /** After the owner's running pass stopped on request: the stopped report, nothing busy, the admin's stop recorded. */
+  STOPPED_BY_ADMIN: {
+    status: status6(statusBody({ latest: stoppedRecord({ endedAt: after(0.25) }), previous: [LATEST_DONE] }), controlBody()),
+    passRecord: recordOf({ [PASS_KEYS.RUNNING]: passEntry({ jobId: PASS_KEYS.RUNNING, start: startOf(PASS_TIMES.runAsked, ACTOR.owner), stop: stopOf(NOW, RUNNING6_RECORD.runId, ACTOR.admin), noRerun: true }) }),
+  },
+  /**
+   * After an admin's stop of the owner's running pass, asked for at 12:00, the pass was ended another way before its
+   * next safe point: its time-out, a deploy or a restart (story 6 AC-3 "A stop that comes too late"). Its pessimistic
+   * record is left as the latest and is no longer alive: outcome failed, reason stopped, stopped: true, endedAt null.
+   * Nothing is busy, and the admin's stop is recorded. This killed case is the one most easily misread as a pass
+   * stopped on request.
+   */
+  KILLED_AFTER_STOP: {
+    status: status6(statusBody({ running: false, latest: RUNNING6_RECORD, previous: [LATEST_DONE] }), controlBody()),
+    passRecord: recordOf({ [PASS_KEYS.RUNNING]: ENTRY.RUNNING_STOPPED_BY_ADMIN_NOW }),
+  },
+});
+
+/*
+ * Stopped passes whose who is partly missing (ADR 0006 § Seams "New cases the review named"): a pass that started at
+ * 11:52, a stop asked for at 11:53 by an admin, ended at 11:55.
+ */
+const STOP_CASE_TIMES = Object.freeze({ started: at(8), stopAsked: at(7), ended: at(5) });
+const STOPPED_UNRECORDED_START_RECORD = stoppedRecord({ startedMinutesAgo: 8, suffix: '5709a11e', job: { id: lineUpKey('4f5061728394') }, endedAt: STOP_CASE_TIMES.ended });
+const STOPPED_HAND_RUN_RECORD = stoppedRecord({ startedMinutesAgo: 8, suffix: '5709ba2d', job: null, endedAt: STOP_CASE_TIMES.ended });
+const STOPPED_NO_ENTRY_RECORD = stoppedRecord({ startedMinutesAgo: 8, suffix: '5709c0de', job: { id: lineUpKey('50617283a4b5') }, endedAt: STOP_CASE_TIMES.ended });
+const STOP_CASES = deepFreeze({
+  /** A stopped run whose start was not recorded: its entry holds only the admin's stop. */
+  UNRECORDED_START: {
+    status: status6(statusBody({ latest: STOPPED_UNRECORDED_START_RECORD, previous: [LATEST_DONE] }), controlBody()),
+    passRecord: recordOf({ [STOPPED_UNRECORDED_START_RECORD.job.id]: passEntry({ jobId: STOPPED_UNRECORDED_START_RECORD.job.id, stop: stopOf(STOP_CASE_TIMES.stopAsked, STOPPED_UNRECORDED_START_RECORD.runId, ACTOR.admin), noRerun: true }) }),
+  },
+  /** A stopped hand run (no job id): the admin's stop is recorded under `run:<runId>` (D9). */
+  HAND_RUN: {
+    status: status6(statusBody({ latest: STOPPED_HAND_RUN_RECORD, previous: [LATEST_DONE] }), controlBody()),
+    passRecord: recordOf({ [`run:${STOPPED_HAND_RUN_RECORD.runId}`]: passEntry({ jobId: null, stop: stopOf(STOP_CASE_TIMES.stopAsked, STOPPED_HAND_RUN_RECORD.runId, ACTOR.admin) }) }),
+  },
+  /** A pass stopped by a signal no one recorded (an operator's SIGTERM, R6): no entry at all. */
+  NO_ENTRY: {
+    status: status6(statusBody({ latest: STOPPED_NO_ENTRY_RECORD, previous: [LATEST_DONE] }), controlBody()),
+    passRecord: PASS_RECORD.EMPTY,
+  },
+});
+
+/*
+ * Who started each pass in a report (AC-5; D16 passWho, D18): the latest started by an admin; the earlier ones by the
+ * owner (and stopped by the owner), the schedule, the owner's confirmation, a local call, a legacy-id job ("started
+ * another way", R7), and a pass from before story 6 (no job). Each earlier pass is one hour apart, its start asked
+ * for 30 s before it began running (a schedule's start is its due time, the id's millis).
+ */
+const WHO_EACH = (() => {
+  const run = (minutes, suffix, job, o = {}) => passRecord({ startedMinutesAgo: minutes, suffix, job, ...o });
+  const latestKey = lineUpKey('a1b2c3e4f506');
+  const ownerKey = lineUpKey('b2c3e4f50617');
+  const schedDue = at(150.5);
+  const scheduleKey = schedKey('entry-tagging-6h', schedDue);
+  const confirmKey = lineUpKey('c3e4f5061728');
+  const localKey = lineUpKey('e4f506172839');
+  const legacy = legacyKey(Date.parse(at(330.5)));
+  const latest = run(30, 'a1b2c3e4', { id: latestKey });
+  const ownerStopped = stoppedRecord({ startedMinutesAgo: 90, suffix: 'b2c3e4f5', job: { id: ownerKey }, endedAt: at(88) });
+  const scheduled = run(150, 'c3e4f506', { id: scheduleKey });
+  const confirmed = run(210, 'e4f50617', { id: confirmKey });
+  const local = run(270, 'f5061728', { id: localKey });
+  const legacyRun = run(330, '06172839', { id: LEGACY_JOB_ID });
+  const before6 = run(390, '1728394a', undefined);
+  delete before6.job;
+  const records = { latest, ownerStopped, scheduled, confirmed, local, legacyRun, before6 };
+  const starts = {
+    latest: at(30.5), ownerStopped: at(90.5), scheduled: schedDue, confirmed: at(210.5), local: at(270.5), legacyRun: at(330.5),
+  };
+  const stopAt = at(89);
+  const passes = {
+    [latestKey]: passEntry({ jobId: latestKey, start: startOf(starts.latest, ACTOR.admin) }),
+    [ownerKey]: passEntry({ jobId: ownerKey, start: startOf(starts.ownerStopped, ACTOR.owner), stop: stopOf(stopAt, ownerStopped.runId, ACTOR.owner), noRerun: true }),
+    [scheduleKey]: passEntry({ jobId: scheduleKey, start: startOf(starts.scheduled, ACTOR.schedule) }),
+    [confirmKey]: passEntry({ jobId: confirmKey, start: startOf(starts.confirmed, ACTOR.confirmation) }),
+    [localKey]: passEntry({ jobId: localKey, start: startOf(starts.local, ACTOR.local) }),
+    [legacy]: passEntry({ jobId: LEGACY_JOB_ID, start: startOf(starts.legacyRun, ACTOR.other) }),
+  };
+  return deepFreeze({
+    records,
+    starts,
+    stopAt,
+    status: status6(statusBody({ latest, previous: [ownerStopped, scheduled, confirmed, local, legacyRun, before6] }), controlBody()),
+    passRecord: recordOf(passes),
+  });
+})();
+
+/*
+ * The last 10 actions, newest first (AC-5; D11, D18), each at its own minute (10:19 back to 09:16, seven minutes
+ * apart), on passes no longer in the report, so each time prints only in the history. The report holds one pass,
+ * started at 11:30 by no recorded action (before story 6).
+ */
+const HISTORY6 = (() => {
+  const plan = [
+    ['start', ACTOR.owner], ['stop', ACTOR.admin], ['start', ACTOR.schedule], ['start', ACTOR.confirmation],
+    ['start', ACTOR.local], ['start', ACTOR.other], ['stop', ACTOR.owner], ['start', ACTOR.admin],
+    ['start', ACTOR.schedule], ['start', ACTOR.owner],
+  ];
+  const lines = plan.map(([action, who], i) => {
+    const iso = at(101 + i * 7);
+    let key = lineUpKey(`70${String(i).padStart(2, '0')}0a1b2c3d`);
+    if (who.kind === 'schedule') key = schedKey('entry-tagging-6h', iso);
+    if (who.kind === 'other') key = legacyKey(Date.parse(iso));
+    return historyLine(action, key, iso, who);
+  });
+  const passes = {};
+  for (const l of lines) {
+    const e = passes[l.key] || passEntry({ jobId: jobIdOf(l.key) });
+    if (l.action === 'start') e.start = startOf(l.at, l.who);
+    else { e.stop = stopOf(l.at, null, l.who); e.noRerun = true; }
+    passes[l.key] = e;
+  }
+  return deepFreeze({
+    lines,
+    status: status6(statusBody({ latest: passRecord({ startedMinutesAgo: 30, suffix: '1b2b3b4b' }), previous: [] }), controlBody()),
+    passRecord: passRecordBody({ state: 'recorded', history: lines, passes }),
+  });
+})();
+
+/** Run's answers (D6, D14), each { status, body }. */
+const RUN_ANSWER = deepFreeze({
+  linedUp: (key) => ({ status: 200, body: { success: true, linedUp: true, key, recorded: true } }),
+  busy: (busy) => ({ status: 409, body: { success: false, code: 'pass-busy', busy: clone(busy) } }),
+  QUEUE_UNAVAILABLE: { status: 503, body: { success: false, code: 'QUEUE_UNAVAILABLE' } },
+  RECORD_UNAVAILABLE: { status: 500, body: { success: false, code: 'record-unavailable', cause: 'ENOSPC' } },
+  FAILED: { status: 500, body: { success: false, code: 'error', cause: 'EIO' } },
+  /** The auth middleware's refusals (src/middleware/auth.js; ADR 0006 § Context): no code, no message. */
+  REFUSED_401: { status: 401, body: { success: false, error: 'Sign in as the owner or an admin to do this.' } },
+  REFUSED_403: { status: 403, body: { success: false, error: 'Only the owner or an admin can do this.' } },
+});
+
+/** Stop's answers (D9, D14), each { status, body }. */
+const STOP_ANSWER = deepFreeze({
+  stopped: (stopped, recorded = true) => ({ status: 200, body: { success: true, stopped: clone(stopped), recorded } }),
+  stale: (busy) => ({ status: 409, body: { success: false, code: 'prompt-out-of-date', busy: clone(busy) } }),
+  NOTHING: { status: 409, body: { success: false, code: 'nothing-to-stop' } },
+  NOT_REACHABLE: { status: 409, body: { success: false, code: 'pass-not-reachable' } },
+  QUEUE_UNAVAILABLE: { status: 503, body: { success: false, code: 'QUEUE_UNAVAILABLE' } },
+  FAILED: { status: 500, body: { success: false, code: 'error', cause: 'EIO' } },
+  REFUSED_401: RUN_ANSWER.REFUSED_401,
+  REFUSED_403: RUN_ANSWER.REFUSED_403,
+});
+
+const isPlain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && !v.__http;
+
+/** The busy items a status body shows: its control's, else its live pass's (a status from before story 6). */
+function busyOf(status) {
+  if (!isPlain(status)) return [];
+  if (isPlain(status.control) && Array.isArray(status.control.busy)) return status.control.busy;
+  if (status.running === true && isPlain(status.latest)) {
+    const l = status.latest;
+    const key = isPlain(l.job) && typeof l.job.id === 'string' ? l.job.id : `run:${l.runId}`;
+    return [busyItem({ key, jobId: isPlain(l.job) ? l.job.id : null, state: 'running', since: l.startedAt, runId: l.runId, startRecorded: false })];
+  }
+  return [];
+}
+
+/** Who the viewer is for the record: { kind, key } for the owner or an admin, else null (refused). */
+function viewerWho(viewer) {
+  if (!viewer || (viewer.role !== 'owner' && viewer.role !== 'admin')) return null;
+  return { kind: viewer.role, key: viewer.key };
+}
+
+/**
+ * Run as the server answers it (D6), at NOW: refused for a viewer who is not the owner or an admin, a body other than
+ * {}, the queue not ok, or a busy pass; otherwise `key` is lined up, waiting with nothing ahead, its start recorded.
+ * → { answer: {status, body}, status: the new status or null (unchanged), passRecord: the new record or null }.
+ */
+function applyRun({ status, passRecord, viewer, body, key }) {
+  const who = viewerWho(viewer);
+  if (!viewer) return { answer: RUN_ANSWER.REFUSED_401, status: null, passRecord: null };
+  if (!who) return { answer: RUN_ANSWER.REFUSED_403, status: null, passRecord: null };
+  if (!isPlain(body) || Object.keys(body).length !== 0) {
+    return { answer: { status: 400, body: { success: false, error: 'the body must be {}' } }, status: null, passRecord: null };
+  }
+  const s = isPlain(status) ? status : null;
+  if (s && isPlain(s.control) && s.control.queue !== 'ok') return { answer: RUN_ANSWER.QUEUE_UNAVAILABLE, status: null, passRecord: null };
+  const busy = busyOf(s);
+  if (busy.length > 0) return { answer: RUN_ANSWER.busy(busy), status: null, passRecord: null };
+  const item = busyItem({ key, since: NOW, startRecorded: true });
+  const next = s ? withControl(s, controlBody({ ...(isPlain(s.control) ? s.control : {}), queue: 'ok', busy: [item] })) : null;
+  const record = foldPassRecord(isPlain(passRecord) ? passRecord : null, { action: 'start', key, at: NOW, who });
+  return { answer: RUN_ANSWER.linedUp(key), status: next, passRecord: record };
+}
+
+/**
+ * Stop as the server answers it (D9), at NOW: refused for a viewer who is not the owner or an admin, or a body that is
+ * not { targets: [{ key, state }] }; 503 with the queue not ok; 409 prompt-out-of-date when the targets differ from
+ * what is busy with no stop asked for, nothing-to-stop when none is left. A waiting target is taken out of line (it
+ * leaves the busy list; no report), a running one asked to stop (stopAskedAt NOW); each stop recorded.
+ */
+function applyStop({ status, passRecord, viewer, body }) {
+  const who = viewerWho(viewer);
+  if (!viewer) return { answer: STOP_ANSWER.REFUSED_401, status: null, passRecord: null };
+  if (!who) return { answer: STOP_ANSWER.REFUSED_403, status: null, passRecord: null };
+  const targets = isPlain(body) && Array.isArray(body.targets) ? body.targets : null;
+  const valid = targets && targets.length >= 1 && targets.length <= 50
+    && targets.every((t) => isPlain(t) && typeof t.key === 'string' && /^[A-Za-z0-9:._@-]{1,120}$/.test(t.key) && (t.state === 'waiting' || t.state === 'running'))
+    && new Set(targets.map((t) => t.key)).size === targets.length;
+  if (!valid) return { answer: { status: 400, body: { success: false, error: 'the body must be {"targets":[{"key","state"}]}' } }, status: null, passRecord: null };
+  const s = isPlain(status) ? status : null;
+  if (s && isPlain(s.control) && s.control.queue !== 'ok') return { answer: STOP_ANSWER.QUEUE_UNAVAILABLE, status: null, passRecord: null };
+  const busy = busyOf(s);
+  const open = busy.filter((i) => !i.stopAskedAt);
+  const asked = new Map(targets.map((t) => [t.key, t.state]));
+  if (open.some((i) => !asked.has(i.key) || asked.get(i.key) !== i.state)) {
+    return { answer: STOP_ANSWER.stale(busy), status: null, passRecord: null };
+  }
+  const acting = open.filter((i) => asked.has(i.key));
+  if (acting.length === 0) return { answer: STOP_ANSWER.NOTHING, status: null, passRecord: null };
+  const keys = new Set(acting.map((i) => i.key));
+  const nextBusy = busy
+    .filter((i) => !(keys.has(i.key) && i.state === 'waiting'))
+    .map((i) => (keys.has(i.key) ? { ...clone(i), stopAskedAt: NOW } : clone(i)));
+  const next = s ? withControl(s, controlBody({ ...(isPlain(s.control) ? s.control : {}), busy: nextBusy })) : null;
+  let record = isPlain(passRecord) ? passRecord : null;
+  for (const i of acting) {
+    record = foldPassRecord(record, { action: 'stop', key: i.key, at: NOW, who, runId: i.runId || null, state: i.state, jobId: i.jobId });
+  }
+  const stopped = acting.map((i) => ({ key: i.key, how: i.state === 'waiting' ? 'taken-out-of-line' : 'asked-to-stop' }));
+  return { answer: STOP_ANSWER.stopped(stopped, true), status: next, passRecord: record };
+}
+
+[RUNNING6_RECORD, RUNNING6_SCHEMA_RECORD, RUNNING6_CLAIMED_RECORD, TOO_LATE_DONE_RECORD, STOPPED_UNRECORDED_START_RECORD,
+  STOPPED_HAND_RUN_RECORD, STOPPED_NO_ENTRY_RECORD].forEach(deepFreeze);
+
 /* ── The routes ──────────────────────────────────────────────────────────────────────────────────────────────── */
 
 const ROUTES = Object.freeze({
@@ -904,6 +1455,12 @@ const ROUTES = Object.freeze({
   drift: '/api/tagging-edges/drift-counts',
   /** Story 5 (ADR 0005 D6, D12): GET reads the switch's record; POST is the panel's one change. */
   switch: '/api/tagging-edges/realtime/switch',
+  /** Story 6 (ADR 0006 D13): GET who started and stopped each pass (owner or admin). */
+  passRecord: '/api/tagging-edges/pass/record',
+  /** Story 6 (ADR 0006 D6): POST Run, body {}. */
+  run: '/api/tagging-edges/pass/run',
+  /** Story 6 (ADR 0006 D9): POST Stop, body { targets: [{ key, state }] }. */
+  stop: '/api/tagging-edges/pass/stop',
 });
 
 module.exports = {
@@ -930,6 +1487,12 @@ module.exports = {
   TASK_ID, TASK_NAME, scheduleEntry, OTHER_ENTRY, SCHEDULE,
   // drift
   driftCounts, DRIFT, EXPECTED_DRIFT,
+  // running and stopping the pass (story 6)
+  LINEUP_ID, LEGACY_JOB_ID, lineUpKey, schedKey, legacyKey, jobIdOf, PASS_TIMES, PASS_KEYS, ACTOR, busyItem,
+  controlBody, withControl, passEntry, startOf, stopOf, historyLine, passRecordBody, foldPassRecord, recordOf,
+  RUNNING6_RECORD, RUNNING6_SCHEMA_RECORD, RUNNING6_CLAIMED_RECORD, stoppedRecord, TOO_LATE_DONE_RECORD, ITEM, ENTRY,
+  PASS_RECORD, SCENE, STOP_CASE_TIMES, STOP_CASES, WHO_EACH, HISTORY6, RUN_ANSWER, STOP_ANSWER, busyOf, viewerWho,
+  applyRun, applyStop,
   // routes
   ROUTES,
 };
