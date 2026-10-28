@@ -428,24 +428,31 @@ None, once the owner ratifies the Product Owner's proposals below by approving t
 
 ## Evidence
 
-### The gate (Implementation, 2026-10-28)
+### The gate (Implementation, 2026-10-28; corrected and extended at the review fix round)
 
 Node 22.23.3, full `npm test`, read from the run records (`gate:status`):
 
-| Run | Tree | Passed | Failed | Skipped | Suites |
-|---|---|---|---|---|---|
-| Before the story `20261028T002652Z-23104-e887` | `cb7fe4f8`, the accepted ADR (a worktree) | 6,460 | 38 | 170 | 312 |
-| After Implementation `20261028T052917Z-3731-46dd` | `ca504c42` | 6,662 | 38 | 170 | 315 |
-| After Amendment 1 `20261028T142811Z-28439-0e14` | `5ee2ba47` | 6,671 | 38 | 170 | 315 |
+| Run | Tree | Backend its live suites measured | Passed | Failed | Skipped | Suites |
+|---|---|---|---|---|---|---|
+| Before the story `20261028T002652Z-23104-e887` | `cb7fe4f8`, the accepted ADR (a worktree) | started 2026-10-02 | 6,460 | 38 | 170 | 312 |
+| After Implementation `20261028T052917Z-3731-46dd` | `ca504c42` | started 2026-10-02 | 6,662 | 38 | 170 | 315 |
+| After Amendment 1 `20261028T142811Z-28439-0e14` | `5ee2ba47` | started 2026-10-02 | 6,671 | 38 | 170 | 315 |
+| The review's run `20261028T154319Z-13921-dcd1` | `5e0e0fdd` | restarted 14:41:54Z, on `5ee2ba47` | 6,675 | 36 | 168 | 315 |
+| After the fix round `20261028T231211Z-47881-872a` | `1d4170c3` | restarted 23:11:49Z, on `1d4170c3` | 6,679 | 36 | 168 | 315 |
 
-- **The story's suites pass in full.** The new ones, after Amendment 1:
-  - pass-control, 71;
+- **Which backend the live suites measured.** The first three runs started before the local backend's restart at
+  14:41:54Z (`…-e887` at 00:26Z, `…-46dd` at 05:29Z, `…-0e14` at 14:28Z). So their live suites measured the process
+  started on 2026-10-02, not this story's server code. The review's run and the fix round's run each followed a restart
+  onto their own code, the second with `scripts/dev-refresh.sh --server`. *(Corrected at the review fix round,
+  2026-10-28: the section first quoted the three runs with no word about the backend.)*
+- **The story's suites pass in full.** The new ones, after the fix round:
+  - pass-control, 73 (71 after Amendment 1, plus CT69 and CT70);
   - pass-routes, 40;
   - job-gate, 27.
 
   Each suite whose counts changed, before → after:
   - runner, 77 → 87;
-  - wiring, 74 → 84;
+  - wiring, 74 → 86 (84 after Amendment 1, plus SWR85 and SWR86);
   - state-routes, 55 → 62;
   - view, 82 → 110;
   - fetch, 24 → 31;
@@ -453,11 +460,30 @@ Node 22.23.3, full `npm test`, read from the run records (`gate:status`):
   - realtime-engine, 82 → 83.
 
   Two more were edited with unchanged counts: codes (54) and switch-record (47).
-- **No other suite changed.** The same 16 suites fail in all three runs, with the same pass, fail and skip counts and
-  the same failing tests. They are this host's live-stack set.
-- **The browser spec** passes 120 of 121 on Chromium, twice, against the UI built inside the container from the
-  working tree after Amendment 1's tests. The one failure is B39, red before this story (ledger
-  `2026-10-28-relay-subtab-baseline-stale`).
+- **Among the first three runs, no other suite changed.** The same 16 suites fail in all three, with the same pass,
+  fail and skip counts and the same failing tests. One of them fails for a host reason, not the live stack:
+  `router-stream-limit-on-connect`, because macOS's `sed` differs from Linux's (ledger
+  `2026-10-09-router-patch-sed-macos`).
+- **After the restart, seven other suites changed** (the review's run against the baseline). None is this story's.
+  - Three now pass: `information-for-agents`, `list-headers-me-disposition` and
+    `list-headers-my-assistant-disposition`. `stamped-composite-avatar` no longer skips 2.
+  - Three newly fail: `nip51-list-export-from-pins`, `relationship-primitives-probe` (H2) and `teach-it-what-matters`
+    (H6; H7 fails as before). Each failing test expects 404 for an unregistered `/api` route, which the route table's
+    default-deny (`151e39fb`) answers 401. The restart was the first time this host's backend ran that code, and the
+    story's diff to `routeAccess.js` adds only its own three entries (ledger `2026-10-28-live-tests-expect-404-not-401`).
+- **After the fix round** (its run against the review's): only pass-control (71 → 73) and wiring (84 → 86) changed.
+  Every other suite has the same verdict, counts and failing tests. `router-stream-limit-on-connect`'s messages differ
+  only in their temporary folder names.
+- **Two records read dirty (1).** The baseline's, because of its worktree's untracked `node_modules`. The fix round's,
+  because one ledger row (`2026-09-20-live-tier-fails-on-stale-stack`) was edited and not yet committed; it is
+  committed with this evidence.
+- **The browser spec** passes 120 of 121 on Chromium. It ran once at Implementation, against the UI built inside the
+  container from the working tree after Amendment 1's tests, and twice more in the review's gate lane, against
+  `5e0e0fdd`'s build (`index-CHcumCZ-.js`), with the same result each time. The one failure is B39, red before this
+  story (ledger `2026-10-28-relay-subtab-baseline-stale`). The fix round changed no UI source and no browser spec
+  (`ui/` and `tests/` are unchanged since `5e0e0fdd`; the fixtures helper the spec shares gained comments only), so the
+  spec was not run again. *(Corrected at the review fix round, 2026-10-28: this bullet first said "twice" of the
+  Implementer's own run, which ran once.)*
 
 ### The local stack (2026-10-28)
 
@@ -507,6 +533,25 @@ The backend was restarted at 14:41:54Z with `scripts/dev-refresh.sh`, running `5
     *(Corrected at the review fix round, 2026-10-28: the list named only the owner-key line and the sign-in route.)*
 - **Left for staging** (the evidence plan): the owner's and an admin's Runs with who shown, an admin stopping a waiting
   pass while other heavy work holds the lock, and a stranger's "no who".
+
+### The local stack, at the fix round (2026-10-28)
+
+The backend was restarted at 23:11:49Z with `scripts/dev-refresh.sh --server`, running `1d4170c3`. The owner signed in
+as before.
+- **A pass added the way the queue dashboard adds one, stopped (Blocking 1).**
+  - **The setup.** A script in the container added a pass job straight to the queue with BullMQ, as the dashboard
+    does, with the id `reconcileTaggingEdges@x` and the data the app's own adds use (23:25:35Z). It sent `SIGSTOP` when
+    the pass's first record named that id (run `20261028T232535Z-17e8e4b6`).
+  - **While it was held,** the status listed it running, its key and `jobId` both `reconcileTaggingEdges@x`, its start
+    recorded.
+  - **The owner's Stop** answered 200 `asked-to-stop`, `recorded: true`. SIGTERM was then pending on the pass's own pid
+    (`ShdPnd`, signal 15), and the status showed `stopAskedAt` 23:25:41.983Z. Before the fix, the same Stop answered
+    `too-late` and sent nothing (the review's probe; CT69).
+  - **After `SIGCONT`,** the pass ended at 23:25:51.359Z with `outcome: 'stopped'`, `reasonCode: 'requested'`,
+    `failure: null`, at the safe point after `schema`. `TASK_END` reads `outcome: 'stopped'`, and the lease was
+    released.
+  - **The record's entry** for the key carries `jobId: 'reconcileTaggingEdges@x'`, the start as "another way", the
+    owner's stop with the run's `runId`, and `noRerun: true`. Then nothing was busy.
 
 ## Deviations
 
