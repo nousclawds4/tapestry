@@ -426,6 +426,79 @@ None, once the owner ratifies the Product Owner's proposals below by approving t
     - an admin stops a waiting pass, while other heavy database work holds the shared lock;
   - production gets read-only checks only.
 
+## Evidence
+
+### The gate (Implementation, 2026-10-28)
+
+Node 22.23.3, full `npm test`, read from the run records (`gate:status`):
+
+| Run | Tree | Passed | Failed | Skipped | Suites |
+|---|---|---|---|---|---|
+| Before the story `20261028T002652Z-23104-e887` | `cb7fe4f8`, the accepted ADR (a worktree) | 6,460 | 38 | 170 | 312 |
+| After Implementation `20261028T052917Z-3731-46dd` | `ca504c42` | 6,662 | 38 | 170 | 315 |
+| After Amendment 1 `20261028T142811Z-28439-0e14` | `5ee2ba47` | 6,671 | 38 | 170 | 315 |
+
+- **The story's suites pass in full.** The new ones, after Amendment 1:
+  - pass-control, 71;
+  - pass-routes, 40;
+  - job-gate, 27.
+
+  Each changed suite, before → after:
+  - runner, 77 → 87;
+  - wiring, 74 → 84;
+  - state-routes, 55 → 62;
+  - view, 82 → 110;
+  - fetch, 24 → 31;
+  - panel-source, 28 → 38;
+  - realtime-engine, 82 → 83.
+- **No other suite changed.** The same 16 suites fail in all three runs, with the same pass, fail and skip counts and
+  the same failing tests. They are this host's live-stack set.
+- **The browser spec** passes 120 of 121 on Chromium, twice, against the UI built inside the container from the
+  working tree after Amendment 1's tests. The one failure is B39, red before this story (ledger
+  `2026-10-28-relay-subtab-baseline-stale`).
+
+### The local stack (2026-10-28)
+
+The backend was restarted at 14:41:54Z with `scripts/dev-refresh.sh`, running `5ee2ba47`; the UI was rebuilt
+(`index-CHcumCZ-.js`). The owner signed in by a scripted challenge, with the key kept in memory.
+- **Signed out:**
+  - Run, Stop and the record read answered 401 "Sign in as the owner or an admin to do this.", and so did run-task
+    for this pass.
+  - A host `curl` to run-task is not a local call, and also got 401.
+  - The public status carries `control` `{queue: 'ok', busy: [], gaveUp: null}`.
+- **A waiting pass, stopped.**
+  - **The setup.** The heavy-task lock was held on purpose: a 10-minute `evidence-hold` lease, released after. The
+    owner's Run (14:43:13Z) answered 200, lined up `reconcileTaggingEdges-bf168bdd9d74`.
+  - **While it waited.** The signed-out status listed it as waiting since 14:43:13.216Z behind `heavy-work`, with no
+    who. A second Run answered 409 `pass-busy`, and so did a direct local call to run-task, with its `message`.
+  - **The Stop** (14:43:23Z) answered 200 `taken-out-of-line`. The next status showed nothing busy.
+  - **The semaphore's events.** The wait ended `abandoned` at 14:43:24.388Z, 11 s after it began. No process started,
+    `report.json`'s latest was unchanged, and the job left the queue.
+  - **The record** gained the owner's start and stop, with `skip: true`. `control/` is 0700 and `record.json` 0600.
+- **A running pass, stopped.**
+  - **The setup.** The owner's Run lined up `reconcileTaggingEdges-4362bb686e54`. A watcher sent `SIGSTOP` when its
+    first record appeared (run `20261028T144351Z-e23b30c3`, `job.id` the key, phases `identities`, `schema`).
+  - **The Stop** answered 200 `asked-to-stop`. The pass's `/proc` status then showed exactly one SIGTERM pending
+    (`ShdPnd` bit 15) on its own pid.
+  - **While the pass was still stopped.**
+    - The status listed it as running, with `stopAskedAt` 14:44:00.491Z.
+    - A Run was refused `pass-busy`.
+  - **After `SIGCONT`,** the pass ended at 14:44:07.700Z:
+    - `outcome: 'stopped'`, `reasonCode: 'requested'`, `failure: null`, at the safe point before the claim;
+    - `TASK_END` reads `outcome: 'stopped'`, with no `TASK_ERROR`;
+    - the launcher's exit code was 0, and the lease was released.
+  - **Then** nothing was busy, and the record held the owner's start and stop.
+- **A direct local call** (`docker exec tapestry curl` to `127.0.0.1:7778`) with nothing busy answered 200 "A
+  gap-filling pass was lined up.". The record shows its start as `{kind: 'local'}`, and the pass ran to `done`.
+- **No who reached a signed-out reader.** Signed-out reads of the status, the held list and the Task Explorer's data
+  for this task carry neither the owner's key nor any recorded who. Neither do `report.json`, the task events and the
+  structured log.
+  - **The backend's console log.** It names the owner's key only in lines older than this story: the config reader's
+    "Found BRAINSTORM_OWNER_PUBKEY" and the sign-in route's own lines. That key is already public at
+    `/api/about-this-instance`.
+- **Left for staging** (the evidence plan): the owner's and an admin's Runs with who shown, an admin stopping a waiting
+  pass while other heavy work holds the lock, and a stranger's "no who".
+
 ## Deviations
 
 These are small judgement calls made at Implementation (2026-10-28), too small for an ADR amendment.
