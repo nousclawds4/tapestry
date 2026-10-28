@@ -23,6 +23,12 @@ Today:
   general run-task route (OPERATIONS §12.8). The confirm route also starts one.
 - **Anyone signed in can start a pass.** The run-task route checks only that a session is signed in, and so do the
   routes that add or enable a Scheduled Tasks entry (ADR `tagging-edges/0002` § Context; intake 2026-07-21).
+  *(Corrected at Architecture, 2026-10-27: no longer so. Since 2026-10-10 the run-task route, and the routes that add, change or delete
+  a Scheduled Tasks entry, admit only the owner, an admin or a direct local call, for every task
+  (`security-auth-exposure` story 6, PR #840). Since story 8 the route table holds that rule
+  (`src/middleware/routeAccess.js:365-372`, ADR `security-auth-exposure/0005`). The 2026-07-21 intake entry was picked
+  up there, and its book closed on 2026-10-11. The route still checks no site, and still lines up a pass while one is
+  busy.)*
 - **Nothing on the panel or any route can stop a pass on request.** The pass already stops at its next safe point
   when it receives a stop signal, but nothing in the app sends one. Only the 30-minute time-out, or a container
   restart or deploy, ends a running pass early, and neither leaves a final report.
@@ -52,7 +58,9 @@ running, from the Tagging pipeline panel:
 
 Then nobody needs the Task Explorer to run a pass, and only the owner and admins (and direct local calls) can start one
 from the panel or the run-task route. Adding or enabling a Scheduled Tasks entry also starts one; who may do that stays
-with the 2026-07-21 intake sweep (Out of scope).
+with the 2026-07-21 intake sweep (Out of scope). *(Corrected at Architecture, 2026-10-27: the run-task half of the first sentence has held for every
+task since 2026-10-10. Since then, only the owner, admins and direct local calls may add or enable a Scheduled Tasks
+entry. The intake sweep shipped on 2026-10-11 (Background). This story keeps both.)*
 
 ## Acceptance criteria
 
@@ -160,6 +168,14 @@ addition:
     Requests the app already trusts as direct local calls stay exempt from the who-may check
     (`src/middleware/auth.js`'s local-trust rule), but not from the rest. The Task Explorer pages keep working for the
     owner and admins, and show the refusal. Other tasks on that route are unchanged.
+
+    *(Corrected at Architecture, 2026-10-27: the who-may half of the first sub-bullet has held for every task since 2026-10-10, at the
+    auth middleware's route table, with direct local calls passing (`src/middleware/auth.js:356-371`; Background).
+    - This story keeps that half. For this pass it adds three things: the refusal of another site, the refusal while
+      busy, and the record.
+    - "Unchanged" for other tasks means they keep that gate and get none of the three.
+    - A signed-out caller or a signed-in stranger is refused by the middleware with no sentence, so the Task Explorer's
+      modal says "Task failed". Every refusal the owner or an admin can get there carries one.)*
   - **Either may act on the other's pass.** An admin may stop a pass the owner started, and the other way round. That
     includes a pass that is applying the owner's confirmation, after the prompt's warning (AC-3).
   - **Refused or failed.** When the server refuses the panel's request, or cannot carry it out, the panel shows the
@@ -207,7 +223,9 @@ addition:
 
 - **OPERATIONS §12.8.**
   - **Running it.** The panel's Run is the way to start a pass, for the owner or an admin. The run-task route now
-    starts this pass only for them, and for direct local calls, and refuses while a pass is busy.
+    starts this pass only for them, and for direct local calls, and refuses while a pass is busy. *(Corrected at Architecture, 2026-10-27: "only for
+    them, and for direct local calls" has held for every task since 2026-10-10, so `:721`'s "(signed in)" is stale and
+    is corrected too. What is new for this pass is the refusal of another site and the refusal while busy.)*
   - **Stopping it.** The panel's Stop: what it does to a waiting pass and to a running one, the safe points, the
     stopped outcome, and the warning about the owner's confirmation.
   - **The panel.** Its paragraph says the panel runs and stops a pass. Confirming stays the console snippet's until
@@ -218,9 +236,12 @@ addition:
   - §6: a waiting pass, a stop asked for, the stopped outcome, and who started or stopped a pass.
   - A §16 entry, and the Last-updated line.
 - **ADR `tagging-edges/0002` (the Architect).** Amend it for run, stop, the stopped outcome, who started a pass and the
-  run-task route's answers for this pass. Its § Context's open-route sentence changes for this pass.
+  run-task route's answers for this pass. Its § Context's open-route sentence changes for this pass. *(Corrected at Architecture, 2026-10-27: that
+  sentence (`:89-95`) has been stale for every task since 2026-10-10, and the `src/middleware/auth.js` lines it cites
+  are gone. D8's options A and B (`:232-235`), `:487-492` and § Out of scope `:1247` rest on the same facts. Their dated
+  notes say so (ADR `tagging-edges/0006` § Amendments).)*
 - **Point Confirm at story 7.** The places that still give Confirm to story 6 are:
-  - BIBLE §16 (`:1484`);
+  - BIBLE §16 (`:1484`; *corrected at Architecture, 2026-10-27: `:1504` at `48de58a7`*);
   - OPERATIONS §12.8 (`:725`);
   - ADR 0002 `:551`, `:820` (decision 14's note) and `:1243`; ADR 0003 `:944`; ADR 0004 `:370` and `:879`; ADR 0005
     `:610`, `:626`, `:667`, `:743`, `:748`, `:752`, `:755` and `:760`. These get dated notes by the Architect; the
@@ -228,7 +249,11 @@ addition:
   - the panel's comments, in `HeldSection.jsx:4` and `TaggingPipelinePanel.jsx:7`.
 
   The epic, the book and the handoff (its title, § 0, § 1's table and § 3) were pointed at story 7 at this Planning.
-- **The handoff § 0 and the epic** follow at the ship.
+- **The handoff § 0 and the epic** follow at the ship. *(Corrected at Architecture, 2026-10-27: these are already stale since 2026-10-10, and are
+  corrected then:
+  - the handoff's § 0 (`docs/TAGGING_EDGES_HANDOFF.md:72-73`) and § 2.3 (`:155`, `:166`);
+  - the epic's item 6 (`epics/tagging-edges.md:165-168`), whose run-task and Scheduled Tasks halves the route table has
+    settled.)*
 
 ### Test tasks
 
@@ -243,7 +268,12 @@ addition:
     stopping an admin's;
   - the run-task route for this pass: the owner and an admin allowed; a signed-in user who is neither refused, and
     signed out refused; another site refused, with nothing lined up or recorded; a direct local call allowed and
-    recorded as one; refused while busy, and just after a pass ends, as Run is; another task unaffected;
+    recorded as one; refused while busy, and just after a pass ends, as Run is; another task unaffected.
+    *(Corrected at Architecture, 2026-10-27: the signed-out 401 and the signed-in stranger's 403 on this route have been the auth
+    middleware's for every task since 2026-10-10, pinned by `test/task-routes-owner-admin.test.js` T1–T3 and T5.
+    - This story's cases show them for this pass through the real middleware in front of the real handler, with
+      nothing lined up or recorded.
+    - Beside them are the new cases: the refusal of another site, the local-call record, and the busy answers.)*
   - after a Run and after a Stop, the schedule entries and the path's switch unchanged.
 - **Server cases for AC-2:**
   - waiting (asked for; behind other heavy work; behind a pass ahead of it; a scheduled run that has come due), each
@@ -298,7 +328,9 @@ Placed by the owner on 2026-10-01 (`reviews/tagging-edges/5-real-time-path-switc
 carry-forwards 1–10; the epic's item 6 holds each one's ask). Who does each:
 - **Tester (test plan, test comments):** C5-1, C5-2 and C5-3, in story 5's test plan and suites.
 - **Architect (ADR):** C5-7; C5-8's ADR 0005 D6 note; C5-9's re-dating of ADR 0005's round-1 notes (below); and
-  C5-4, by choosing between the panel change and rewording ADR 0005 D13's note to match the code.
+  C5-4, by choosing between the panel change and rewording ADR 0005 D13's note to match the code. *(Corrected at
+  Architecture, 2026-10-02: the six round-1 notes are three in ADR 0005 and three in ADR 0004 (ADR
+  `tagging-edges/0006` § Amendments). C5-4 is the panel change, ADR 0006 D20.)*
 - **Implementer (copy and docs):** C5-4's panel change, if chosen; C5-5; C5-6 (optional copy); C5-8's BIBLE and
   OPERATIONS halves; and C5-10.
   - C5-9 uses 2026-10-01 (local), the convention review 1's requested change 13 chose for story 5 (a PO proposal,
@@ -320,7 +352,13 @@ stamp, TA resolved at runtime) into relationships between `39998:<TA>:nostr-user
   If this story's fix for Run also closes the window for the confirm route, the row closes here and story 7 checks it.
 - **A force-stop:** declined at story 5's Planning.
 - **Who may change schedules,** and the other open routes: the 2026-07-21 intake sweep, as in stories 4 and 5. Adding
-  or enabling an interval schedule entry still starts a pass at once.
+  or enabling an interval schedule entry still starts a pass at once. *(Corrected at Architecture, 2026-10-27: settled before this story's
+  Architecture.
+  - **Schedule writes.** They have been for the owner, admins and direct local calls since 2026-10-10.
+  - **Action routes.** Since story 8, none is open unless the route table opens it (`security-auth-exposure` stories 6
+    and 8; the intake entry was picked up, and its book closed on 2026-10-11).
+  - **Still true.** Adding or enabling an interval entry still starts a pass at once, now only at their hands. AC-5
+    records that start as the schedule.)*
 - **Scheduled runs that come due while a pass is busy** still line up behind it, as today. Run does not move the
   backstop's next run.
 - **The queue dashboard's own controls** (`/admin/queues`): unchanged. A start made there shows as "started another
@@ -337,7 +375,9 @@ None, once the owner ratifies the Product Owner's proposals below by approving t
 - Run is for the owner or an admin, and is refused plainly while a pass is busy. The backstop's future run never
   counts.
 - The run-task route is closed for this pass to anyone but the owner or an admin. Scheduled Tasks stays with the
-  intake sweep.
+  intake sweep. *(Since 2026-10-10 the route table closes the run-task route and the Scheduled Tasks writes to the
+  owner's side for every task (`security-auth-exposure` stories 6 and 8). What remains this story's on that route, for
+  this pass, is this Planning's decisions below.)*
 - Stop is graceful and never touches the schedule. A stopped pass reads as its own outcome, with who and when.
 - Every viewer sees waiting and stopping, and a reload keeps them.
 - An admin may stop a pass that is applying the owner's confirmation, after a warning.
@@ -371,7 +411,8 @@ None, once the owner ratifies the Product Owner's proposals below by approving t
   for, and when.
 - The 15-second limit before a request with no answer reads "outcome unknown", as in story 5, for Run and Stop alike.
 - C5-9 uses 2026-10-01 (local) for story 5's round-1 notes, the convention review 1's requested change 13 chose, so
-  story 5 stays in one convention throughout; the Architect re-dates ADR 0005's six notes.
+  story 5 stays in one convention throughout; the Architect re-dates ADR 0005's six notes. *(Corrected at
+  Architecture, 2026-10-02: three of the six are in ADR 0004.)*
 - **Evidence:**
   - a browser test on the rebuilt UI;
   - on the local stack, a stop of a waiting pass, with the heavy-task lock held on purpose, and of a running pass;
@@ -379,11 +420,14 @@ None, once the owner ratifies the Product Owner's proposals below by approving t
     - the owner and an admin each run a pass and see who started it;
     - a second Run while one is busy is refused;
     - a user who is neither owner nor admin is refused at the run-task route for this pass, and gets no "who";
+      *(Corrected at Architecture, 2026-10-27: the refusal half has held on staging and production for every task since
+      2026-10-10, so it now checks that the gate still holds. The evidence this story adds for that user is the "no
+      who" half.)*
     - an admin stops a waiting pass, while other heavy database work holds the shared lock;
   - production gets read-only checks only.
 
 ## Linked artifacts
 
-- ADR: (filled in after Architecture phase)
+- ADR: `engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md`
 - Test plan: (filled in after Test Design phase)
 - Review: (filled in after Review phase)
