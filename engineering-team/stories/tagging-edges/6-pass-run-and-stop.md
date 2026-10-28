@@ -641,4 +641,4 @@ These are small judgement calls made at Implementation (2026-10-28), too small f
 
 - ADR: `engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md`
 - Test plan: `engineering-team/stories/tagging-edges/6-pass-run-and-stop.test-plan.md`
-- Review: (filled in after Review phase)
+- Review: `engineering-team/reviews/tagging-edges/6-pass-run-and-stop.md`
