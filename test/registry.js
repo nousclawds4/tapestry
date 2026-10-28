@@ -150,6 +150,7 @@ const suites = [
   { file: 'pov-state-unification.test.js' },
   { file: 'applicability-republish.test.js' },
   { file: 'harness-lint.test.js' },
+  { file: 'protocols-index.test.js' },
   { file: 'harness-stats.test.js' },
   { file: 'session-start.test.js' },
   { file: 'ledger-row-ids.test.js' },
