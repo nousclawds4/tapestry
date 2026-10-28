@@ -25,8 +25,13 @@ const path = require('path');
 const { allowErrorCode } = require('../../lib/tagging-edges/realtime');
 const { sameHost, isJson, ownerOrAdmin } = require('./index');
 
-const MAX_TARGETS = 50;
-const TARGET_KEY_RE = /^[A-Za-z0-9:._@-]{1,120}$/;
+// Stop's body rule, ADR tagging-edges/0006 Amendment 1 § A: a key is only compared with the server's own busy list.
+const STOP_TARGETS_MAX = 50;
+const STOP_KEY_MAX = 256; // UTF-16 code units, as String.prototype.length counts them
+const STOP_KEY_FORBIDDEN = /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/; // Cc (C0, DEL, C1), LS, PS
+const isStopKey = (key) => typeof key === 'string'
+  && key.length >= 1 && key.length <= STOP_KEY_MAX
+  && !STOP_KEY_FORBIDDEN.test(key);
 const TARGET_STATES = ['waiting', 'running'];
 
 /** The error sentence beside each fixed code (D14). */
@@ -85,14 +90,14 @@ const failed = (err) => ({ status: 500, body: { success: false, code: 'error', c
 /** A controller answer with its error sentence beside the code. */
 const withError = (body) => (body && body.success === false && body.code && !body.error ? { ...body, error: ERRORS[body.code] || ERRORS.error } : body);
 
-/** Pure. Stop's body (D9) → { ok: true, targets: [{ key, state }] } | { ok: false, status: 400, error }. */
+/** Pure. Stop's body (D9, as amended by Amendment 1 § A) → { ok: true, targets: [{ key, state }] } | { ok: false, status: 400, error }. */
 function validateStop(body) {
-  const bad = { ok: false, status: 400, error: `the body must be {"targets": [{"key": …, "state": "waiting" | "running"}]}, 1 to ${MAX_TARGETS} distinct keys of at most 120 characters of A-Z a-z 0-9 : . _ @ -` };
+  const bad = { ok: false, status: 400, error: `the body must be {"targets": [{"key": …, "state": "waiting" | "running"}]}, 1 to ${STOP_TARGETS_MAX} distinct keys, each a string of 1 to ${STOP_KEY_MAX} characters (UTF-16 code units) with no control character and no U+2028 or U+2029` };
   const targets = isObject(body) ? body.targets : undefined;
-  if (!Array.isArray(targets) || targets.length < 1 || targets.length > MAX_TARGETS) return bad;
+  if (!Array.isArray(targets) || targets.length < 1 || targets.length > STOP_TARGETS_MAX) return bad;
   const keys = new Set();
   for (const t of targets) {
-    if (!isObject(t) || typeof t.key !== 'string' || !TARGET_KEY_RE.test(t.key) || !TARGET_STATES.includes(t.state) || keys.has(t.key)) return bad;
+    if (!isObject(t) || !isStopKey(t.key) || !TARGET_STATES.includes(t.state) || keys.has(t.key)) return bad;
     keys.add(t.key);
   }
   return { ok: true, targets: targets.map((t) => ({ key: t.key, state: t.state })) };

@@ -556,6 +556,13 @@ These are small judgement calls made at Implementation (2026-10-28), too small f
     - the plural too-late sentence no longer says "some";
     - Run's queue-unavailable sentence names the task queue being switched off;
     - the empty-state line reads as three ways a pass starts.
+- **Amendment 1 (2026-10-28).**
+  - **The predicate is copied as written,** so `pass.js`'s `MAX_TARGETS` is renamed `STOP_TARGETS_MAX` rather than kept
+    beside it.
+  - **The 400's sentence** reads "1 to 50 distinct keys, each a string of 1 to 256 characters (UTF-16 code units) with
+    no control character and no U+2028 or U+2029".
+  - **OPERATIONS §12.8's R9 bullet** also names the in-app case, more than 50 enabled Scheduled Tasks entries (§ B
+    (b)), and the doubly listed pass's `pass-not-reachable` (§ B (c)), since both have the same way out.
 
 ## Linked artifacts
 
