@@ -3,7 +3,7 @@
 > **Audience:** the active team running this fork at `tapestry.brainstorm.world`.
 > **Prerequisite reading:** [BIBLE.md](./BIBLE.md) — what tapestry *is* and how it works. This file documents the specifics of *our* deployment that aren't useful to other operators forking the codebase.
 
-**Last updated:** 2026-09-29
+**Last updated:** 2026-10-28
 
 ---
 
