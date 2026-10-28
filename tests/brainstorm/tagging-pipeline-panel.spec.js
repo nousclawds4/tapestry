@@ -160,6 +160,11 @@ const F = require('../../test/helpers/taggingPipelineFixtures');
  *         snapshot's.                                                                                       [AC-3; D17]
  *   B115 — the prompt closes by itself on a read of nothing busy, but not while its stop is under way; the
  *         stop's outcome shows until the next Run is sent.                                                  [AC-3; D17]
+ *   Added after Implementation (2026-10-28; ADR 0006 Amendment 1 § C, story 6 § Deviations, last group); the
+ *   mock's Stop body rule (F.applyStop) follows Amendment 1 § A (keys of 1 to 256 code units, no control character):
+ *   B116 — a read that cannot tell (a failed queue read; no control member) never closes an open Stop prompt.  [AC-2; D17]
+ *   B117 — focus inside the pass controls (Cancel, "Stop the pass", "Run a pass now") survives the switch from an
+ *         empty report to a ready one.                                                                       [D17]
  *
  * ── Hermetic by construction ──────────────────────────────────────────────────────────────────────────────────────
  * Every /api route is mocked, story 5's switch included (GET its record, POST a change, on one route; the default
@@ -3033,6 +3038,78 @@ test.describe('Running and stopping the pass on the panel (tagging-edges #6, ADR
     await pressRun(page);
     await expect.poll(() => m.log.nonGet, { message: 'the next Run is sent' }).toEqual([STOP_POST, RUN_POST]);
     await expect.poll(async () => TAKEN_OUT.test(await textOf(page, 'tp-pass')), { message: 'once the next Run is sent, the stop\'s outcome is gone (D17 "until the next Run or Stop is sent")', timeout: 10000 }).toBe(false);
+  });
+
+  /* ── Added after Implementation (2026-10-28): ADR 0006 Amendment 1 § C and story 6 § Deviations, last group ───── */
+
+  test('B116: a read that cannot tell whether a pass is waiting never closes an open Stop prompt — with the prompt open on the owner\'s waiting pass, a poll whose queue read failed (control.queue read-failed, busy empty) and then one whose status carries no control member each land, the panel says the server cannot tell, and the prompt stays open, its text and Cancel unchanged; only a read that knows nothing is busy then closes it; nothing is sent [ADR 0006 Amendment 1 § C "D17: the Stop prompt closes by itself only on a known, empty read" ("A read that cannot tell leaves it open"; "A read that cannot tell is never nothing waiting", AC-2); beside B115]', async ({ page }) => {
+    const m = await mock(page, F.SCENE.WAITING_ASKED);
+    await openAndSettle(page);
+    const p = await openStopPrompt(page);
+    const opened = await p.text();
+    await pauseClock(page);
+    for (const c of [
+      { what: 'a poll whose queue read failed', status: F.withControl(F.STATUS.HELD_NONE, F.controlBody({ queue: 'read-failed' })) },
+      { what: 'a poll whose status carries no control member', status: F.STATUS.HELD_NONE },
+    ]) {
+      m.set({ status: c.status });
+      const landed = page.waitForResponse((r) => new URL(r.url()).pathname === F.ROUTES.status, { timeout: 10000 });
+      await page.clock.runFor(POLL_MS);
+      await landed;
+      await untilText(page, 'tp-pass', CANNOT_TELL, `${c.what}: the read has landed, and the panel says the server cannot tell whether a pass is waiting (D16)`, 10000);
+      await wait(500);
+      await expect(heading(page, p.heading), `${c.what}: the prompt stays open — a read that cannot tell is never "nothing busy" (Amendment 1 § C, D17)`).toBeVisible();
+      await expect(passCancel(page), `${c.what}: its Cancel is still there`).toBeVisible();
+      expect(await p.text(), `${c.what}: its text is unchanged (D17 "It never rewrites its text from later polls")`).toBe(opened);
+    }
+    m.set({ status: F.SCENE.IDLE.status });
+    await page.clock.runFor(POLL_MS);
+    await expect(heading(page, p.heading), 'a read that knows nothing is busy then closes it (D17)').toHaveCount(0, { timeout: 10000 });
+    expect(m.log.nonGet, 'nothing is sent').toEqual([]);
+  });
+
+  test('B117: focus inside the pass controls survives the switch from an empty report to a ready one — with the first pass waiting and the Stop prompt open, Cancel (where the prompt puts focus) and then "Stop the pass" (reached with Shift+Tab) each keep focus when that pass begins running and its report appears; with nothing busy, "Run a pass now" keeps focus when a report appears [story 6 § Deviations, last group ("PassControls carries a key in both branches, so the empty-to-ready switch does not remount it"); ADR 0006 D17 "rendered at one position in each branch"; Amendment 1 § C (the Implementer\'s under D17); PS38 is the source half]', async ({ page }) => {
+    const EMPTY_WAITING = { status: F.withControl(F.STATUS.NO_PASS, F.controlBody({ busy: [F.ITEM.WAITING] })), passRecord: F.SCENE.WAITING_ASKED.passRecord };
+    const pass = section(page, 'tp-pass');
+    /** Let one poll land with `next`, and wait for the pass section to switch from its empty branch to its ready one. */
+    const switchToReady = async (m, next, what) => {
+      await expect(pass, `${what}: before the poll the pass section is in its empty branch`).toHaveAttribute('data-state', 'empty');
+      m.set(next);
+      await page.clock.runFor(POLL_MS);
+      await expect(pass, `${what}: after the poll the report has appeared and the section is in its ready branch`).toHaveAttribute('data-state', 'ready', { timeout: 10000 });
+      await wait(500);
+    };
+    const m = await mock(page, EMPTY_WAITING);
+    // 1. Cancel, where the prompt puts focus when it opens. (Alone this cannot tell a kept instance from a remounted one:
+    // a remounted prompt focuses its Cancel again. Cases 2 and 3 can.)
+    await openAndSettle(page);
+    let p = await openStopPrompt(page);
+    await expect(p.cancel, 'focus moves to Cancel when the prompt opens (D17)').toBeFocused();
+    await pauseClock(page);
+    await switchToReady(m, F.SCENE.WAITING_NOW_RUNNING, 'Cancel focused');
+    await expect(heading(page, p.heading), 'the prompt stays open: a pass is still busy').toBeVisible();
+    await expect(passCancel(page), 'Cancel keeps focus across the switch').toBeFocused();
+    // 2. "Stop the pass", reached from Cancel with Shift+Tab.
+    await page.clock.resume();
+    await reopenWith(page, m, EMPTY_WAITING);
+    p = await openStopPrompt(page);
+    await expect(p.cancel, 'setup: focus is on Cancel').toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(p.confirm, 'setup: Shift+Tab moves focus to "Stop the pass"').toBeFocused();
+    await pauseClock(page);
+    await switchToReady(m, F.SCENE.WAITING_NOW_RUNNING, '"Stop the pass" focused');
+    await expect(heading(page, p.heading), 'the prompt stays open: a pass is still busy').toBeVisible();
+    await expect(section(page, 'tp-pass').getByRole('button', { name: STOP_THE_PASS }), '"Stop the pass" keeps focus across the switch — the controls are not remounted (a remount would put it back on Cancel)').toBeFocused();
+    // 3. "Run a pass now", with nothing busy.
+    await page.clock.resume();
+    await reopenWith(page, m, F.SCENE.FIRST_IDLE);
+    await expect(runButton(page), 'setup: the controls show in the empty branch (D17)').toBeVisible({ timeout: 5000 });
+    await runButton(page).focus();
+    await expect(runButton(page), 'setup: "Run a pass now" has focus').toBeFocused();
+    await pauseClock(page);
+    await switchToReady(m, F.SCENE.IDLE, '"Run a pass now" focused');
+    await expect(runButton(page), '"Run a pass now" keeps focus across the switch — the controls are not remounted').toBeFocused();
+    expect(m.log.nonGet, 'nothing is sent').toEqual([]);
   });
 
   /* ── AC-4: refused or failed ───────────────────────────────────────────────────────────────────────────────── */

@@ -1405,6 +1405,14 @@ function applyRun({ status, passRecord, viewer, body, key }) {
 }
 
 /**
+ * Stop's key rule as the server applies it (ADR 0006 Amendment 1 § A, which superseded D9's "at most 120 characters of
+ * [A-Za-z0-9:._@-]"): a string of 1 to 256 UTF-16 code units with no control character (U+0000-U+001F, U+007F-U+009F)
+ * and no U+2028 or U+2029. The forbidden set is written with ASCII escapes, never the raw characters.
+ */
+const STOP_KEY_FORBIDDEN = /[\u0000-\u001F\u007F-\u009F\u2028\u2029]/; // no g or y flag: test() keeps no lastIndex
+const isStopKey = (key) => typeof key === 'string' && key.length >= 1 && key.length <= 256 && !STOP_KEY_FORBIDDEN.test(key);
+
+/**
  * Stop as the server answers it (D9), at NOW: refused for a viewer who is not the owner or an admin, or a body that is
  * not { targets: [{ key, state }] }; 503 with the queue not ok; 409 prompt-out-of-date when the targets differ from
  * what is busy with no stop asked for, nothing-to-stop when none is left. A waiting target is taken out of line (it
@@ -1416,7 +1424,7 @@ function applyStop({ status, passRecord, viewer, body }) {
   if (!who) return { answer: STOP_ANSWER.REFUSED_403, status: null, passRecord: null };
   const targets = isPlain(body) && Array.isArray(body.targets) ? body.targets : null;
   const valid = targets && targets.length >= 1 && targets.length <= 50
-    && targets.every((t) => isPlain(t) && typeof t.key === 'string' && /^[A-Za-z0-9:._@-]{1,120}$/.test(t.key) && (t.state === 'waiting' || t.state === 'running'))
+    && targets.every((t) => isPlain(t) && isStopKey(t.key) && (t.state === 'waiting' || t.state === 'running'))
     && new Set(targets.map((t) => t.key)).size === targets.length;
   if (!valid) return { answer: { status: 400, body: { success: false, error: 'the body must be {"targets":[{"key","state"}]}' } }, status: null, passRecord: null };
   const s = isPlain(status) ? status : null;

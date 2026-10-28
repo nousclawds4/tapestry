@@ -46,6 +46,10 @@
  * does); the prompt may live in PassControls.jsx or a panel file it imports (story 5's PathSwitch.jsx and parts.jsx
  * aside); the "Stop the pass(es)" label may be two literals or one template; run's and stop's initial state objects
  * hold exactly D17's keys.
+ * Added after Implementation (2026-10-28; ADR 0006 Amendment 1 § C and story 6 § Deviations, last group), the source
+ * halves of B116 and B117: PS37 (the prompt's close-by-itself effect reads busyView's `known`, in the effect or in a
+ * value it depends on) and PS38 (both <PassControls> carry one and the same string-literal key). Both pass at
+ * ca504c42; each fails when its fix is undone.
  */
 
 const fs = require('fs');
@@ -1689,6 +1693,57 @@ test('PS36: the empty state keeps "No pass has run yet" and names "Run a pass no
   const text = textInside(rets[0]);
   const missing = ['Run a pass now', 'Scheduled Tasks', 'Task Explorer'].filter((w) => !text.includes(w));
   assert(!missing.length, `the empty state at ${where(ps, rets[0])} reads ${j(text)}; it must name ${j(missing)} (${ADR6} D19: it names Run a pass now beside the Scheduled Tasks entry and the Task Explorer)`);
+});
+
+// ─── PS37–PS38: added after Implementation (2026-10-28), the source half of B116 and B117 ──────────────────────
+
+test('PS37: the Stop prompt closes by itself only on a read that knows nothing is busy — in TaggingPipelinePanel.jsx, every useEffect that clears the prompt\'s snapshot (a setStop whose updater sets snapshot: null) is guarded by busyView\'s `known` (control.queue === \'ok\') beside its empty busy list, read in the effect or in a value it depends on; so a read that cannot tell (a failed queue read, a status with no control) leaves it open [ADR tagging-edges/0006 Amendment 1 § C "D17: the Stop prompt closes by itself only on a known, empty read" ("A read that cannot tell leaves it open"); story AC-2 "never shown as nothing waiting"; the browser half is B116]', async () => {
+  const t = ts();
+  const sf = parse(PANEL);
+  assert(sf, `${rel(PANEL)} could not be read`);
+  const effects = [];
+  walk(sf, (n) => {
+    if (!t.isCallExpression(n) || calleeName(n) !== 'useEffect' || !n.arguments.length) return;
+    let clears = false;
+    walk(n.arguments[0], (x) => {
+      if (t.isCallExpression(x) && calleeName(x) === 'setStop' && /\bsnapshot\s*:\s*null\b/.test(x.getText(sf))) clears = true;
+    });
+    if (clears) effects.push(n);
+  });
+  assert(effects.length >= 1, `${rel(PANEL)} should close the Stop prompt by itself in a useEffect that calls setStop with snapshot: null (${ADR6} D17 "It closes by itself when a read shows nothing busy"); found none`);
+  const readsKnown = (node) => {
+    let hit = false;
+    walk(node, (x) => { if (t.isPropertyAccessExpression(x) && x.name.text === 'known') hit = true; });
+    return hit;
+  };
+  const bad = [];
+  for (const e of effects) {
+    const deps = e.arguments[1] && t.isArrayLiteralExpression(e.arguments[1]) ? e.arguments[1].elements.filter((x) => t.isIdentifier(x)).map((x) => x.text) : [];
+    const guarded = readsKnown(e.arguments[0]) || deps.some((name) => localInits(sf, name).some((init) => readsKnown(init)));
+    if (!guarded) bad.push(`${where(sf, e)}: this effect clears the Stop prompt without reading busyView's known (deps ${j(deps)}), so a read that cannot tell whether a pass is waiting would close it`);
+  }
+  assert(!bad.length, `${bad.join('; ')} (${ADR6} Amendment 1 § C, D17)`);
+});
+
+test('PS38: PassSection renders PassControls with one and the same `key` in both branches, so the switch from an empty report to a ready one keeps its instance and the focus inside it — each <PassControls> carries a key attribute that is a string literal, and the two literals are equal [story 6 § Deviations, last group ("PassControls carries a key in both branches, so the empty-to-ready switch does not remount it"); ADR tagging-edges/0006 D17 "rendered at one position in each branch"; Amendment 1 § C (the Implementer\'s under D17); the browser half is B117]', async () => {
+  const t = ts();
+  const ps = parse(PASS_SECTION);
+  assert(ps, `${rel(PASS_SECTION)} could not be read`);
+  const de = defaultExport(passControlsSf());
+  const local = de ? importedName(PASS_SECTION, PASS_CONTROLS, de.name) : null;
+  assert(local, `${rel(PASS_SECTION)} should import PassControls.jsx's default export (${ADR6} D17)`);
+  const sites = jsxTagged(ps, local);
+  assert(sites.length === 2, `PassSection should render <${local}> twice, once per branch (PS29); found ${sites.length}`);
+  const keys = sites.map((s) => {
+    const attr = jsxAttrs(s).find((a) => t.isJsxAttribute(a) && a.name.getText(ps) === 'key');
+    if (!attr || !attr.initializer) return null;
+    let init = attr.initializer;
+    if (t.isJsxExpression(init)) init = unparen(init.expression);
+    return init && (t.isStringLiteral(init) || t.isNoSubstitutionTemplateLiteral(init)) ? init.text : null;
+  });
+  const bad = sites.map((s, i) => (keys[i] === null ? `${where(ps, s)}: <${local}> carries no string-literal key` : null)).filter(Boolean);
+  if (!bad.length && keys[0] !== keys[1]) bad.push(`the two <${local}> carry different keys ${j(keys)}; one and the same key keeps the instance across the switch`);
+  assert(!bad.length, `${bad.join('; ')} (story 6 § Deviations; ${ADR6} D17)`);
 });
 
 // ─── runner ────────────────────────────────────────────────────────────────────────────────────────────────────────

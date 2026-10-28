@@ -52,6 +52,12 @@
  *             for TV83 "EXPLANATIONS.passOutcome.stopped must exist").
  *             Story 6's Test Design review, COV-3: TV104 also covers the killed case (a pass ended by its time-out, a
  *             deploy or a restart, its pessimistic record left as the latest), beside the done and refused cases.
+ *   TV109–TV110 added after Implementation (2026-10-28), for the readings ADR 0006 Amendment 1 § C ratified and the
+ *             copy the Implementer's own check changed (story 6 § Deviations, last group): TV109 a running busy item
+ *             reads as live from its own state, never "stopped on request" beside "running since", when its control
+ *             comes from D5's 1 s reuse; TV110 the plural too-late sentence never says "some". TV90 is revised, not
+ *             replaced: every sentence of each accepted Stop's text must be in the past tense (pastProblems), not only
+ *             one of them, so "It stops at its next safe point." beside a past sentence fails.
  *
  * Story 6's readings where ADR 0006 leaves a detail open (reported at the Test Design gate):
  *   - runOutcome's and stopOutcome's answers are read shape-free, as switchOutcome's are: exactly one of D16's eleven
@@ -2399,7 +2405,18 @@ test('TV89: any other failed Run is failed — a 500 carrying the handler\'s cod
 
 const stopAnswer = (hows, recorded = true) => okAnswer({ success: true, stopped: hows.map((how, i) => ({ key: lk(i + 1), how })), recorded });
 
-test('TV90: an accepted Stop is done, with a sentence for what happened — taken out of line, asked to stop, or too late, three different sentences in the past tense — also when it acted on two passes; and a Stop that took effect but could not be recorded is done-unrecorded, its sentence saying so [story 6 AC-3 "Confirming a stop of a waiting pass", "of a running pass", "A stop that comes too late"; AC-5 "a Stop still takes effect, its answer says it was not recorded"; ADR tagging-edges/0006 D16 "done (… Stop: taken out of line, asked to stop, or too late); done-unrecorded (Stop)", D9 step 5]', async () => {
+/**
+ * D16 "The sentences are in the past tense", read for EVERY sentence of an outcome's text (revised 2026-10-28, story 6
+ * § Deviations "asked to stop is in the past tense"): split after '.', '!' or '?' and a space, each part must hold a
+ * past-tense verb (PAST). Reading only the whole text let "It stops at its next safe point." through beside a past one.
+ */
+const sentencesOf6 = (text) => String(text).split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
+function pastProblems(text, what) {
+  const present = sentencesOf6(text).filter((x) => !PAST.test(x));
+  return present.length ? [`${what}: every sentence must be in the past tense (D16); these are not: ${show(present)} (the text: ${show(text)})`] : [];
+}
+
+test('TV90: an accepted Stop is done, with a sentence for what happened — taken out of line, asked to stop, or too late, three different sentences, every sentence of each in the past tense (revised 2026-10-28: each sentence is checked, not only one of them) — also when it acted on two passes, for each plural sentence; and a Stop that took effect but could not be recorded is done-unrecorded, its sentence saying so [story 6 AC-3 "Confirming a stop of a waiting pass", "of a running pass", "A stop that comes too late"; AC-5 "a Stop still takes effect, its answer says it was not recorded"; ADR tagging-edges/0006 D16 "done (… Stop: taken out of line, asked to stop, or too late); done-unrecorded (Stop)", D9 step 5]', async () => {
   const stopOutcome = await stopOutcomeFn();
   const bad = [];
   const sentences = new Set();
@@ -2410,7 +2427,7 @@ test('TV90: an accepted Stop is done, with a sentence for what happened — take
     if (got !== 'done') { bad.push(`${what}: expected done; got ${show(r)}`); continue; }
     const s = sentenceOf(r);
     if (!re.test(s)) bad.push(`${what}: its sentence must match ${re}; got ${show(s)}`);
-    if (!PAST.test(s)) bad.push(`${what}: its sentence must be in the past tense (D16); got ${show(s)}`);
+    bad.push(...pastProblems(s, what));
     bad.push(...toneProblems(r, got, what));
     noBang(r, what);
     sentences.add(s);
@@ -2418,12 +2435,20 @@ test('TV90: an accepted Stop is done, with a sentence for what happened — take
   if (!bad.length && sentences.size !== 3) bad.push(`taken out of line, asked to stop and too late each have their own sentence; got ${show([...sentences])}`);
   const two = stopOutcome(stopAnswer(['taken-out-of-line', 'asked-to-stop']));
   if (outcome6(two, 'stopOutcome(200, two passes)') !== 'done') bad.push(`stopOutcome(200, a waiting and a running pass): expected done; got ${show(two)}`);
+  bad.push(...pastProblems(sentenceOf(two), 'stopOutcome(200, a waiting and a running pass)'));
+  for (const how of ['taken-out-of-line', 'asked-to-stop', 'too-late']) {
+    const what = `stopOutcome(200, two passes ${how})`;
+    const r = stopOutcome(stopAnswer([how, how]));
+    if (outcome6(r, what) !== 'done') { bad.push(`${what}: expected done; got ${show(r)}`); continue; }
+    bad.push(...pastProblems(sentenceOf(r), what));
+  }
   for (const how of ['taken-out-of-line', 'asked-to-stop']) {
     const what = `stopOutcome(200, ${how}, recorded false)`;
     const r = stopOutcome(stopAnswer([how], false));
     const got = outcome6(r, what);
     if (got !== 'done-unrecorded') { bad.push(`${what}: expected done-unrecorded; got ${show(r)}`); continue; }
     if (!/\b(not|n't)( be(en)?)? recorded\b/i.test(sentenceOf(r))) bad.push(`${what}: its sentence must say the stop was not recorded (AC-5); got ${show(sentenceOf(r))}`);
+    bad.push(...pastProblems(sentenceOf(r), what));
     noBang(r, what);
   }
   assert(!bad.length, `stopOutcome when the stop was accepted (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
@@ -2831,6 +2856,48 @@ test('TV108: story 6\'s view functions read no clock — busyView, runOutcome, s
   ['busyView', 'runOutcome', 'stopOutcome', 'stopPromptView', 'passWho'].forEach((name, i) => {
     same(far.v[i], old.v[i], `${name}: the same input must give the same answer whatever the client clock (${ADR6} D16 "all clock-free")`);
   });
+});
+
+/* TV109–TV110: added after Implementation (2026-10-28), the as-built readings ADR 0006 Amendment 1 § C ratified and
+ * the copy the Implementer's own check changed (story 6 § Deviations, last group). */
+
+test('TV109: a busy running item with a run, served beside a status that says that run has ended — a control from D5\'s 1 s reuse: status.running false, the latest run stopped on request — reads as live from its own state: beside its "Running since" line its stop says a stop was asked for, when and by whom, never "Stopped on request" and never "ended first"; the latest run itself, which has ended, still reads "Stopped on request" [ADR tagging-edges/0006 Amendment 1 § C "D16: a running busy item\'s who" ("takes who from that run, joined as live … not from status.running", "the line must not say running and stopped on request together"); D16 "as LatestPass does, so the two lines agree"]', async () => {
+  const passWho = await passWhoFn();
+  const busyView = await busyViewFn();
+  const stopAt = at6(-1);
+  const run = run6(1, -3, lk(1), { ...STOPPED6, endedAt: at6(-0.1), durationMs: 174000 });
+  const item = busyItem({ key: lk(1), jobId: lk(1), state: 'running', since: run.startedAt, runId: run.runId, stopAskedAt: stopAt });
+  const passes = { [lk(1)]: passEntry({ jobId: lk(1), start: { at: at6(-3.3), who: 'owner' }, stop: { at: stopAt, runId: run.runId, who: 'admin' }, noRerun: true }) };
+  const status = status6(control6([item]), { running: false, latest: run });
+  const bad = [];
+  const line = stringsIn(busyView(clone(status)).items);
+  if (!line.some((x) => /\bRunning\b/.test(x))) bad.push(`setup: busyView should give the item its "Running since" line; it gives ${show(line)}`);
+  const v = passWho(readyRead(recordAnswer(passes)), clone(status));
+  const itemText = partsFor(v, lk(1)).flatMap((x) => stringsIn(x));
+  const contradicts = itemText.filter((x) => /\bstopped on request\b/i.test(x) || /\bended first\b/i.test(x));
+  if (contradicts.length) bad.push(`the running item ${lk(1)} must not read as ended beside its "Running since" line (${ADR6} Amendment 1 § C); it says ${show(contradicts)}`);
+  bad.push(whoProblem(v, lk(1), { want: ['owner', 'admin'], times: [stopAt], none: [/\bstopped on request\b/i, /\bended first\b/i] },
+    'the running item (started by the owner; a stop asked for by an admin, live)'));
+  const runText = partsFor(v, run.runId).flatMap((x) => stringsIn(x));
+  if (!runText.some((x) => /\bstopped on request\b/i.test(x))) bad.push(`setup: the latest run, ended, should read "Stopped on request" (D18); its parts say ${show(runText)}`);
+  const problems = bad.filter(Boolean);
+  assert(!problems.length, `passWho for a running item beside a status that says its run ended (${ADR6} Amendment 1 § C, D16):\n      - ${problems.join('\n      - ')}`);
+});
+
+test('TV110: a Stop whose every target came too late says so of all of them, never "some" — for two and for three passes the plural sentence says the stops came too late and the passes\' own outcomes stand, every sentence in the past tense; one too-late pass keeps the singular sentence [story 6 § Deviations, last group ("the plural too-late sentence no longer says some"); ADR tagging-edges/0006 D16 stopOutcome "too late"; story AC-3 "A stop that comes too late … Its outcome is then what it was"]', async () => {
+  const stopOutcome = await stopOutcomeFn();
+  const bad = [];
+  for (const n of [1, 2, 3]) {
+    const what = `stopOutcome(200, ${n} too-late)`;
+    const r = stopOutcome(stopAnswer(Array.from({ length: n }, () => 'too-late')));
+    if (outcome6(r, what) !== 'done') { bad.push(`${what}: expected done; got ${show(r)}`); continue; }
+    const s = sentenceOf(r);
+    if (/\bsome\b/i.test(s)) bad.push(`${what}: every target came too late, so the sentence must not say "some"; got ${show(s)}`);
+    if (!/\btoo late\b/i.test(s)) bad.push(`${what}: the sentence must say the stop came too late; got ${show(s)}`);
+    if (!/\bown outcomes? stands?\b/i.test(s)) bad.push(`${what}: the sentence must say the pass's own outcome stands (AC-3); got ${show(s)}`);
+    bad.push(...pastProblems(s, what));
+  }
+  assert(!bad.length, `stopOutcome when every stop came too late (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
 });
 
 // ─── runner ────────────────────────────────────────────────────────────────────────────────────────────────────

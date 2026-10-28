@@ -38,6 +38,9 @@
  *   PX38       after the owner's, an admin's and a local call's Runs and Stops, a signed-out reader's public views (the
  *              status, the held list, the Task Explorer's data for this task) and everything logged carry no who, in
  *              the same child process (AC-5 "Who may read it"; § Constraints; D11 "Who is never logged").
+ *   PX39       added after Implementation (2026-10-28; ADR 0006 Amendment 1 § A): a busy job added another way under an
+ *              id D9's old rule refused but BullMQ accepts ("manual run", "job/1", 130 characters) is listed busy, a
+ *              Stop naming it with the other open items takes each out of line, and the gate skips each.
  *
  * Hermetic: the controller's and routes' deps are the helper's makeWorld (the § Seams list: a BullMQ-faithful fake
  * queue, an in-memory record, a fake process table, a fixed clock), so no Redis, no /proc of the host, no disk record.
@@ -91,8 +94,13 @@
  *     text says "owner confirmation"), so each status read's control, and its busy items, must hold only D12's members.
  *   - A direct local call (no session) on the panel's Run, Stop and record routes is refused 401: only the run-task
  *     branch turns req.localTrusted into who (D7); D6, D9 and D13 re-check ownerOrAdmin, which admits no loopback.
- *   - Body validation. D6: "The body is {}" — {} (and only {}) is accepted. D9: an empty-string key is not pinned
- *     either way ("at most 120 characters"); every other rule is pinned on both sides of its boundary.
+ *   - Body validation. D6: "The body is {}" — {} (and only {}) is accepted. D9's key rule is Amendment 1 § A's
+ *     (2026-10-28), which superseded "at most 120 characters of [A-Za-z0-9:._@-]": a key is a string of 1 to 256
+ *     UTF-16 code units (key.length) with no character of U+0000–U+001F, U+007F–U+009F, U+2028 or U+2029. Every rule
+ *     is pinned on both sides of its boundary, the empty key included (PX21). The 400's sentence is the Implementer's
+ *     wording; PX21 asks only that it names the 256 bound and no longer the 120 one. The suite builds every control
+ *     or non-ASCII key character from its code point (String.fromCharCode), so no raw U+2028 or U+2029 sits in this
+ *     file.
  *   - D6 step 3's "503 QUEUE_UNAVAILABLE, or 500 {code: 'error', cause}": an add that times out must be 503; one that
  *     rejects may be either. The record GET with a throwing readRecord may answer 500 {code: 'error'} or 200
  *     {state: 'unreadable'}; a Stop with every dep throwing may answer 500 or 503. Each is a resolved answer either way.
@@ -846,11 +854,18 @@ test('PX20: every refused caller of Stop gets ownerOrAdmin\'s answer and touches
   report(p);
 });
 
-test('PX21: Stop\'s body is { targets: [{ key, state }] } with one to fifty entries, distinct keys, each key at most 120 characters of [A-Za-z0-9:._@-] and state "waiting" or "running" — every other body is 400 and touches nothing; on the accepting side of each rule (one target; fifty; a 120-character key of every allowed character; the seed scheduled id; a legacy key; a run: key) the request reaches the chain and, with nothing busy, answers 409 nothing-to-stop [ADR tagging-edges/0006 D9 "The body is {targets: [{key, state: waiting | running}]}: one to fifty entries, distinct keys, each key at most 120 characters of [A-Za-z0-9:._@-]", D2 (the seed id, the legacy key), D5 (run: keys), D14]', async () => {
+test('PX21: Stop\'s body is { targets: [{ key, state }] } with one to fifty entries, keys distinct as they are (no trimming, case folding or normalisation), each key a string of 1 to 256 UTF-16 code units with no control character (U+0000–U+001F, U+007F–U+009F) and no U+2028 or U+2029, and state "waiting" or "running" — every other body is 400, its sentence naming the 256 rule and not the old 120, and touches nothing; on the accepting side of each rule (one target; fifty; a 1-unit and a 256-unit key; 128 emoji; "manual run", "job/1", "__proto__", "constructor"; a space, a tilde, U+00A0, U+2027, U+202A, a format character, a lone surrogate and characters the old rule refused; keys that differ only by case, a trailing space or normalisation; fifty 256-unit keys; the seed scheduled id; a legacy key; a run: key) the request reaches the chain and, with nothing busy, answers 409 nothing-to-stop [ADR tagging-edges/0006 Amendment 1 § A (D9\'s body rule, as amended: "A key is a string of 1 to 256 characters with no forbidden character", its Boundaries, "Keys are distinct by ===", "The 400\'s sentence names the new rule"), D2 (the seed id, the legacy key), D5 (run: keys), D14]', async () => {
   const K = H.lineUpKey(1);
+  const ch = (cp) => String.fromCharCode(cp);
+  const EMOJI = String.fromCodePoint(0x1F600); // two UTF-16 code units
   const t = (key, state = 'waiting') => ({ key, state });
   const many = (n) => Array.from({ length: n }, (_, i) => t(H.lineUpKey(100 + i)));
-  const long120 = (KEY_CHARS + KEY_CHARS).slice(0, 120);
+  const repeatTo = (s, n) => s.repeat(Math.ceil(n / s.length)).slice(0, n);
+  const long256 = repeatTo(KEY_CHARS, 256);
+  // Amendment 1 § A "The forbidden characters": C0, DEL, C1 (Unicode's Cc) and the two line terminators, each at a
+  // boundary of its range, plus \t, \n, \r and U+0085, anywhere in the key.
+  const FORBIDDEN = [0x0000, 0x0009, 0x000A, 0x000D, 0x001F, 0x007F, 0x0080, 0x0085, 0x009F, 0x2028, 0x2029];
+  const hex = (cp) => `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
   const bad = [
     { name: 'no targets', body: {} },
     { name: 'targets an object', body: { targets: { key: K, state: 'waiting' } } },
@@ -859,13 +874,28 @@ test('PX21: Stop\'s body is { targets: [{ key, state }] } with one to fifty entr
     { name: 'no target', body: { targets: [] } },
     { name: '51 targets', body: { targets: many(51) } },
     { name: 'the same key twice', body: { targets: [t(K), t(K, 'running')] } },
+    { name: 'the same odd key twice', body: { targets: [t('manual run'), t('manual run', 'running')] } },
     { name: 'a target that is null', body: { targets: [null] } },
     { name: 'a target that is a string', body: { targets: [K] } },
     { name: 'a target that is an array', body: { targets: [[K, 'waiting']] } },
     { name: 'a key that is a number', body: { targets: [t(42)] } },
+    { name: 'a key that is true', body: { targets: [t(true)] } },
+    { name: 'a key that is an object', body: { targets: [t({ id: K })] } },
+    { name: 'a key that is an array', body: { targets: [t([K])] } },
+    { name: 'a key that is null', body: { targets: [t(null)] } },
     { name: 'no key', body: { targets: [{ state: 'waiting' }] } },
-    { name: 'a 121-character key', body: { targets: [t(`${long120}x`)] } },
-    ...[' ', '/', '#', '%', '+', '\n', 'é', '"'].map((ch) => ({ name: `a key holding ${show(ch)}`, body: { targets: [t(`${K}${ch}`)] } })),
+    { name: 'an empty key (0 units)', body: { targets: [t('')] } },
+    { name: 'a 257-unit key', body: { targets: [t(`${long256}x`)] } },
+    { name: '128 emoji and one more character (257 units)', body: { targets: [t(`${EMOJI.repeat(128)}x`)] } },
+    { name: '129 emoji (258 units)', body: { targets: [t(EMOJI.repeat(129))] } },
+    { name: 'a valid target beside a 257-unit key', body: { targets: [t(K), t(`${long256}x`)] } },
+    ...FORBIDDEN.flatMap((cp) => [
+      { name: `a key starting with ${hex(cp)}`, body: { targets: [t(`${ch(cp)}${K}`)] } },
+      { name: `a key holding ${hex(cp)} inside`, body: { targets: [t(`${K.slice(0, 10)}${ch(cp)}${K.slice(10)}`)] } },
+      { name: `a key ending with ${hex(cp)}`, body: { targets: [t(`${K}${ch(cp)}`)] } },
+    ]),
+    { name: 'a 1-unit key that is U+0000', body: { targets: [t(ch(0))] } },
+    { name: 'a valid target beside a key holding U+2028', body: { targets: [t(K), t(`job${ch(0x2028)}1`)] } },
     { name: 'no state', body: { targets: [{ key: K }] } },
     { name: 'the state "ended"', body: { targets: [t(K, 'ended')] } },
     { name: 'the state "Waiting"', body: { targets: [t(K, 'Waiting')] } },
@@ -876,24 +906,44 @@ test('PX21: Stop\'s body is { targets: [{ key, state }] } with one to fifty entr
   const good = [
     { name: 'one target', targets: [t(K)] },
     { name: 'fifty targets', targets: many(50) },
-    { name: 'a 120-character key of every allowed character', targets: [t(long120)] },
+    { name: 'a 1-unit key', targets: [t('x')] },
+    { name: 'a 256-unit key', targets: [t(long256)] },
+    { name: '128 emoji (256 units)', targets: [t(EMOJI.repeat(128))] },
+    { name: 'the id "manual run"', targets: [t('manual run')] },
+    { name: 'the id "job/1"', targets: [t('job/1', 'running')] },
+    { name: 'the key "__proto__"', targets: [t('__proto__')] },
+    { name: 'the key "constructor"', targets: [t('constructor')] },
+    ...[0x0020, 0x007E, 0x00A0, 0x2027, 0x202A, 0x200B, 0xFEFF, 0xD83D].map((cp) => ({ name: `a key holding ${hex(cp)}`, targets: [t(`${K.slice(0, 10)}${ch(cp)}${K.slice(10)}`)] })),
+    ...['#', '%', '+', '"', '\\', 'é'].map((c) => ({ name: `a key holding ${show(c)} (refused by D9's old rule)`, targets: [t(`${K}${c}`)] })),
+    { name: 'keys that differ only by case', targets: [t('Manual-Run'), t('manual-run')] },
+    { name: 'keys that differ only by a trailing space', targets: [t('job-1'), t('job-1 ')] },
+    { name: 'keys that differ only by normalisation (U+00E9 and e + U+0301)', targets: [t(ch(0xE9)), t(`e${ch(0x301)}`)] },
+    { name: 'fifty distinct 256-unit keys', targets: Array.from({ length: 50 }, (_, i) => t(`${String(i).padStart(2, '0')}${long256.slice(2)}`)) },
     { name: 'the seed scheduled id', targets: [t(H.scheduledJobId(H.SEED_ENTRY_ID, T0 - MIN))] },
     { name: 'a legacy key', targets: [t(`${H.LEGACY_ID}@${T0 - HOUR}`, 'running')] },
     { name: 'a run: key', targets: [t(`run:${H.runIdAt(T0 - HOUR, '0a1b2c3d')}`, 'running')] },
   ];
   const s = scene();
   const p = [];
+  const shorten = (v) => show(v).slice(0, 200);
   for (const c of bad) {
     const m = s.mark();
     const r = await s.stop('admin', null, { body: c.body });
     p.push(...statusProblems(c.name, r, 400));
     p.push(...untouchedProblems(c.name, s.since(m)));
   }
+  // The 400's sentence names the rule a key must meet (Amendment 1 § A "The 400's sentence names the new rule"; its
+  // wording is the Implementer's): it gives the 256 bound and no longer the 120 one.
+  const r400 = await s.stop('admin', null, { body: { targets: [t(`${long256}x`)] } });
+  const sentence = r400.body && typeof r400.body.error === 'string' ? r400.body.error : '';
+  if (r400.status === 400 && (!/\b256\b/.test(sentence) || /\b120\b/.test(sentence))) {
+    p.push(`the 400's error sentence should name the amended key rule (1 to 256 characters) and not D9's old 120 (${adr('Amendment 1 § A')}); it is ${show(sentence)}`);
+  }
   for (const c of good) {
     const m = s.mark();
     const r = await s.stop('admin', c.targets);
     const d = s.since(m);
-    if (r.status !== 409 || !r.body || r.body.code !== 'nothing-to-stop') p.push(`${c.name}: should pass validation and, with nothing busy, answer 409 nothing-to-stop (${adr('D9')} step 2); it answered ${showRes(r)}`);
+    if (r.status !== 409 || !r.body || r.body.code !== 'nothing-to-stop') p.push(`${c.name}: should pass validation and, with nothing busy, answer 409 nothing-to-stop (${adr('Amendment 1 § A')}; D9 step 2); it answered ${r.status} ${shorten(r.body)}`);
     if (!d.names.length) p.push(`${c.name}: the chain step never ran`);
     if (d.kills.length || d.writes) p.push(`${c.name}: nothing to stop changes nothing; kills ${show(d.kills)}, record writes ${d.writes}`);
   }
@@ -1851,6 +1901,95 @@ test('PX38: after an admin\'s Run that the owner stops while it runs, the owner\
   const missing = want.filter((x) => !gFound.includes(x));
   if (missing.length) p.push(`the owner's gated record read should name each who of these actions (${adr('D11')}, D13), so the search above is shown to find who; it lacks ${missing.join(', ')}. It answered ${g ? `${g.status} ${clip(g.body)}` : 'nothing'}`);
   report(p);
+});
+
+test('PX39: a busy job added another way, under an id that D9\'s old rule refused but BullMQ accepts — "manual run", "job/1" and a 130-character id — is listed busy by its id, and an admin\'s Stop naming it with the pass\'s other open items answers 200, each taken out of line, recorded under its own key; the gate then skips each at pickup, one already picked up and waiting for the heavy-task lock abandons its wait, nothing busy remains, and a Run lines up — whether the odd jobs wait in line beside the owner\'s pass or one of them waits for the lock [ADR tagging-edges/0006 Amendment 1 § A ("A key is any string of 1 to 256 characters with no control character; the server only compares it with its own busy list"), § "What D9\'s body rule got wrong" (D9 step 2 made every Stop fail while such a job was busy); D5 (every job keyed by its BullMQ id), D9 steps 2 and 4, D3 (skip at pickup, shouldAbandon); R3]', async () => {
+  const LONG = 'nightly-run.'.repeat(11).slice(0, 130);
+  const ODD = ['manual run', 'job/1', LONG];
+  // Setup: BullMQ's own validation (no Redis) accepts each id, as the fake queue's add does (probe P1).
+  for (const id of ODD) {
+    const why = H.bullmqRejects(id);
+    assert(why === null, `setup: BullMQ should accept the job id ${show(id)}; it refused it: ${why}`);
+  }
+  const addOdd = (s, id) => s.world.queue.add(TASK, H.lineUpData(), H.lineUpOpts(id));
+  await cases([
+    {
+      name: 'the odd jobs wait in line beside the owner\'s pass',
+      setup: async (s) => {
+        const r1 = await s.run('owner');
+        assert(r1.status === 200 && typeof r1.body.key === 'string', `setup: the owner's Run should line up a pass; it answered ${showRes(r1)}`);
+        for (const id of ODD) await addOdd(s, id);
+        return { keys: [r1.body.key, ...ODD], lockWait: null };
+      },
+    },
+    {
+      name: 'one odd job was picked up and waits for the heavy-task lock, the others wait in line behind it',
+      setup: async (s) => {
+        await addOdd(s, 'job/1');
+        const job = s.world.queue.pickUp();
+        assert(job && job.id === 'job/1', `setup: job/1 should be picked up; got ${show(job && job.id)}`);
+        const v = await s.ctl.gate.beforeAcquire(job);
+        assert(v === 'go', `setup: gate.beforeAcquire(job/1) should answer 'go' (a start "another way"); it answered ${show(v)}`);
+        await addOdd(s, 'manual run');
+        await addOdd(s, LONG);
+        return { keys: ['job/1', 'manual run', LONG], lockWait: job };
+      },
+    },
+  ], async (c) => {
+    const s = scene();
+    const { keys, lockWait } = await c.setup(s);
+    s.world.clock.advance(MIN);
+    const snap = await s.ctl.snapshot({ fresh: true }, { fresh: true });
+    const items = (snap && (snap.items || snap.busy)) || [];
+    const p = [];
+    const listed = items.map((it) => it.key);
+    if (keys.some((k) => !listed.includes(k)) || listed.length !== keys.length) p.push(`the busy list should hold exactly ${show(keys)}, each job keyed by its BullMQ id (${adr('D5')}); it holds ${show(listed)}`);
+    for (const it of items) if (it.state !== 'waiting' || it.stopAskedAt != null) p.push(`${show(it.key)} should be waiting with no stop asked for; it is ${show(it)}`);
+    report(p);
+    const stopAt = iso(s.world.clock.now());
+    const m = s.mark();
+    const r = await s.stop('admin', items.map((it) => ({ key: it.key, state: it.state })));
+    const d = s.since(m);
+    if (r.status !== 200) {
+      throw new Error(`the admin's Stop naming every open item should answer 200 (${adr('Amendment 1 § A')}: the server only compares a key with its own busy list); it answered ${r.status} ${show(r.body)}`);
+    }
+    const byKey = (x, y) => String(x.key).localeCompare(String(y.key));
+    const want = keys.map((key) => ({ key, how: 'taken-out-of-line' })).sort(byKey);
+    const got = Array.isArray(r.body.stopped) ? r.body.stopped.map((x) => ({ key: x.key, how: x.how })).sort(byKey) : null;
+    if (exact(got) !== exact(want) || r.body.recorded !== true) p.push(`the Stop should answer { success: true, stopped: ${show(want)}, recorded: true }; it answered ${show(r.body)}`);
+    if (d.kills.length) p.push(`waiting passes get no signal; kills ${show(d.kills)}`);
+    const rec = s.record_();
+    for (const key of keys) {
+      const own = !!rec && !!rec.passes && Object.prototype.hasOwnProperty.call(rec.passes, key);
+      const e = own ? rec.passes[key] : null;
+      if (!e || e.skip !== true || !e.stop || e.stop.at !== stopAt || exact(e.stop.who) !== exact(H.whoOf('admin'))) {
+        p.push(`the record should hold ${show(key)}'s own entry with skip true and the admin's stop at ${stopAt} (${adr('D11')}); it holds ${show(e)}`);
+      }
+      if (!historyOf(rec).some((l) => l && l.action === 'stop' && l.key === key)) p.push(`the history should hold a stop line for ${show(key)}`);
+    }
+    if (lockWait) {
+      if (s.ctl.gate.shouldAbandon(lockWait) !== true) p.push(`job/1, waiting for the heavy-task lock, should abandon its wait (${adr('D3')} shouldAbandon)`);
+      const v = await s.ctl.gate.afterAcquire(lockWait);
+      if (v !== 'skip') p.push(`job/1 should be skipped once the lock is won; afterAcquire answered ${show(v)}`);
+      s.world.queue.complete(lockWait.id, s.ctl.gate.skipped(lockWait));
+      s.ctl.gate.ended(lockWait);
+    }
+    for (;;) {
+      const job = s.world.queue.pickUp();
+      if (!job) break;
+      const v = await s.ctl.gate.beforeAcquire(job);
+      if (v !== 'skip') p.push(`${show(job.id)}, taken out of line, should be skipped at pickup; beforeAcquire answered ${show(v)}`);
+      s.world.queue.complete(job.id, s.ctl.gate.skipped(job));
+      s.ctl.gate.ended(job);
+    }
+    const after = await s.ctl.snapshot({ fresh: true }, { fresh: true });
+    const left = ((after && (after.items || after.busy)) || []).map((it) => it.key);
+    if (left.length) p.push(`nothing should be busy once each was skipped; busy: ${show(left)}`);
+    s.world.clock.advance(SEC);
+    const again = await s.run('owner');
+    p.push(...statusProblems('a Run afterwards', again, 200));
+    report(p);
+  });
 });
 
 // ─── runner ────────────────────────────────────────────────────────────────────────────────────────────────────

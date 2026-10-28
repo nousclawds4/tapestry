@@ -41,6 +41,10 @@
  *              snapshot injected (CT58b: the four kinds of who, and two stoppers, indistinguishable).
  *   CT63–CT64  AC-6 and AC-3's schedule: Run and Stop change no schedule entry and not the real-time path's switch; a
  *              Stop never applies to the backstop's next run, not yet due.
+ *   CT65–CT68  added after Implementation (2026-10-28), the as-built readings ADR 0006 Amendment 1 § C ratified: the
+ *              take-back of a failed add restores the record as it was (CT65); a stop mark covers only its own
+ *              execution (CT66); pruning keeps a stopped hand run's run:<runId> entry while its run is in report.json
+ *              (CT67); "__proto__" and "constructor" are ordinary own entries, and Object.prototype stays clean (CT68).
  *
  * Hermetic: the controller is always an instance built by createController(deps) over the shared fakes (makeWorld:
  * a BullMQ-faithful fake queue, an in-memory record, a fake process table, a fake clock). TAGGING_EDGES_STATE_DIR
@@ -91,6 +95,13 @@
  *     value (CT19 endedKeysMs 200, CT43 pidWaitMs 300); a test that needs a long one sets that (CT6, CT13, CT24).
  *   - A status read is cached only when nothing bumped the generation: every D12 test changes state through a
  *     controller or gate step between two status reads, never through the fakes alone.
+ *   - Added after Implementation (2026-10-28; Amendment 1 § C). CT65 reads "as if the start had never been asked
+ *     for" as the record's bytes unchanged, over a record already at the history's cap, so the start's own write has
+ *     pushed a line and its entry out. CT66 drives the re-run through a stall and through a BullBoard add under the
+ *     same id, and waits the ended-keys window out first, so the re-run is never read as its predecessor's finishing
+ *     window. CT67 ages the hand run's stop line out with five Run-and-Stop pairs. CT68 snapshots
+ *     Object.getOwnPropertyNames(Object.prototype) before and after, and deletes anything added, so a regression
+ *     there cannot leak into later tests.
  *
  * Hand-rolled in the project's existing test style — no new framework. Works on Node 16 and 22.
  */
@@ -2252,6 +2263,184 @@ test('CT64: a Stop never applies to the backstop\'s next scheduled run, whose ti
     const v = await gateCall('beforeAcquire', pick1(ctx, sid), ctx.ctl);
     if (v !== 'go') p.push(`once its time came, the scheduled run should go ahead; beforeAcquire answered ${show(v)}`);
     report(p, 'D9');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// CT65–CT68 — added after Implementation (2026-10-28): the as-built readings ADR 0006 Amendment 1 § C ratified (the
+// Implementer's own check), each pinned so that undoing its fix fails a test.
+
+const FULL_KEYS = Array.from({ length: 10 }, (_, i) => H.lineUpKey(600 + i));
+/** A record already at the history's cap: 10 entries, each with its start, and their 10 start lines, newest first. */
+function fullRecord() {
+  const at = (i) => iso(T0 - HOUR + i * SEC);
+  const passes = {};
+  const history = [];
+  FULL_KEYS.forEach((k, i) => {
+    passes[k] = H.recordEntry({ jobId: k, start: { at: at(i), who: { ...WHO.owner } } });
+    history.unshift(H.historyLine('start', k, at(i), { ...WHO.owner }));
+  });
+  return H.recordFile({ passes, history });
+}
+
+test('CT65: the take-back of a start whose add failed puts the record back exactly as it was before the start — a Run and the confirm route\'s start, each with an add that is refused and one that times out, over a record already holding 10 history lines and 10 entries: the start\'s own write pushed the oldest line and its entry out (the cap of 10 and pruning), yet afterwards all 10 lines and all 10 entries are back, the record byte for byte as before; a Run answers 503 or 500, the confirm route enqueued: false [ADR 0006 Amendment 1 § C "D6 step 3 and D8: the take-back of a failed add" ("the record as if the start had never been asked for … would lose an older line or entry that the start\'s caps … had pushed out"); D6 step 3; D8; D11 "history … at most 10"]', async () => {
+  await cases([
+    { name: 'a Run whose add is refused', mode: 'run', who: WHO.owner, fault: { error: 'ECONNRESET' } },
+    { name: 'a Run whose add times out', mode: 'run', who: WHO.admin, fault: { hang: true } },
+    { name: 'the confirm route\'s start whose add is refused', mode: 'confirm', who: WHO.confirmation, fault: { error: 'ECONNRESET' } },
+    { name: 'the confirm route\'s start whose add times out', mode: 'confirm', who: WHO.confirmation, fault: { hang: true } },
+  ], (c) => withCtl('D6', { world: { record: { record: fullRecord() } } }, async (ctx) => {
+    const bytes = ctx.world.record.bytes();
+    const oldest = FULL_KEYS[0];
+    ctx.q.inject('add', c.fault);
+    const a = await lineUp(ctx, c.who, c.mode);
+    const p = [];
+    if (c.mode === 'run') p.push(...addFailedProblems(a));
+    else if (enqueuedOf(a)) p.push(`the confirm route's start whose add failed should answer enqueued: false; it answered ${show(a.body)}`);
+    // The path ran: one add, and before it the start's own write, which had pushed the oldest line and entry out.
+    const adds = ctx.world.callsOf('queue.add');
+    const startWrite = ctx.world.record.writes[0];
+    if (adds.length !== 1) p.push(`setup: exactly one add expected; there were ${adds.length}`);
+    else {
+      const key = adds[0].args[2].jobId;
+      if (!startWrite || !Array.isArray(startWrite.history) || !startWrite.history.some((l) => l.action === 'start' && l.key === key)) {
+        p.push(`setup: the start should be written before its add; the first write was ${show(startWrite)}`);
+      } else if (startWrite.history.length !== 10 || startWrite.history.some((l) => l.key === oldest) || has(startWrite.passes, oldest)) {
+        p.push(`setup: the start's write should have pushed the oldest line (and its entry, ${oldest}) out; it held ${startWrite.history.length} lines and ${Object.keys(startWrite.passes || {}).length} entries`);
+      }
+    }
+    const after = recordOf(ctx);
+    if (ctx.world.record.bytes() !== bytes) {
+      const lines = (after && Array.isArray(after.history)) ? after.history : [];
+      const keys = Object.keys((after && after.passes) || {});
+      const lostLines = FULL_KEYS.filter((k) => !lines.some((l) => l && l.key === k));
+      const lostEntries = FULL_KEYS.filter((k) => !keys.includes(k));
+      p.push(`the record should be byte for byte as it was before the start (${adr('Amendment 1 § C')}); it now holds ${lines.length} lines and ${keys.length} entries — lines lost ${show(lostLines)}, entries lost ${show(lostEntries)}, extra entries ${show(keys.filter((k) => !FULL_KEYS.includes(k)))}`);
+    }
+    report(p, 'D6');
+  }));
+});
+
+test('CT66: a stop mark counts only for the execution it was asked for — an admin\'s Stop of a running pass that could not be recorded (recorded: false, so only the in-memory mark knows it), the pass then ends and its job ends (gate.ended); a re-run of the same job id in the same process, after a stall or a BullBoard add under the same id, lists stopAskedAt null while it waits, while it waits for the lock, while it starts and once it runs, and a Stop of it answers asked-to-stop with one SIGTERM to its own pid [ADR 0006 Amendment 1 § C "D5: stopAskedAt, one execution per mark" (a waiting item never; a starting one only when launched no later than the mark; a running one through its runId); story AC-3 "A pass that lines up after a stop was asked for is not covered by it, and can be stopped in its turn"; R2; R3]', async () => {
+  await cases([
+    { name: 'a stall runs it again', again: (ctx, job) => { ctx.q.stall(job.id); } },
+    { name: 'a BullBoard add under the same id', again: async (ctx, job) => { ctx.q.complete(job.id, {}); await addJob(ctx, job.id); } },
+  ], (c) => withCtl('D5', async (ctx) => {
+    const k = await runA(ctx, WHO.owner);
+    const { job, rec } = await runPass(ctx, k);
+    ctx.world.clock.advance(SEC);
+    ctx.world.record.failWrites('ENOSPC');
+    expectStopped(await stop(ctx, WHO.admin, [{ key: k, state: 'running' }]), [{ key: k, how: 'asked-to-stop' }], false, 'D9');
+    const p = itemsProblems((await snap(ctx)).items, [{ key: k, state: 'running', runId: rec.runId, stopAskedAt: T0 + SEC }]).map((x) => `setup, the first execution: ${x}`);
+    ctx.world.endPass({ state: 'stopped' });
+    ctx.ctl.gate.ended(job);
+    ctx.world.record.heal();
+    await c.again(ctx, job);
+    ctx.world.clock.advance(5 * SEC); // past the ended-keys window (FAST_TIMERS.endedKeysMs 2000), so the re-run is not read as its predecessor's finishing window
+    p.push(...itemsProblems((await snap(ctx)).items, [{ key: k, state: 'waiting', stopAskedAt: null }]).map((x) => `the re-run, waiting: ${x}`));
+    const job2 = await heavyWait(ctx, k);
+    p.push(...itemsProblems((await snap(ctx)).items, [{ key: k, state: 'waiting', behind: 'heavy-work', stopAskedAt: null }]).map((x) => `the re-run, waiting for the lock: ${x}`));
+    ctx.world.clock.advance(SEC);
+    await gateCall('afterAcquire', job2, ctx.ctl, 'go');
+    p.push(...itemsProblems((await snap(ctx)).items, [{ key: k, state: 'running', runId: null, stopAskedAt: null }]).map((x) => `the re-run, starting: ${x}`));
+    ctx.world.clock.advance(SEC);
+    const rec2 = ctx.world.startPass({ jobId: k });
+    p.push(...itemsProblems((await snap(ctx)).items, [{ key: k, state: 'running', runId: rec2.runId, stopAskedAt: null }]).map((x) => `the re-run, running: ${x}`));
+    const killsBefore = ctx.world.kills.length;
+    const a = await stop(ctx, WHO.owner, [{ key: k, state: 'running' }]);
+    try { expectStopped(a, [{ key: k, how: 'asked-to-stop' }], true, 'D9'); } catch (e) { p.push(`a Stop of the re-run: ${firstLine(e)}`); }
+    const kills = ctx.world.kills.slice(killsBefore);
+    if (exact(kills) !== exact([{ pid: rec2.process.pid, signal: 'SIGTERM' }])) p.push(`a Stop of the re-run should send one SIGTERM to its own pid ${rec2.process.pid}; it sent ${show(kills)}`);
+    report(p, 'Amendment 1 § C; D5');
+  }));
+});
+
+test('CT67: pruning keeps the run:<runId> entry of a stopped hand run (its jobId null) after its history line has aged out, while that run is still in report.json — the latest run, or one of the previous — so the panel can still say who stopped it; ten later actions push the line out, and the entry stays, with its stop [ADR 0006 Amendment 1 § C "D11: pruning also keeps an entry joined by its stop" (joined when "its stop.runId is that run\'s runId"); D16 "A run\'s stop … under any key"; D9 step 4 "A run: target"]', async () => {
+  await cases([
+    { name: 'the stopped hand run is still the latest', later: () => {} },
+    { name: 'the stopped hand run is now one of the previous', later: (ctx) => { ctx.world.startPass({ jobId: null }); ctx.world.endPass({ state: 'done' }); } },
+  ], (c) => withCtl('D11', async (ctx) => {
+    const rec = ctx.world.startPass({ jobId: null });
+    const key = `run:${rec.runId}`;
+    expectStopped(await stop(ctx, WHO.admin, [{ key, state: 'running' }]), [{ key, how: 'asked-to-stop' }], true, 'D9');
+    const stopAt = iso(T0);
+    ctx.world.endPass({ state: 'stopped' });
+    c.later(ctx);
+    const r = ctx.world.report;
+    const inReport = !!r && [r.latest, ...(r.previous || [])].some((x) => x && x.runId === rec.runId);
+    assert(inReport, `setup: the stopped hand run should still be in report.json; it holds ${show(r && [r.latest, ...(r.previous || [])].map((x) => x && x.runId))}`);
+    for (let i = 0; i < 5; i += 1) {
+      ctx.world.clock.advance(SEC);
+      const k = await runA(ctx, WHO.owner);
+      ctx.world.clock.advance(SEC);
+      expectStopped(await stop(ctx, WHO.owner, [{ key: k, state: 'waiting' }]), [{ key: k, how: 'taken-out-of-line' }], true, 'D9');
+    }
+    const p = [];
+    const lines = historyOf(ctx);
+    if (lines.length !== 10 || lines.some((l) => l && l.key === key)) p.push(`setup: ten later actions should have pushed the hand run's stop line out of the history; it is ${show(lines.map((l) => l && l.key))}`);
+    const rd = recordOf(ctx);
+    const kept = !!rd && !!rd.passes && has(rd.passes, key);
+    if (!kept) p.push(`the hand run's ${key} entry should be kept while its run is in report.json (${adr('Amendment 1 § C')}: joined by its stop.runId); the record's entries are ${show(Object.keys((rd && rd.passes) || {}))}`);
+    else p.push(...entryProblems(ctx, key, { jobId: null, stop: { at: stopAt, runId: rec.runId, who: { ...WHO.admin } } }, 'the hand run\'s stop'));
+    report(p, 'D11');
+  }));
+});
+
+test('CT68: a job id that names a property every object inherits — "__proto__", "constructor" — is an ordinary record entry: the gate\'s start of a job added another way under that id, and a Stop that takes such a job out of line, each write an own entry under that key, read back as its own (the start is not recorded twice; the stopped job is skipped at pickup, after a restart too); Object.prototype gains nothing, and a plain object stays clean [ADR 0006 Amendment 1 § C "D11: entries are own properties" ("Found only as the record\'s own property … Created with Object.defineProperty … never by assignment"), § A "Why it is safe" ("`__proto__`, `constructor` and the like are ordinary entries"); D3; D9]', async () => {
+  const protoNames = () => Object.getOwnPropertyNames(Object.prototype).sort();
+  const fields = ['jobId', 'start', 'stop', 'skip', 'noRerun', 'gaveUpAt'];
+  const ownEntry = (ctx, id) => { const r = recordOf(ctx); return r && r.passes && has(r.passes, id) ? r.passes[id] : null; };
+  await cases([
+    { name: '__proto__', id: '__proto__' },
+    { name: 'constructor', id: 'constructor' },
+  ], async (c) => {
+    // Per case: what Object.prototype held before it, and anything the case added deleted after it, so a regression
+    // in one case is reported there only and cannot leak into the next case or a later test.
+    const before = protoNames();
+    const polluted = () => protoNames().filter((n) => !before.includes(n));
+    try {
+      assert(H.bullmqRejects(c.id) === null, `setup: BullMQ should accept the job id ${c.id}`);
+      const p = [];
+      // The gate's start "another way".
+      await withCtl('D11', async (ctx) => {
+        await addJob(ctx, c.id);
+        const job = pick1(ctx, c.id);
+        const v = await gateCall('beforeAcquire', job, ctx.ctl);
+        if (v !== 'go') p.push(`the gate: a job added another way under ${c.id} should go ahead; beforeAcquire answered ${show(v)}`);
+        const e = ownEntry(ctx, c.id);
+        if (!e || exact(pick(e, ['jobId', 'start'])) !== exact({ jobId: c.id, start: { at: iso(T0), who: { ...WHO.other } } })) {
+          p.push(`the gate: the record should hold an own entry under ${show(c.id)} with its start "another way"; its own keys are ${show(Object.keys((recordOf(ctx) || {}).passes || {}))} and the entry is ${show(e)}`);
+        }
+        await gateCall('afterAcquire', job, ctx.ctl);
+        ctx.q.complete(job.id, {});
+        ctx.ctl.gate.ended(job);
+        const writes = count(ctx, 'writeRecord');
+        await addJob(ctx, c.id);
+        await gateCall('beforeAcquire', pick1(ctx, c.id), ctx.ctl);
+        if (count(ctx, 'writeRecord') !== writes) p.push(`the gate: its entry, read back as its own, already has a start, so a second pickup records none; it wrote ${count(ctx, 'writeRecord') - writes} time(s)`);
+      });
+      // A Stop that takes such a job out of line.
+      await withCtl('D9', async (ctx) => {
+        await addJob(ctx, c.id);
+        const items = (await snap(ctx)).items;
+        p.push(...itemsProblems(items, [{ key: c.id, state: 'waiting', stopAskedAt: null, startRecorded: false }]).map((x) => `the Stop: before it, ${x}`));
+        ctx.world.clock.advance(SEC);
+        try { expectStopped(await stop(ctx, WHO.admin, [{ key: c.id, state: 'waiting' }]), [{ key: c.id, how: 'taken-out-of-line' }], true, 'D9'); } catch (e) { p.push(`the Stop: ${firstLine(e)}`); }
+        const e = ownEntry(ctx, c.id);
+        if (!e || e.skip !== true || !e.stop || exact(e.stop.who) !== exact(WHO.admin)) p.push(`the Stop: the record should hold an own entry under ${show(c.id)} with skip true and the admin's stop; it is ${show(e)}`);
+        const ctl2 = restart(ctx);
+        const v = await gateCall('beforeAcquire', pick1(ctx, c.id), ctl2);
+        if (v !== 'skip') p.push(`the Stop: after a restart, the record's own entry should make its pickup skip; beforeAcquire answered ${show(v)}`);
+      });
+      const extra = polluted();
+      if (extra.length) p.push(`Object.prototype gained ${show(extra)}`);
+      const plain = {};
+      const leaked = fields.filter((f) => plain[f] !== undefined);
+      if (leaked.length) p.push(`a plain object {} now reads ${show(leaked)} through its prototype`);
+      report(p, 'Amendment 1 § C; D11');
+    } finally {
+      for (const n of polluted()) delete Object.prototype[n];
+    }
   });
 });
 

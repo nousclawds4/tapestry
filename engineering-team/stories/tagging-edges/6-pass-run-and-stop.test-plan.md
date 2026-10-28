@@ -8,17 +8,17 @@
 
 | Suite | Story 6's tests | Level |
 |---|---|---|
-| `test/tagging-edges-pass-control.test.js` (new) | CT1–CT64, with CT8b, CT55b and CT58b | component: one `createController(deps)` instance over the shared fakes. CT2 runs in a child process; CT57 uses the real store on a temp dir |
+| `test/tagging-edges-pass-control.test.js` (new) | CT1–CT68, with CT8b, CT55b and CT58b (CT65–CT68 added after Implementation) | component: one `createController(deps)` instance over the shared fakes. CT2 runs in a child process; CT57 uses the real store on a temp dir |
 | `test/task-queue-job-gate.test.js` (new) | JG0–JG26 (JG0: the shared fakes' self-check) | module (JG1–JG4); queue integration (JG5–JG8: the real semaphore over a fake Redis; JG9–JG13: the real `initTaskQueue` over `require.cache` stand-ins); component (JG14–JG26) |
-| `test/tagging-edges-pass-routes.test.js` (new) | PX1–PX38, with PX6b | handler with injected deps (PX1–PX31); child process (PX32: `pass.js`'s real defaults; PX33–PX37: the real `authMiddleware` in front of the real `handleRunTask`) |
+| `test/tagging-edges-pass-routes.test.js` (new) | PX1–PX39, with PX6b (PX21 revised and PX39 added after Implementation) | handler with injected deps (PX1–PX31, PX39); child process (PX32: `pass.js`'s real defaults; PX33–PX37: the real `authMiddleware` in front of the real `handleRunTask`) |
 | `test/tagging-edges-wiring.test.js` | SWR75–SWR84 | source pin (SWR75, SWR77); module (SWR76); child process (SWR78–SWR84) |
 | `test/tagging-edges-state-routes.test.js` | RT17, RT18, RT19 (revised); RT32–RT38 | handler |
 | `test/tagging-edges-runner.test.js` | SR1, SR50, SR68, SR69 (revised); SR78–SR87 | unit over injected ports; SR82 runs in a child process |
 | `test/tagging-pipeline-codes.test.js` | PC1, PC3, PC42 (revised titles); PC54's floors (`codeValues`, `codeValueLiterals`) | source pin |
-| `test/tagging-pipeline-view.test.js` | TV83–TV108 | unit, pure and clock-free |
+| `test/tagging-pipeline-view.test.js` | TV83–TV110 (TV90 revised and TV109–TV110 added after Implementation) | unit, pure and clock-free |
 | `test/tagging-pipeline-fetch.test.js` | TF25–TF31 | unit, with an injected `fetchImpl` |
-| `test/tagging-pipeline-panel-source.test.js` | PS13, PS14, PS28 (revised); PS29–PS36 | source pin |
-| `tests/brainstorm/tagging-pipeline-panel.spec.js` | B9, B10, B38 (revised); B83–B115 | browser (Playwright on the rebuilt UI, every `/api` route mocked) |
+| `test/tagging-pipeline-panel-source.test.js` | PS13, PS14, PS28 (revised); PS29–PS38 (PS37–PS38 added after Implementation) | source pin |
+| `tests/brainstorm/tagging-pipeline-panel.spec.js` | B9, B10, B38 (revised); B83–B117 (B116–B117 added after Implementation) | browser (Playwright on the rebuilt UI, every `/api` route mocked) |
 | `test/tagging-edges-switch-record.test.js` | the header comment and SR34's in-test comment (C5-2) | comments only |
 | `test/tagging-edges-realtime-engine.test.js` | RE70b (a pass that ended `stopped` still gets its catch-up); `test/helpers/taggingEdgesRealtimeFakes.js`'s `w.passEnd` gains defaults equal to today's values | component |
 
@@ -96,6 +96,26 @@ Two suites use the prefix `SR`. Below, "SR" means the runner suite, and the swit
 | AC-5, a schedule's start whose record write failed goes ahead and reads "not recorded" (`startRecorded: false`) | CT55b | pass-control | component |
 | D2, the default `randomKey` gives a whole `LINEUP_ID` that BullMQ accepts, distinct per start | CT8b | pass-control | component |
 
+**Added after Implementation (2026-10-28)** — the owner's two decisions on the implemented story: "Widen the rule"
+(ADR 0006 Amendment 1 § A, § B) and "Add them now" (pins for the readings Amendment 1 § C ratified, which the
+Implementer's own check changed after Test Design: story § Deviations, last group):
+
+| Criterion or reading | Test ids | Test file | Level |
+|---|---|---|---|
+| Amendment 1 § A: Stop's key is any string of 1 to 256 code units with no control character and no U+2028 or U+2029; both sides of each boundary; the 400 names the new rule | PX21 (revised) | pass-routes | handler |
+| Amendment 1 § A, end to end: a job added another way under an id the old rule refused but BullMQ accepts (`manual run`, `job/1`, 130 characters) is listed busy; a Stop naming it with the pass's other open items answers 200, each taken out of line and recorded under its own key; the gate skips each at pickup, and one waiting for the heavy-task lock abandons its wait | PX39 | pass-routes | handler, through the real controller and gate over the fake queue (BullMQ's own id rule) |
+| § C, D6 step 3 and D8: a Run's or the confirm route's start whose add is refused or times out, over a record at the history's cap (10 lines, 10 entries), leaves the record byte for byte as before | CT65 | pass-control | component |
+| § C, D5: a stop mark covers only its own execution — after a Stop recorded: false and gate.ended, a re-run of the same job id (a stall; a BullBoard add) lists stopAskedAt null waiting, waiting for the lock, starting and running, and a Stop of it answers asked-to-stop with one SIGTERM to its own pid | CT66 | pass-control | component |
+| § C, D11: pruning keeps a stopped hand run's `run:<runId>` entry (jobId null) after its history line ages out, while the run is latest or previous in report.json | CT67 | pass-control | component |
+| § C, D11: job ids `__proto__` and `constructor` are own record entries, through the gate's start "another way" and through a Stop (read back after a restart); Object.prototype gains nothing | CT68 | pass-control | component |
+| § C, D17: a read that cannot tell (control.queue `read-failed`; no control member) never closes an open Stop prompt; a known, empty read then does | B116; PS37 | spec; panel-source | browser; source pin |
+| § C, D16: a busy running item with a run, served beside status.running false (D5's 1 s reuse), never says "Stopped on request" or "ended first" beside "Running since" | TV109 | view | unit |
+| § Deviations (the Implementer's under D17): focus inside PassControls survives the empty-to-ready switch — Cancel, "Stop the pass" and "Run a pass now" | B117; PS38 | spec; panel-source | browser; source pin |
+| § Deviations (copy): the plural too-late sentence never says "some" when every target came too late | TV110 | view | unit |
+| § Deviations (copy): "asked to stop" in the past tense — every sentence of an accepted Stop's text is checked | TV90 (revised) | view | unit |
+
+Amendment 1 § B's residual R9 needs no test of its own (the ADR says so); PX21's boundary cases cover its 400.
+
 ### ADR 0006, by decision group
 
 | Decision | Test ids | Test file | Level |
@@ -159,6 +179,9 @@ Two suites use the prefix `SR`. Below, "SR" means the runner suite, and the swit
 | PS28 | names the three senders | fails |
 | B9; B10; B38 | the empty-state line names Run; the no-confirm message names story 7 (title unchanged); the allowed reads gain the pass record (at least 6 reads a minute), still no non-GET for a viewer who never presses | B9 and B38 fail; B10 passes |
 | TF1 | unchanged: every read sends GET | passes |
+| PX21 *(revised 2026-10-28)* | D9's key rule as amended by ADR 0006 Amendment 1 § A: 1 to 256 UTF-16 code units, no U+0000–U+001F, U+007F–U+009F, U+2028 or U+2029; both sides of each boundary (Edge cases above); the 400's sentence names 256, not 120. The header's "Body validation" choice now pins the empty key too | fails against `ca504c42` (the old rule's 400) |
+| `F.applyStop` (`test/helpers/taggingPipelineFixtures.js`) *(revised 2026-10-28)* | the browser mock's Stop body check follows Amendment 1 § A (`isStopKey`, written with ASCII escapes) | no browser test sends a key outside the old rule, so no B test changes status |
+| TV90 *(revised 2026-10-28)* | every sentence of each accepted Stop's text must hold a past-tense verb (`pastProblems`), for one pass, two passes of each `how`, a waiting and a running pass, and an unrecorded Stop; it had read only the whole text, so "It stops at its next safe point." beside a past sentence passed | passes at `ca504c42`; fails with that sentence put back (Verification) |
 
 Pins that pass now, by design: JG0 (the fakes' self-check), JG8, JG13, PX37, RT19, SR87, PC3, PC42, PC54, RE70b, B10, and B58 (title only). Each pins behaviour story 6 must keep, or a floor that holds before and after.
 
@@ -190,7 +213,7 @@ Pins that pass now, by design: JG0 (the fakes' self-check), JG8, JG13, PX37, RT1
 - [x] A running pass stopped while the queue cannot be read (CT48, TV86).
 - [x] A stopped run whose start was not recorded; a stopped hand run with no job id; a signal no one recorded (TV103, B103).
 - [x] A first pass waits, and Run is pressed, with no report yet (CT26, B89).
-- [x] Body rules at each boundary (one and fifty targets, a 120-character key, the allowed characters), and `{}` only for Run (PX5, PX21).
+- [x] Body rules at each boundary, and `{}` only for Run (PX5, PX21). *(Revised 2026-10-28 for ADR 0006 Amendment 1 § A, which superseded D9's "at most 120 characters of `[A-Za-z0-9:._@-]`".)* PX21 now pins one and fifty targets (0 and 51 refused); keys of 1 and 256 UTF-16 code units and 128 emoji accepted, and 0, 257 and 128 emoji plus one refused; `manual run`, `job/1`, `__proto__`, `constructor`, U+0020, U+007E, U+00A0, U+2027, U+202A, U+200B, U+FEFF, a lone surrogate and six characters the old rule refused, all accepted; U+0000, U+0009, U+000A, U+000D, U+001F, U+007F, U+0080, U+0085, U+009F, U+2028 and U+2029 refused at a key's start, inside it and at its end; keys distinct as they are (case, a trailing space and normalisation each make a distinct key; the same key twice is refused); fifty 256-unit keys accepted; and the 400's sentence names 256, not 120.
 - [x] Odd thrown codes reach no answer; `cause` is allow-listed (PX12, PX26, PX30, CT27).
 - [x] Query forms `taskName[]` and `taskName[0]` reach the branch; nothing starts this pass outside it (PX36).
 - [x] An owner key that `OWNER_RE` rejects but the middleware admits (PX15).
@@ -294,6 +317,12 @@ choice is stated in that suite's header. The ones an Implementer will meet:
 - **An early SIGTERM is honoured at the existing first safe point** (SR78). No new check point is added before running
   begins.
 - **`passWho`'s answer carries each run's `runId` and each busy item's `key`**, so a join can be found.
+- **Stop's key rule is Amendment 1 § A's** (2026-10-28): length is `key.length` (UTF-16 code units), and the
+  forbidden set is exactly U+0000–U+001F, U+007F–U+009F, U+2028 and U+2029. The 400's wording is the Implementer's;
+  PX21 asks only that it names 256 and not 120. Every test file builds such characters from code points or writes
+  them as ASCII escapes, never raw (a raw U+2028 in a regex literal is a SyntaxError).
+- **The pins added after Implementation read the as-built code's contract, not its form,** except PS37 and PS38,
+  which are the source halves of B116 and B117 (the browser lane is not in CI).
 - **Story 4's and 5's status fixtures carry no `control`.** Once the panel is built, those tests show "the server cannot
   tell whether a pass is waiting", which D16 requires for an absent member.
 
@@ -339,3 +368,70 @@ absent. Confirmed on 2026-10-28, on `6ffd0516` plus the uncommitted tests, throu
 - **The pre-story full-gate baseline** is run `20261028T002652Z-23104-e887` (`[story6-baseline]`, at `cb7fe4f8` on Node
   22.23.3): 6,460 passed, 38 failed, 170 skipped, 312 suites. Its 16 failing suites are this host's live-stack failures,
   for comparing suite by suite after Implementation.
+
+### After Implementation (2026-10-28): ADR 0006 Amendment 1, and the pins for the Implementer's own check
+
+Run on `ca504c42` plus the uncommitted test changes, through each suite's `run()` on Node 22.23.3, twice for the four
+changed suites with identical results.
+
+**Red phase for "Widen the rule" (Amendment 1 § A).** Only PX21 and PX39 fail, each because `pass.js` still applies
+D9's old rule. Every refusing case of PX21 already answers 400 under the old rule. 21 of its 30 accepting cases fail,
+all of them keys outside `[A-Za-z0-9:._@-]{1,120}`, along with the 400's sentence. Excerpts:
+
+```
+FAIL  PX21: … the 400's error sentence should name the amended key rule (1 to 256 characters) and not D9's old 120
+      (ADR tagging-edges/0006 Amendment 1 § A); it is "the body must be {\"targets\": [{\"key\": …, \"state\": \"waiting\" |
+      \"running\"}]}, 1 to 50 distinct keys of at most 120 characters of A-Z a-z 0-9 : . _ @ -"
+      the id "manual run": should pass validation and, with nothing busy, answer 409 nothing-to-stop (ADR tagging-edges/0006
+      Amendment 1 § A; D9 step 2); it answered 400 {"error":"the body must be … at most 120 characters of A-Z a-z 0-9 : . _ @ -", …}
+      the id "manual run": the chain step never ran
+FAIL  PX39: … 2 of 2 case(s) failed:
+      [the odd jobs wait in line beside the owner's pass] the admin's Stop naming every open item should answer 200 (ADR
+      tagging-edges/0006 Amendment 1 § A: the server only compares a key with its own busy list); it answered 400 {"error":
+      "the body must be … at most 120 characters …"}
+      [one odd job was picked up and waits for the heavy-task lock, the others wait in line behind it] … it answered 400 …
+```
+
+The tests can be met: with Amendment 1 § A's predicate patched into a scratch worktree's `pass.js` (and a 400 sentence
+naming 256), PX21 and PX39 pass and the routes suite is 40 / 0.
+
+| Suite | Pass | Fail | Skipped | Failing |
+|---|---|---|---|---|
+| tagging-edges-pass-control | 71 | 0 | 0 | — |
+| task-queue-job-gate | 27 | 0 | 0 | — |
+| tagging-edges-pass-routes | 38 | 2 | 0 | PX21, PX39 (red phase) |
+| tagging-edges-wiring | 84 | 0 | 0 | — |
+| tagging-edges-state-routes | 62 | 0 | 0 | — |
+| tagging-edges-runner | 87 | 0 | 0 | — |
+| tagging-pipeline-codes | 54 | 0 | 0 | — |
+| tagging-pipeline-view | 110 | 0 | 0 | — |
+| tagging-pipeline-fetch | 31 | 0 | 0 | — |
+| tagging-pipeline-panel-source | 38 | 0 | 0 | — |
+| tagging-edges-switch-record | 47 | 0 | 0 | — |
+| tagging-edges-realtime-engine | 83 | 0 | 0 | — |
+| the fakes' self-check | 19 | 0 | — | — |
+
+**Teeth for "Add them now".** Each new pin passes at `ca504c42`. In a scratch worktree at `ca504c42`, with the new
+tests copied in, only that pin's fix was undone by hand (the lines named below), its suite was run, and the file was
+restored with `git checkout` inside the worktree before the next one. Each undone fix failed only its own new test.
+The older pins named in the last column stayed green, which is the gap each new pin closes.
+
+| Pin | Fix undone (the as-built line, then the reverted form) | Failing message | Older pins, still green |
+|---|---|---|---|
+| CT65 | `takeBack(prior)` writing back `prior.passes` and `prior.history` → `takeBack(key)` deleting only the start's entry and its line, at both call sites | 4 of 4 cases: "the record should be byte for byte as it was before the start … it now holds 9 lines and 9 entries — lines lost ["reconcileTaggingEdges-a00000000258"], entries lost [the same]" | CT28, CT33 |
+| CT66 | `stopAskedOf`'s `mine = !!mark && it.state === 'running' && (runId … : since ≤ mark)` → `mine = !!mark` | both cases: "the re-run, waiting / waiting for the lock / starting / running: stopAskedAt should be null; it is 2026-10-27T12:00:01.000Z"; "a Stop of the re-run … answered 409 nothing-to-stop"; "should send one SIGTERM to its own pid 5002; it sent []" | CT21, CT37, CT40 |
+| CT67 | `prune`'s `joined` loses its `stop.runId` clause | both cases (latest; previous): "the hand run's run:20261027T120000Z-… entry should be kept while its run is in report.json … the record's entries are [the five Run keys]" | CT53, CT54 |
+| CT68 | `entryAt` without `hasOwnProperty`; `entryIn` assigning `r.passes[key] = …` instead of `Object.defineProperty` | `__proto__`: "the record should hold an own entry under "__proto__" … its own keys are []"; "startRecorded should be false; it is true"; "Object.prototype gained ["skip","start","stop"]"; "a plain object {} now reads ["start","stop","skip"] through its prototype". `constructor` passes either way (an own data property was always assigned), so `__proto__` carries the teeth | CT51 |
+| PS37 | `nothingBusy = !!busy && busy.known && …` → `!!busy && busy.items.length === 0` | "TaggingPipelinePanel.jsx:202: this effect clears the Stop prompt without reading busyView's known (deps ["nothingBusy"])" | — |
+| B116 | the same, in a copy of the built bundle (`q=!!I&&I.known&&I.items.length===0` → `q=!!I&&I.items.length===0`), served from the scratch folder | "a poll whose queue read failed: the prompt stays open … toBeVisible() failed … element(s) not found" | B115 |
+| TV109 | `passWho`'s busy item `runWho(run, entries, true)` → `runWho(run, entries, isLive(run))` | "the running item … must not read as ended beside its "Running since" line …; it says ["Stopped on request by an admin (ab12cd34…) at"]" | TV105 |
+| PS38 | both `<PassControls key="pass-controls" …>` → no key | "PassSection.jsx:191: <PassControls> carries no string-literal key; PassSection.jsx:208: …" | PS29 |
+| B117 | the same, in a copy of the built bundle (both `t.jsx(ZO,{…},"pass-controls")` → no third argument) | case 2: ""Stop the pass" keeps focus across the switch … toBeFocused() failed … Received: inactive". Case 1 (Cancel) passes either way, because a remounted prompt focuses its Cancel again; that is why cases 2 and 3 exist. Case 3 alone (a scratch copy of the spec without cases 1 and 2): ""Run a pass now" keeps focus across the switch … Received: inactive" | B89 |
+| TV110 | the plural too-late sentence → "Some stops came too late to take effect: …" | "stopOutcome(200, 2 too-late) [and 3]: every target came too late, so the sentence must not say "some"" | TV90 |
+| TV90 (revised) | the singular asked-to-stop sentence → "The running pass was asked to stop. It stops at its next safe point." | "every sentence must be in the past tense (D16); these are not: ["It stops at its next safe point."]", for one pass, a waiting and a running pass, and recorded false. TV90 as it stood at `ca504c42` passes with that sentence (108 / 0) | — |
+
+**The browser spec** ran once on Chromium against the current UI (`ui/src` at `ca504c42`), built in the container into
+`tmp/tp-dist`: 120 passed and 1 failed. The failure is B39, which was failing before this story (ledger
+`2026-10-28-relay-subtab-baseline-stale`). B116 and B117 pass. `tmp/tp-dist` was removed afterwards. The browser teeth
+used copies of that build in the scratch folder, each with one fix undone in the minified bundle, served on their own
+ports. No source file was changed.
