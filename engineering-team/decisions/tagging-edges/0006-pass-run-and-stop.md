@@ -387,6 +387,15 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
   the seed backstop's job ids are `repeat:sched:seed:reconcileTaggingEdges:<millis>`.
 - **`jobIdOf(key)`** returns the key unchanged, except for a legacy key, where it returns `reconcileTaggingEdges`.
   Every comparison with a report's `job.id` uses `jobIdOf`, never the key.
+  *(Amended at story 6's review fix round, 2026-10-28: the rule above is replaced by "Every comparison with a report's
+  `job.id` uses the busy item's own `jobId` — the queue job's id, or for a live pass the report's — never the key."
+  A stop entry's `jobId` is the item's own as well. D5's finishing-window check is one such comparison: it uses the
+  id of the job being classified, the `jobId` it is listed with when busy, not the `jobId` of the gate's phase
+  under the key (D5's note). Pruning (D11) compares a run's `job.id` with the `jobId` an entry recorded, which was a
+  job's own id when written. `jobIdOf` is gone. It was a prefix test, so it read a queue-dashboard id such as
+  `reconcileTaggingEdges@x`, which is its own key, as the legacy id. A Stop of such a running pass answered
+  `too-late` without a signal, and every later Stop answered `nothing-to-stop` (review blocking 1). The key scheme
+  above stays. The one pair of jobs it cannot tell apart is R9 (d), Amendment 1 § B.)*
 - **A new export in `queue/index.js`.** `queueHealth()` returns `'off'` when `_state` is null, `'ready'` when
   `_state.redis.status === 'ready'`, and `'not-ready'` otherwise. It issues no Redis command. The existing exports stay.
 
@@ -492,6 +501,10 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
   4. for each running item with a `runId`, `listClaimed(runId)`.
 
   It computes D12's confirmation verdict from these reads. The verdict is cached and served with the snapshot.
+  *(Amended at story 6's review fix round, 2026-10-28: as built, step 2 only loads the record, on first use. The
+  in-memory marks (`phases`, `skips`, `noRerun`, `stopsAsked`, `endedKeys`) are read at classification, after the
+  queue reads, so a gate step or a Stop that lands during those reads is seen. Each later read sees fresher state, so
+  the order is sound. The I/O order above is unchanged, and CT11 still pins it.)*
 - **`queue`** is `'ok'`, `'off'` (`queueHealth` off), `'not-ready'`, or `'read-failed'` (a throw or a time-out).
 - **Liveness comes first.** A live `latest` (`endedAt` null, `isAlive`) is a `running` item, whatever the queue read
   found. Its key is, in order:
@@ -521,6 +534,8 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
     - if `latest.job.id === phases.jobId` and `latest.startedAt` is no earlier than `phases.since`, and that run has
       ended (`endedAt` set, or not alive) → the job is **ending** (the finishing window): not busy, and not listed. A
       live one already matched under "Liveness comes first";
+      *(Amended at story 6's review fix round, 2026-10-28: `latest.job.id` equal to the classified job's own id, not
+      the phase's `jobId`; see D2's note.)*
     - else, if the key is in `endedKeys` → ending;
     - otherwise → `running`, starting: `since: phases.since`, `runId: null`.
   - **Active with no phase.** This process's gate has not yet seen this execution. Either it is a pickup whose
@@ -647,10 +662,14 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
      - **No pid yet.** A target with no `runId` (starting) is waited for: up to `PID_WAIT_MS = 3000`, re-reading
        `report.json` every 100 ms for a live `latest` whose `job.id === jobIdOf(key)`. When `phases[key]` exists, its
        `startedAt` must also be no earlier than `phases[key].since`.
+       *(Amended at story 6's review fix round, 2026-10-28: `job.id` equal to the target item's own `jobId`, not
+       `jobIdOf(key)`; see D2's note.)*
      - **The wait ends early in two cases:**
        - **Already ended.** A record for this execution shows it has ended: `job.id === jobIdOf(key)`, `startedAt` no
          earlier than `phases[key].since`, and `endedAt` set or not alive. The target is too late. It goes on to step
          4 with `how: 'too-late'`: its stop is recorded, with that record's `runId`, and no signal is sent.
+         *(Amended at story 6's review fix round, 2026-10-28: `job.id` equal to the item's own `jobId`; see D2's
+         note.)*
        - **Ended with no report.** The key reaches `endedKeys` with no such record (the job ended without writing a
          run). The target is left out, as in step 2. If no target is left, answer 409 `nothing-to-stop`.
      - **If neither happens within `PID_WAIT_MS`**: 409 `{code: 'pass-not-reachable'}`. Nothing changes.
@@ -672,6 +691,8 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
        - re-read `report.json`;
        - require `latest.job.id === jobIdOf(key)` (or `latest.runId` for a `run:` key), the same `startedAt` rule as
          step 3, `latest.endedAt == null`, and `state.isAlive(latest.process)`;
+         *(Amended at story 6's review fix round, 2026-10-28: `latest.job.id` equal to the item's own `jobId`; see
+         D2's note.)*
        - then `process.kill(pid, 'SIGTERM')`.
 
        If the pass has ended by then, or `kill` throws `ESRCH`, the stop came too late. The record keeps the stop, and
@@ -718,6 +739,14 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
   routes, and nothing more (§ Constraints).
 - **The processor.** `processor.js:137`'s spawn environment gains `BRAINSTORM_TASK_JOB_ID: String(job.id)` for every
   task. It is harmless elsewhere: no route serves another process's environment, and it is not in `brainstorm.conf`.
+  *(Amended at story 6's review fix round, 2026-10-28: the processor leaves `BRAINSTORM_TASK_JOB_ID` out when
+  `String(job.id)` contains a NUL, which Node refuses in an environment value (`ERR_INVALID_ARG_VALUE`), or is
+  longer than 200 characters (UTF-16 code units, `String.prototype.length`), the pattern's bound above. The length
+  bound closes a corner found while checking this note: Linux refuses any one environment string of 128 KiB or more
+  (`E2BIG`, checked in the container), and BullMQ 5.76.10's own check accepts an id that long. A job of any task with
+  such an id launches as it did before story 6, and the pass records `job: null`. The pass is the variable's only
+  reader, and the pattern refuses both kinds of id, so nothing is lost. So "harmless elsewhere" holds without
+  exception, and so does § Constraints' "leave every other task's behaviour unchanged".)*
 - **Old reports.** A report from before story 6 has no `job`. The view reads that as "start not recorded".
 
 **D11. The record: `<stateDir>/control/record.json`.**
@@ -771,6 +800,12 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
     and it carries no who.
   - **Times.** Every time on `control` is an ISO string, converted by the server: `since`, `stopAskedAt`, and
     `gaveUp.at`.
+    *(Amended at story 6's review fix round, 2026-10-28: a time outside a JavaScript Date's range, such as the
+    millis of a scheduled-shaped id or a job timestamp from an add outside the app, converts to null rather than
+    throwing, so a busy item with one is served `since: null`, a Stop leaves out a schedule start it cannot date, and
+    neither the snapshot nor any record write fails on it. `stopAskedAt` and `gaveUp.at` go through the same
+    conversion. Either converts to null only from a hand-edited record, because the controller writes ISO strings. A
+    `stopAskedAt` of null reads as no stop asked.)*
 - **`confirmation`** is set only on a running item, and only when a confirmation is involved:
   - `'taken-up'` when `listClaimed(runId)` finds a `${runId}-*.json` entry in `claimed/`, or
     `latest.confirmation.found === true`;
@@ -1400,6 +1435,27 @@ than 200 characters. Only a BullBoard add makes such an id.
 - **Not decided here.** Aligning D10's pattern with § A's rule would let rule 1 match the job, which would end the
   double listing. That changes what the public report may carry (§ Constraints), so it is the owner's call.
 
+**(d) Found at story 6's review fix round (2026-10-28): two busy jobs with one key.** D2 keys a job with the legacy
+fixed id `reconcileTaggingEdges` (R7) as `reconcileTaggingEdges@<timestamp>`, and every other job by its own id. So a
+job whose id is `reconcileTaggingEdges@<digits>` has the same key as a legacy job whose timestamp is those digits.
+Both arise only outside the app: the first from a BullBoard add (R3), the second from a BullBoard add or a job from
+before story 6.
+- **What a reader sees.** While both are busy, the status lists two items under one key. They share every in-memory
+  mark and the record's entry for that key (D1, D11), so what is marked or recorded for one counts for the other.
+  - **From the panel,** every Stop names that key twice and answers 400 (§ A: keys are distinct), shown as
+    `http-400`, as for (a). It changes nothing.
+  - **A client that names the key once** gets 409 `prompt-out-of-date` when the two show different states. When
+    both are waiting, it takes both out of line.
+- **The way out** is BullBoard, as for (a): remove the dashboard job there before the worker picks it up. Once it
+  has been picked up it cannot be removed (probe P5), so wait for it, or for the legacy job, to end.
+- **Why matching only `@<digits>` would not remove it.** One key stands for both jobs, so no rule that maps a key to
+  a job id can be right for both. A `jobIdOf` that read only `reconcileTaggingEdges@<digits>` as legacy would still
+  have misread this dashboard job, and a Stop of it while it ran would still have answered `too-late` without a
+  signal. The item's own `jobId` comes from the job, and so does the classified job's id in D5's finishing-window
+  check. So each comparison of a report's `job.id` with a job is right for both jobs (D2's note). Only the key, and
+  what is keyed by it, is shared: the in-memory marks, among them the gate's phase, whose `since` the `startedAt`
+  rules read (D5, D9 step 3), and the record's entry, whose first-written `jobId` pruning reads (D11).
+
 R9 is a residual and needs no test of its own. § A's boundary cases cover the 400.
 
 ### C. The as-built readings, ratified (the Implementer's own check, 2026-10-28)
@@ -1498,5 +1554,10 @@ note.
 
 - **What a Stop can now name.** Every busy job the app makes. Also any job a BullBoard add makes whose key is at most
   256 code units with no forbidden character, waiting or running, apart from R9 (c).
+  *(Amended at story 6's review fix round, 2026-10-28: as built at `5ee2ba47` this was false for a BullBoard
+  id that starts `reconcileTaggingEdges@`: a Stop of such a job while it ran answered `too-late` and sent no signal,
+  and while it was starting answered `pass-not-reachable` (D2's note). With D2's rule as amended it reads: every busy
+  job the app makes, and any job a BullBoard add makes whose key is at most 256 code units with no forbidden
+  character, waiting or running, apart from R9 (c) and (d).)*
 - **What does not change:** the public status, the record's shape, the panel, and every other route.
 - **Firmware reinstall required?** No. No concept definition changes.

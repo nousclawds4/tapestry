@@ -835,6 +835,11 @@ carries today, and the pass mints its own.
     - So `no-status` is a fault in the schema check's own code, including what that code passes to the driver, or in
       a library other than the driver. It never comes from Neo4j's answer.
     - Its sentence says so, and points at reporting a bug, not at Neo4j.)*
+    *(Amended by `tagging-edges/0006` at story 6's review fix round, 2026-10-28: the driver's code-less errors
+    also come from a fault in the driver itself. So `no-status` is a fault in the schema check's own code (what it
+    passes to the driver included), in the driver itself, or in another library, and still never comes from Neo4j's
+    answer. C5-6 was taken at story 6, and the panel's `no-status` sentence now says so
+    (`ui/src/utils/taggingPipelineView.js:220`).)*
   - **Reads:** `incomplete`, `missing-column` and `uniqueness-not-holding` (`:388-408`, `:421`).
   - **The rest:** `plan-error` (`:436`), `invariant` (`graph.js:164-166`), `signal` (`:310`) and `error` (the
     fallback at `:394`, `:405`, `:423`, `:487`, `:588`). *(Amended at story 5's Architecture, 2026-10-01; ADR `tagging-edges/0005`, R2-1 and R2-9.)*

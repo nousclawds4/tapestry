@@ -730,6 +730,8 @@ acceptance criteria, and Open question 5, the owner's decision 5 ("It ships turn
     configuration (`internal/util.js:142`, `:207`, `:221`; `driver.js:822-910`).
   - So `no-status` is a fault in the schema check's own code, including what that code passes to the driver, or in
     a library other than the driver. It never comes from Neo4j's answer.
+    *(Amended by `tagging-edges/0006`, 2026-10-28, at story 6's review fix round: the code-less error also comes
+    from a fault in the driver itself; see `tagging-edges/0004` T12's note of that date.)*
   - Its sentence says so, and points at reporting a bug, not at Neo4j.
 - **`:789-790`, T12's "The rest" (R2-1, R2-9).**
   - **The driver's own `N/A` and `ProtocolError`** (`error.js:86-96`) reach `failure.code` raw at any graph stage.
