@@ -1,19 +1,22 @@
 /**
  * The view model for the Tagging pipeline panel (tagging-edges Story 4 / ADR tagging-edges/0004 § UI; Story 5 /
- * ADR tagging-edges/0005 D7, D8, D12, D14).
+ * ADR tagging-edges/0005 D7, D8, D12, D14; Story 6 / ADR tagging-edges/0006 D16).
  *
  * Every derivation the panel shows lives here, so the Node gate can import it without a React runner
  * (the nextTaskCountdown.js precedent): which pass is running (by liveness, never by the stored outcome),
  * the newest finished pass, the path's figures against "not yet available", the backstop schedule's
  * verdict, the drift arithmetic, and the code-to-sentence table with its "not recognised" fallback. For
  * the real-time path's switch (story 5): the starting window, which off prompt to show, the warning beside
- * "Turn on", what a change's answer means, and the record of who switched the path.
+ * "Turn on", what a change's answer means, and the record of who switched the path. For running and stopping the
+ * pass (story 6): the busy passes, what a Run's or a Stop's answer means, the Stop prompt's text, and who started or
+ * stopped each pass.
  *
  * Inputs are the bodies of the public reads (GET /api/tagging-edges/status, /realtime/status,
- * /api/scheduled-tasks/list), of the gated GET /api/tagging-edges/drift-counts and /realtime/switch, and
- * readSection's and sendSwitch's results. Nothing here reads a clock: what is stale or expired, and whether
- * the path is still in its starting window, is the server's verdict, passed through. Results carry a tone
- * (ok | warn | bad | neutral), never a colour; the panel maps tones to design tokens.
+ * /api/scheduled-tasks/list), of the gated GET /api/tagging-edges/drift-counts, /realtime/switch and
+ * /api/tagging-edges/pass/record, and readSection's, sendSwitch's, sendRun's and sendStop's results. Nothing here
+ * reads a clock: what is stale or expired, and whether the path is still in its starting window, is the server's
+ * verdict, passed through. Results carry a tone (ok | warn | bad | neutral), never a colour; the panel maps tones to
+ * design tokens.
  *
  * Plain ESM with Node 16 syntax and built-ins only, so the host gate can import it.
  */
@@ -39,6 +42,7 @@ export const EXPLANATIONS = Object.freeze({
     'done-removals-held': 'The pass finished, but more removals were due than the safety limit allows, so it held all of them for the owner to confirm. On a run the owner had confirmed, it held every removal the owner had not confirmed. It made the other changes it could.',
     refused: 'A start check failed, so the pass changed no relationship or person. The reason says which check.',
     failed: 'The pass ended before it finished. The reason says where, and the next pass repairs what it left.',
+    stopped: 'The pass stopped on request at a safe point between its steps or its write batches. Everything it wrote before then stands, and the next pass finishes the rest.',
   }),
   // The pass's reason code (refuse(…), fail(…) and reasonCode: …).
   passReason: Object.freeze({
@@ -52,6 +56,7 @@ export const EXPLANATIONS = Object.freeze({
     error: 'A fault in the pass\'s own code ended it. Its error message, shown under where it failed, has the details. The next pass tries again. If it repeats, report it as a bug.',
     stopped: 'The pass never recorded its end. Either it reached its end but could not write its final report to the data volume, or a time-out, a container restart or a deploy stopped it before it finished. Check first that the data volume has free space and is writable, and free space if it is full. Then run the pass again: the next pass repairs anything it left. When the report write failed, the pass\'s TASK_ERROR event in /var/log/brainstorm/taskQueue/events.jsonl, in the tapestry container, carries reportWriteFailed, but it does not say why the write failed, and on a full disk that line may be missing too.',
     signal: 'A stop signal ended the pass at a safe point between its steps. Anything written before it stands, and the next pass finishes the rest.',
+    requested: 'The pass was asked to stop, from the panel or by a stop signal, and it stopped on request at its next safe point. Anything written before it stands, and the next pass finishes the rest. Any owner confirmation this pass claimed is used up, so held removals need confirming again.',
     'removals-held': 'More removals were due than the safety limit allows, so the pass held them for the owner to confirm. It applied the other changes it could.',
     done: 'The pass finished with nothing held. Any lost races or conflicting addresses wait for the next pass.',
   }),
@@ -212,7 +217,7 @@ export const EXPLANATIONS = Object.freeze({
     'tags_address-missing': 'The pass could not create the one-per-tagging rule, so it changed no relationship or person. One cause is another rule that already holds its name, tags_address. Raise it with the owner. The control panel\'s log, /var/log/supervisor/brainstorm.log in the tapestry container, says why at its last start.',
     'tags_address-not-online': 'The one-per-tagging rule exists but its index was not online within the 60 seconds the pass waited, so it changed no relationship or person. Usually Neo4j is still building it: wait a few minutes, then run the pass again. If it stays offline, its index may have failed, so raise it with the owner.',
     'nostrUser_pubkey-missing': 'The NostrUser pubkey rule is missing from the database, so the pass changed no relationship or person. Run the constraints fix on the Dashboard, then run the pass again.',
-    'no-status': 'Checking or creating the one-per-tagging rule failed with an error that carried no code, so the pass changed no relationship or person. The Neo4j driver gives every failure Neo4j answers with a code, N/A when there is no other, and the only errors it throws without one come from its own checks of what it is passed and of its settings. So this one came from a fault in the schema check\'s own code, what it passes to the driver included, or in another library, never from Neo4j\'s answer. Report it as a bug, with the error message shown below it.',
+    'no-status': 'Checking or creating the one-per-tagging rule failed with an error that carried no code, so the pass changed no relationship or person. Every error the Neo4j driver builds from Neo4j\'s answer carries a code, N/A when there is no other, and the errors it throws without one come from its own checks of what it is passed and of its settings, or from a fault in the driver itself. So this one came from a fault in the schema check\'s own code, what it passes to the driver included, in the driver itself, or in another library, never from Neo4j\'s answer. Report it as a bug, with the error message shown below it.',
     // Reads (the graph read, its schema re-check, the relay read and a write's re-read).
     incomplete: 'The graph or the relay answered a read with no list of results, so the pass did not trust it and changed no relationship or person. The next pass tries again. If it repeats, check that Neo4j and the relay are running in the tapestry container.',
     'missing-column': 'A row the graph returned lacks a column the pass reads, so the pass stopped rather than use it. If it stopped while writing, batches written before it stand. The next pass tries again. If it repeats, report it as a bug.',
@@ -319,7 +324,7 @@ function confirmationView(c) {
   return { state: 'pending', runId: c.runId, expiresAt: c.expiresAt, tone: 'warn' };
 }
 
-const OUTCOME_TONE = Object.freeze({ done: 'ok', 'done-removals-held': 'warn', refused: 'bad', failed: 'bad' });
+const OUTCOME_TONE = Object.freeze({ done: 'ok', 'done-removals-held': 'warn', refused: 'bad', failed: 'bad', stopped: 'neutral' });
 
 /**
  * The pass section (AC-2; T1). A pass is running when the status says it is alive, and nothing else: while
@@ -603,6 +608,358 @@ export function switchRecordView(recordRead, rtBody) {
   const history = (Array.isArray(body.history) ? body.history : []).filter(isObject).slice(0, 10).map(changeLine);
   const notes = body.historyUnreadable === true ? ['The history of earlier changes cannot be read.'] : [];
   return { status: 'shown', state: body.state, text: null, latest, history, notes };
+}
+
+// ─── Story 6: running and stopping the pass (ADR 0006 D16) ───────────────────────────────────────────────────────
+
+const has = (v) => typeof v === 'string' && v !== '';
+/**
+ * A line that may hold a server time, for the panel to print as `text`, then a space and the time in the viewer's
+ * locale when `at` is set, then `end`. `at` is the server's ISO time, passed through: the view formats no time and
+ * reads no clock. With no time the line reads `bare` (by default `text`), then `end`.
+ */
+function timed(text, at, end = '.', word = 'at', bare = text) {
+  return has(at) ? { text: `${text} ${word}`, at, end } : { text: bare, at: null, end };
+}
+const plain = (sentence) => ({ text: sentence, at: null, end: '' });
+/** An epoch-ms instant as ISO text, or null when it is not a time Date can hold. */
+function isoOf(ms) {
+  const d = new Date(ms);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+const QUEUE_WHY = Object.freeze({
+  off: 'the task queue is off',
+  'not-ready': 'the task queue is not ready',
+  'read-failed': 'it could not read the task queue',
+});
+const BEHIND_TEXT = Object.freeze({
+  pass: ', behind a pass ahead of it.',
+  'heavy-work': ', behind other heavy database work, such as scoring.',
+});
+
+/**
+ * The busy passes (story 6 AC-2, AC-3; ADR 0006 D5, D12, D16), from the status body's `control` member. → { known,
+ * why, items, canStop }. `known` is true only when the server read the task queue (`queue: 'ok'`); otherwise `why`
+ * says the server cannot tell whether a pass is waiting, and an absent `control` (a server from before story 6) reads
+ * the same, never as nothing waiting. Each item is the server's own, in its order (no who: passWho gives that), plus
+ * `line` (waiting or running since its time, and what a waiting pass waits behind) and `stopLine` (a stop asked for,
+ * and when, or null), both timed lines. `canStop` is true while some item has no stop asked for.
+ */
+export function busyView(statusBody) {
+  const control = isObject(statusBody) && isObject(statusBody.control) ? statusBody.control : null;
+  const known = !!control && control.queue === 'ok';
+  let why = null;
+  if (!known) {
+    let reason = 'its answer does not report the task queue';
+    if (control) reason = own(QUEUE_WHY, control.queue) ? QUEUE_WHY[control.queue] : 'the task queue could not be read';
+    why = `The server cannot tell whether a pass is waiting: ${reason}.`;
+  }
+  const items = (control && Array.isArray(control.busy) ? control.busy : []).filter(isObject).map((b) => ({
+    key: b.key,
+    jobId: b.jobId,
+    state: b.state,
+    since: b.since,
+    behind: b.behind,
+    runId: b.runId,
+    stopAskedAt: b.stopAskedAt,
+    startRecorded: b.startRecorded,
+    confirmation: b.confirmation,
+    line: b.state === 'running'
+      ? timed('Running', b.since, '.', 'since')
+      : timed('Waiting', b.since, own(BEHIND_TEXT, b.behind) ? BEHIND_TEXT[b.behind] : '.', 'since'),
+    stopLine: has(b.stopAskedAt) ? timed('A stop was asked for', b.stopAskedAt) : null,
+  }));
+  return { known, why, items, canStop: items.some((it) => !has(it.stopAskedAt)) };
+}
+
+/**
+ * One sentence per outcome of a Run or a Stop (ADR 0006 D16), in the past tense, as SWITCH_OUTCOME's are. A Stop that
+ * was accepted says what happened to each pass it acted on (STOP_HOW).
+ */
+const RUN_OUTCOME = Object.freeze({
+  done: 'A pass was lined up.',
+  'refused-busy': 'A pass was already waiting or running, so nothing new was lined up.',
+  'queue-unavailable': 'The task queue was unavailable, so no pass was lined up. Try again in a moment, unless the task queue is switched off on this instance.',
+  'record-unavailable': 'The server could not record who asked for the pass, so no pass was lined up. Check that the data volume has free space and is readable and writable, then try again.',
+  refused: 'The server refused the Run, so no pass was lined up by this attempt. Sign in again as the owner or an admin, from the instance\'s own address, then try again.',
+  failed: 'The Run failed on the server. What is busy shows here from the next read. If it repeats, check the control panel\'s log, /var/log/supervisor/brainstorm.log in the tapestry container.',
+  unknown: 'The outcome of the Run is unknown: no answer came back that the panel could read. What is busy shows here from the next read.',
+});
+const STOP_OUTCOME = Object.freeze({
+  'refused-stale': 'The stop was refused: what was busy had changed since the prompt opened, so nothing changed. What is busy now shows here. Press Stop again.',
+  'nothing-to-stop': 'The stop was refused: there was nothing left to stop, because every busy pass had ended or already had a stop asked for. Nothing changed.',
+  'not-reachable': 'The stop was refused: the pass was starting and had not yet recorded its process, so nothing changed. Press Stop again.',
+  'queue-unavailable': 'The stop was refused: the task queue was unavailable, so nothing changed. Try again in a moment.',
+  refused: 'The server refused the stop, so nothing changed by this attempt. Sign in again as the owner or an admin, from the instance\'s own address, then try again.',
+  failed: 'The stop failed on the server. Whether it took effect shows here from the next read. If it repeats, check the control panel\'s log, /var/log/supervisor/brainstorm.log in the tapestry container.',
+  unknown: 'The outcome of the stop is unknown: no answer came back that the panel could read. What is busy shows here from the next read.',
+});
+/** What an accepted Stop did to each pass (D9 step 5's `how`): for one pass, and for more than one. */
+const STOP_HOW = Object.freeze({
+  'taken-out-of-line': Object.freeze(['The waiting pass was taken out of line before it began running, so it wrote nothing.',
+    'The waiting passes were taken out of line before they began running, so they wrote nothing.']),
+  'asked-to-stop': Object.freeze(['The running pass was asked to stop at its next safe point.',
+    'The running passes were asked to stop, each at its next safe point.']),
+  'too-late': Object.freeze(['The stop came too late to take effect: the pass had already ended, and its own outcome stands.',
+    'The stops came too late to take effect: those passes had already ended, and their own outcomes stand.']),
+});
+const STOP_UNRECORDED = 'The stop could not be recorded, so who asked for it is not shown.';
+/** A failed Run or Stop whose answer carries no `code` (as FAILED_WITHOUT_CODE): it claims nothing about what was done. */
+const RUN_FAILED_WITHOUT_CODE = 'The server answered with an error status that does not say whether a pass was lined up. What is busy shows here from the next read. Try again. If it repeats, check the control panel\'s log, /var/log/supervisor/brainstorm.log in the tapestry container.';
+const STOP_FAILED_WITHOUT_CODE = 'The server answered with an error status that does not say whether the stop took effect. What is busy shows here from the next read. Try again. If it repeats, check the control panel\'s log, /var/log/supervisor/brainstorm.log in the tapestry container.';
+/** The fixed codes each route refuses with (ADR 0006 D14), and the outcome each is. */
+const RUN_REFUSALS = Object.freeze({ 'pass-busy': 'refused-busy', QUEUE_UNAVAILABLE: 'queue-unavailable', 'record-unavailable': 'record-unavailable' });
+const STOP_REFUSALS = Object.freeze({ 'prompt-out-of-date': 'refused-stale', 'nothing-to-stop': 'nothing-to-stop', 'pass-not-reachable': 'not-reachable', QUEUE_UNAVAILABLE: 'queue-unavailable' });
+const PASS_ACTION_TONE = Object.freeze({ done: 'ok', 'done-unrecorded': 'warn', 'refused-busy': 'warn', 'refused-stale': 'warn',
+  'nothing-to-stop': 'neutral', 'not-reachable': 'warn', 'queue-unavailable': 'bad', 'record-unavailable': 'bad', refused: 'bad', failed: 'bad', unknown: 'warn' });
+
+/** switchOutcome's reading of an answer, with each route's fixed refusal codes (D14) as outcomes of their own. */
+function passActionOutcome(result, refusals, sentences, codeless) {
+  const r = isObject(result) ? result : {};
+  const body = isObject(r.body) ? r.body : null;
+  let outcome = 'unknown';
+  let code = null;
+  let httpStatus = null;
+  let text = null;
+  if (r.ok === true) outcome = 'done';
+  else if (r.code === 'http-401' || r.code === 'http-403') {
+    outcome = 'refused';
+    httpStatus = num(r.httpStatus);
+  } else if (typeof r.code === 'string' && /^http-\d{3}$/.test(r.code)) {
+    httpStatus = num(r.httpStatus);
+    const answerCode = body && has(body.code) ? body.code : null;
+    if (answerCode !== null && own(refusals, answerCode)) outcome = refusals[answerCode];
+    else {
+      outcome = 'failed';
+      code = answerCode === null ? r.code : answerCode;
+      if (answerCode === null) text = codeless;
+    }
+  }
+  if (text === null && own(sentences, outcome)) text = sentences[outcome];
+  const cause = body && has(body.cause) ? body.cause : null;
+  return { outcome, text, tone: PASS_ACTION_TONE[outcome], code, httpStatus, cause };
+}
+
+/**
+ * What a Run's answer means (story 6 AC-1, AC-4, AC-5; ADR 0006 D6, D14, D16). `result` is sendRun's. → { outcome,
+ * text, tone, code, httpStatus, cause }, the outcome one of done (lined up), refused-busy, queue-unavailable,
+ * record-unavailable, refused (401 or 403), failed (any other non-2xx: `code` is the answer's own, or readSection's
+ * http-<status> with the code-less sentence) or unknown (timeout, network or bad-json). `cause` is the answer's
+ * allow-listed cause (D14), or null.
+ */
+export function runOutcome(result) {
+  return passActionOutcome(result, RUN_REFUSALS, RUN_OUTCOME, RUN_FAILED_WITHOUT_CODE);
+}
+
+/**
+ * What a Stop's answer means (story 6 AC-3, AC-4, AC-5; ADR 0006 D9, D14, D16). `result` is sendStop's. → the same
+ * shape as runOutcome's, the outcome one of done (its sentence says, for each `how` in the answer's `stopped`, that
+ * the pass was taken out of line, asked to stop, or that the stop came too late), done-unrecorded (`recorded: false`:
+ * it took effect, and says it was not recorded), refused-stale, nothing-to-stop, not-reachable, queue-unavailable,
+ * refused, failed or unknown.
+ */
+export function stopOutcome(result) {
+  const v = passActionOutcome(result, STOP_REFUSALS, STOP_OUTCOME, STOP_FAILED_WITHOUT_CODE);
+  if (v.outcome !== 'done') return v;
+  const body = isObject(result.body) ? result.body : {};
+  const counts = {};
+  const order = [];
+  for (const s of Array.isArray(body.stopped) ? body.stopped : []) {
+    if (!isObject(s) || typeof s.how !== 'string' || !own(STOP_HOW, s.how)) continue;
+    if (!own(counts, s.how)) { counts[s.how] = 0; order.push(s.how); }
+    counts[s.how] += 1;
+  }
+  const lines = order.map((how) => STOP_HOW[how][counts[how] === 1 ? 0 : 1]);
+  if (!lines.length) lines.push('The stop was accepted.');
+  const unrecorded = body.recorded === false;
+  if (unrecorded) lines.push(STOP_UNRECORDED);
+  let tone = 'ok';
+  if (unrecorded) tone = 'warn';
+  else if (order.length && order.every((how) => how === 'too-late')) tone = 'neutral';
+  return { ...v, outcome: unrecorded ? 'done-unrecorded' : 'done', text: lines.join(' '), tone };
+}
+
+/** The prompt's warning (story 6 AC-3), by a running item's `confirmation` verdict (D12). */
+const PROMPT_WARNING = Object.freeze({
+  'taken-up': 'This pass has taken up the owner\'s confirmation of held removals. Stopping it uses the confirmation up, and the owner must confirm again after a later pass holds those removals again.',
+  'cannot-tell': 'The panel cannot yet tell whether this pass has taken up the owner\'s confirmation of held removals. If it has, stopping it uses the confirmation up, and the owner must confirm again after a later pass holds those removals again.',
+});
+
+/**
+ * The Stop prompt's text (story 6 AC-3; ADR 0006 D16, D17), from the busy items the prompt opened on (the server's
+ * control.busy items with no stop asked for) and passView(statusBody).confirmation, both taken when it opened.
+ * → { blocks, pending }: one block per item, { key, state, lines }, its lines timed lines saying what happens to that
+ * pass (a waiting pass taken out of line; a running pass at its next safe point, and the warning when its confirmation
+ * is 'taken-up' or 'cannot-tell'); `pending` is the line saying the owner's pending confirmation stays pending for the
+ * next pass, when no item warns, else null.
+ */
+export function stopPromptView(items, confirmation) {
+  let warned = false;
+  const blocks = (Array.isArray(items) ? items : []).filter(isObject).map((it) => {
+    if (it.state !== 'running') {
+      return { key: it.key, state: it.state, lines: [
+        timed('The pass waiting', it.since, ' is taken out of line before it begins running, so it writes nothing.', 'since', 'The waiting pass'),
+        plain('No schedule entry changes.'),
+      ] };
+    }
+    const lines = [
+      timed('The pass running', it.since, ' stops at its next safe point, usually within seconds.', 'since', 'The running pass'),
+      plain('When the graph or the relay is slow it can take several minutes, and at worst it runs until its 30-minute time-out.'),
+      plain('Everything it wrote before then stands, and the next pass finishes the rest.'),
+      plain('No schedule entry changes.'),
+    ];
+    if (typeof it.confirmation === 'string' && own(PROMPT_WARNING, it.confirmation)) {
+      warned = true;
+      lines.push(plain(PROMPT_WARNING[it.confirmation]));
+    }
+    return { key: it.key, state: it.state, lines };
+  });
+  const pending = !warned && isObject(confirmation) && confirmation.state === 'pending'
+    ? 'The owner\'s confirmation of held removals stays pending for the next pass.'
+    : null;
+  return { blocks, pending };
+}
+
+const PASS_RECORD_WHAT = 'The record of who started or stopped each pass';
+const PASS_RECORD_STATES = ['recorded', 'empty', 'unreadable', 'damaged'];
+const LINEUP_ID = /^reconcileTaggingEdges-[0-9a-f]{12}$/;
+/** A scheduled run's job id; "the id's millis" are the digits after its last ':' (ADR 0006 D2). */
+const SCHEDULED_ID = /^repeat:sched:.*:(\d+)$/;
+const WHO_TEXT = Object.freeze({ schedule: 'the schedule', confirmation: 'the owner\'s confirmation', local: 'a local call' });
+
+/** Who, as the record holds it (D11), in words: the owner or an admin with the shortened key, or the kind's own; null otherwise. */
+function whoNoun(who) {
+  if (!isObject(who)) return null;
+  if (own(ROLE_TEXT, who.kind)) return has(who.key) ? `${ROLE_TEXT[who.kind]} (${who.key}…)` : null;
+  return own(WHO_TEXT, who.kind) ? WHO_TEXT[who.kind] : null;
+}
+const notRecordedStart = () => ({ text: 'Start not recorded', at: null, end: '.' });
+/** A recorded start ({ at, who }) as a timed line: started by <who>, or another way; one the panel cannot read is not recorded. */
+function startLine(start) {
+  if (!isObject(start)) return notRecordedStart();
+  if (isObject(start.who) && start.who.kind === 'other') return timed('Started another way', start.at);
+  const noun = whoNoun(start.who);
+  return noun ? timed(`Started by ${noun}`, start.at) : notRecordedStart();
+}
+
+/**
+ * One run's who (D16 "A run's start", "A run's stop"; D18). Its start is the entry whose jobId is the run's job.id and
+ * whose start is the latest one not after the run's start; its stop is the entry whose stop.runId is the run's runId,
+ * under any key, else the joined entry's stop when that stop's runId is null. → { runId, start, stop }, both timed
+ * lines (stop null when no stop is known and the pass did not stop on request).
+ */
+function runWho(run, entries, live) {
+  const jobId = isObject(run.job) && has(run.job.id) ? run.job.id : null;
+  const startedAt = instant(run.startedAt);
+  let joined = null;
+  let joinedAt = null;
+  if (jobId !== null && startedAt !== null) {
+    for (const e of entries) {
+      const at = isObject(e.start) ? instant(e.start.at) : null;
+      if (e.jobId === jobId && at !== null && at <= startedAt && (joinedAt === null || at > joinedAt)) {
+        joined = e;
+        joinedAt = at;
+      }
+    }
+  }
+  const byRun = entries.find((e) => isObject(e.stop) && e.stop.runId === run.runId);
+  let stop = byRun ? byRun.stop : null;
+  if (!stop && joined && isObject(joined.stop) && (joined.stop.runId === null || joined.stop.runId === undefined)) stop = joined.stop;
+
+  const noun = stop ? whoNoun(stop.who) : null;
+  let stopLine = null;
+  if (!live && run.outcome === 'stopped') {
+    stopLine = noun ? timed(`Stopped on request by ${noun}`, stop.at)
+      : { text: 'Stopped on request (who and when not recorded)', at: null, end: '.' };
+  } else if (noun) {
+    stopLine = timed('A stop was asked for', stop.at, live ? ` by ${noun}.` : ` by ${noun}, but the pass ended first.`);
+  }
+  return { runId: run.runId, start: joined ? startLine(joined.start) : notRecordedStart(), stop: stopLine };
+}
+
+/**
+ * Who started and stopped each pass (story 6 AC-5; ADR 0006 D16, D18), from the record read ({ state, body, … } of
+ * GET /api/tagging-edges/pass/record) and the status body. Like switchRecordView, it shows who only when the record
+ * read is current (state 'ready') and in the form D13 gives; otherwise it says the record is loading or could not be
+ * read, and shows nothing of a kept body. → { status, state, text, runs, items, history, historyText }, status one of
+ * loading | failed | shown:
+ * - `runs`: one { runId, start, stop } per report (latest, then previous), `start` and `stop` timed lines.
+ * - `items`: one { key, start, stop } per control.busy item. A running item with a run takes its run's; a starting or
+ *   waiting one reads its entry's start when startRecorded is true, "refreshing" while the answer lacks it; with
+ *   startRecorded false a waiting job not yet picked up is the schedule's (repeat:sched:, at the id's millis) or
+ *   "started another way" (not LINEUP_ID's shape), and anything else is "start not recorded".
+ * - `history`: the last 10 actions, newest first, each { action, key, text, at, end }; a start whose entry gave up
+ *   says so. `historyText` is the empty state's sentence, or null.
+ * Who reads as the owner or an admin (with the shortened key), the schedule, the owner's confirmation, a local call,
+ * started another way, or not recorded.
+ */
+export function passWho(recordRead, statusBody) {
+  const nothing = { runs: [], items: [], history: [], historyText: null };
+  const read = isObject(recordRead) ? recordRead : null;
+  if (read && read.state === 'error') {
+    return { status: 'failed', what: PASS_RECORD_WHAT, text: `${PASS_RECORD_WHAT} could not be read.`, ...nothing };
+  }
+  if (!read || read.state !== 'ready') {
+    return { status: 'loading', text: 'Loading the record of who started or stopped each pass.', ...nothing };
+  }
+  const body = read.body;
+  if (!isObject(body) || !PASS_RECORD_STATES.includes(body.state)) {
+    return { status: 'failed', what: PASS_RECORD_WHAT, text: `${PASS_RECORD_WHAT} is not in the form the panel expects.`, ...nothing };
+  }
+  if (body.state === 'unreadable') {
+    const code = has(body.readError) ? ` (${body.readError})` : '';
+    return { status: 'failed', what: PASS_RECORD_WHAT, text: `${PASS_RECORD_WHAT} cannot be read on the server${code}, so who took each action is not shown. Check that the data volume is readable.`, ...nothing };
+  }
+  if (body.state === 'damaged') {
+    return { status: 'failed', what: PASS_RECORD_WHAT, text: `${PASS_RECORD_WHAT} is damaged on the server, so who took each action is not shown. The next action the server records sets it aside, keeping its bytes, and starts a fresh record.`, ...nothing };
+  }
+
+  const passes = isObject(body.passes) ? body.passes : {};
+  const entries = Object.values(passes).filter(isObject);
+  const entryOf = (key) => (has(key) && own(passes, key) && isObject(passes[key]) ? passes[key] : null);
+  const status = isObject(statusBody) ? statusBody : {};
+  const latest = isObject(status.latest) ? status.latest : null;
+  const records = (latest ? [latest] : []).concat(Array.isArray(status.previous) ? status.previous.filter(isObject) : [])
+    .filter((r) => has(r.runId));
+  const isLive = (r) => status.running === true && r === latest;
+  const runs = records.map((r) => runWho(r, entries, isLive(r)));
+
+  const busy = isObject(status.control) && Array.isArray(status.control.busy) ? status.control.busy.filter(isObject) : [];
+  const items = busy.map((b) => {
+    const run = b.state === 'running' && has(b.runId) ? records.find((r) => r.runId === b.runId) : undefined;
+    if (run) {
+      // Live by the item itself, which the server lists as running: a status whose `control` was served from D5's
+      // 1 s reuse can say the run has ended while this item still says running, and the line must not contradict itself.
+      const w = runWho(run, entries, true);
+      return { key: b.key, start: w.start, stop: w.stop };
+    }
+    const entry = entryOf(b.key);
+    let start = notRecordedStart();
+    if (b.startRecorded === true) {
+      start = entry && isObject(entry.start) ? startLine(entry.start) : { text: 'Who started it is being refreshed', at: null, end: '.' };
+    } else if (b.state !== 'running' && b.behind !== 'heavy-work' && has(b.key)) {
+      const sched = SCHEDULED_ID.exec(b.key);
+      if (sched) start = timed('Started by the schedule', isoOf(Number(sched[1])));
+      else if (!LINEUP_ID.test(b.key)) start = timed('Started another way', null);
+    }
+    const stopper = entry && isObject(entry.stop) ? whoNoun(entry.stop.who) : null;
+    return { key: b.key, start, stop: stopper ? timed('A stop was asked for', entry.stop.at, ` by ${stopper}.`) : null };
+  });
+
+  const history = (Array.isArray(body.history) ? body.history : [])
+    .filter((h) => isObject(h) && (h.action === 'start' || h.action === 'stop')).slice(0, 10).map((h) => {
+      if (h.action === 'stop') {
+        const noun = whoNoun(h.who);
+        return { action: 'stop', key: h.key, ...timed(noun ? `Stop asked for by ${noun}` : 'Stop asked for (who not recorded)', h.at) };
+      }
+      const line = startLine({ at: h.at, who: h.who });
+      const entry = entryOf(h.key);
+      if (entry && has(entry.gaveUpAt)) line.end = '. It gave up waiting and never began running.';
+      return { action: 'start', key: h.key, ...line };
+    });
+  return { status: 'shown', state: body.state, text: null, runs, items, history,
+    historyText: history.length ? null : 'No action has been recorded yet.' };
 }
 
 const SCHEDULE_TASK_ID = 'reconcileTaggingEdges';

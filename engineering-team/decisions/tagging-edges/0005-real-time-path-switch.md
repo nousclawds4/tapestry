@@ -62,6 +62,9 @@ story 4's Architecture did (`88af7df3`).
 - **The gate.** Story 4's drift route re-checks owner-or-admin in `gateOwnerOrAdmin` (`drift.js:66-89`). That returns
   null on admit, with no role. CORS reflects any origin with credentials (`bin/control-panel.js:114-119`), and
   `sameHost` refuses any request whose `Origin` names another host.
+  *(Amended by `tagging-edges/0006`, 2026-10-28, from story 5's review, carry-forward C5-8: a request with no
+  `Origin` passes. An `Origin` that does not parse (such as `null`), or one naming another hostname, is refused 403.
+  `sameHost` is `ownerOrAdmin`'s last check. On the POST, 415 and 400 follow it; on the GET, nothing does.)*
 
 ### Constraints
 
@@ -331,13 +334,19 @@ So an "on" while on never moves the window (AC-3), and an off followed by an on 
 - **The role** comes from configuration at the moment of the change, never from session flags. DR4 shows a stranger
   with admin session flags is refused. Both lists are re-read on every request, so an admin who is removed is refused
   on their next request.
+  *(Amended by `tagging-edges/0006`, 2026-10-28, from story 5's review, carry-forward C5-7: a removal that empties
+  settings.json's `adminPubkeys` falls back to `BRAINSTORM_ADMIN_PUBKEYS`, which may still name the removed admin
+  (`src/utils/config.js:100-113`; `src/api/admin/index.js:226-245`). The same holds for story 6's Run and Stop.)*
 
 **D6. Who may read who: GET on the switch path.**
 - **The mount.** `app.get('/api/tagging-edges/realtime/switch', adminApi.requireOwnerOrAdmin,
   taggingEdgesRealtime.handleRealtimeSwitchRecord)`, beside the POST, re-checked with `ownerOrAdmin` (`sameHost`
   included). Like the POST, it is refused when `Origin` names a hostname other than `Host`'s, so another site cannot
-  read who through the reflecting CORS. *(Clarified at story 5's review, round 1, 2026-10-02, requested change 10:
+  read who through the reflecting CORS. *(Clarified at story 5's review, round 1, 2026-10-01, requested change 10:
   this said no foreign page can read who. It now states the rule as `sameHost` is written.)*
+  *(Amended by `tagging-edges/0006`, 2026-10-28, from story 5's review, carry-forward C5-8: a request with no
+  `Origin` passes. An `Origin` that does not parse (such as `null`), or one naming another hostname, is refused 403.
+  `sameHost` is `ownerOrAdmin`'s last check. On the POST, 415 and 400 follow it; on the GET, nothing does.)*
 - **What it reads.** It reads through the injected `readFile`, as the status route does (`realtime.js:131-160`):
   `switch-history.json` first, then `switch.json`. Each file's read error other than `ENOENT` is caught on its own and
   mapped as the store maps it, which matches the status route's catch (`realtime.js:136-142`).
@@ -441,7 +450,7 @@ reads as turned off by the owner (f0178122…).
   unchanged, and to check that the data volume has free space and is readable and writable (a failed on can also be
   a switch that could not be read, D2 step 2; clarified at story 5's review, round 1).
 
-  *(Refined at story 5's review, round 1, 2026-10-02, requested change 6.)* A `failed` answer with no `body.code`, such
+  *(Refined at story 5's review, round 1, 2026-10-01, requested change 6.)* A `failed` answer with no `body.code`, such
   as a proxy's 502 or a 404 from an older backend, is none of the switch handler's 500s, which all carry `code` (D11).
   So it cannot say what became of the change. It gets its own sentence for each target, which claims nothing about the
   path's state, says the state shown is from the path's next read, and points at the remedy of the fetchCode
@@ -480,9 +489,11 @@ off" button exists at a time.
     cases for the next pass;
   - what keeps the graph in step meanwhile. A `BackstopVerdict` component is extracted from `ScheduleSection.jsx:44-67`
     and used by both, so the two cannot drift apart. With no schedule view, it says the backstop could not be
-    checked. *(Clarified at story 5's review, round 1, 2026-10-02, requested change 5: while the schedule list's
+    checked. *(Clarified at story 5's review, round 1, 2026-10-01, requested change 5: while the schedule list's
     first read has not answered, it says instead that the backstop is still being checked, as D14 shows no warning
     while loading. "Could not be checked" stays for a failed read.)*
+    *(Amended by `tagging-edges/0006`, 2026-10-28, from story 5's review, carry-forward C5-4: the panel now counts
+    any loading read of the schedule as pending (0006 D20), so the note holds as built.)*
 - **The first-start variant says:**
   - what the path has gathered so far is dropped;
   - the next "Turn on" is a first start again;
@@ -609,6 +620,8 @@ off" button exists at a time.
     - The panel now carries the path's switch, its prompt and its record (owner or admin; §12.9). Only the pass's
       run, stop and confirm move to story 6. Until then the Task Explorer runs a pass, and the held-removal console
       snippet confirms.
+      *(Amended by `tagging-edges/0006`, 2026-10-28: run and stop stay story 6's, and Confirm moves to story 7
+      (story 6's Planning, 2026-10-02).)*
     - Qualify "It changes nothing": the panel changes nothing except the path's switch.
     - Change "the panel only reads them": the panel reads these routes, including the new owner-or-admin GET on the
       switch path, and sends one POST, the switch's. The JSON routes stay the reference.
@@ -624,6 +637,8 @@ off" button exists at a time.
     switch);
   - `taggingPipelineFetch.js:10`;
   - `HeldSection.jsx:4` (point at story 6).
+    *(Amended by `tagging-edges/0006`, 2026-10-28: run and stop stay story 6's, and Confirm moves to story 7 (story 6's
+    Planning, 2026-10-02).)*
 - **The story's own copy and docs tasks,** and R2-1's copy, R2-2 to R2-6, R2-7's OPERATIONS half, R2-8's handoff half
   and R2-14, are the Implementer's (story 5 § Carry-forwards).
 
@@ -665,6 +680,8 @@ R2-9, and R2-11's ratification.
 - **`:1433` (T27):** `authenticated !== true` with the owner's or an admin's pubkey answers 403.
 - **`:917-919` (R2-8):** story 4's panel reads five routes and posts nothing. Story 5 adds the switch's POST, widened
   to owner or admin, and its gated GET. The pass's run, stop and confirm are story 6's.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: run and stop stay story 6's, and Confirm moves to story 7 (story 6's
+  Planning, 2026-10-02).)*
 
 ### Story 3 (a note after `3-real-time-path.md:253`, AC-5, in the C7 format of `:470`)
 
@@ -696,6 +713,8 @@ acceptance criteria, and Open question 5, the owner's decision 5 ("It ships turn
     family;
   - under both countCode and failureCode.
 - **`:347`:** "(until story 5)" becomes "(until story 6)".
+  *(Amended by `tagging-edges/0006`, 2026-10-28: run and stop stay story 6's, and Confirm moves to story 7 (story 6's
+  Planning, 2026-10-02).)*
 - **`:362` and T3 (`:679-684`):** `pathView` gains `starting` and `runningForThisOn`. `onButNotRunning` is
   `on && !running && !starting`, and `state` is null while starting too (D7).
 - **`:382`:** while starting, `onSince` is shown and `runningSince` is not (D7).
@@ -711,6 +730,8 @@ acceptance criteria, and Open question 5, the owner's decision 5 ("It ships turn
     configuration (`internal/util.js:142`, `:207`, `:221`; `driver.js:822-910`).
   - So `no-status` is a fault in the schema check's own code, including what that code passes to the driver, or in
     a library other than the driver. It never comes from Neo4j's answer.
+    *(Amended by `tagging-edges/0006`, 2026-10-28, at story 6's review fix round: the code-less error also comes
+    from a fault in the driver itself; see `tagging-edges/0004` T12's note of that date.)*
   - Its sentence says so, and points at reporting a bug, not at Neo4j.
 - **`:789-790`, T12's "The rest" (R2-1, R2-9).**
   - **The driver's own `N/A` and `ProtocolError`** (`error.js:86-96`) reach `failure.code` raw at any graph stage.
@@ -741,23 +762,33 @@ acceptance criteria, and Open question 5, the owner's decision 5 ("It ships turn
     exact entry, and the others reach a code only through a bug, so nothing changes.
 - **`:812-813` (Out of scope):** the switch, its prompt and its widening to admins are story 5's (this ADR). The
   pass's run, stop and confirm are story 6's.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: run and stop stay story 6's, and Confirm moves to story 7 (story 6's
+  Planning, 2026-10-02).)*
 
 ### ADR 0002 (R2-8)
 
 - **`:548-550`:** keep the sentence. Since story 5's Planning (2026-10-01), the pass's controls, Stop included, are
   story 6's, and story 5 is the path's switch.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: run and stop stay story 6's, and Confirm moves to story 7 (story 6's
+  Planning, 2026-10-02).)*
 - **`:815-817`, decision 14:**
   - **until story 4,** AC-7's "read its report on the instance" was met by the JSON status URL, and since story 4 the
     panel shows it;
   - **until story 6,** AC-5's confirmation is a signed-in `fetch` from the owner's browser (OPERATIONS carries the
     snippet).
+    *(Amended by `tagging-edges/0006`, 2026-10-28: run and stop stay story 6's, and Confirm moves to story 7 (story 6's
+    Planning, 2026-10-02).)*
 - **`:1237` (Out of scope):** the real-time path (story 3), the panel (story 4), the path's switch on it (story 5),
   and the pass's run, stop and confirm (story 6), except the bindings for story 3 above.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: run and stop stay story 6's, and Confirm moves to story 7 (story 6's
+  Planning, 2026-10-02).)*
 
 ## Out of scope
 
 - **The pass's controls** (run, stop, confirm, a waiting pass, the run-task gate, ledger
   `2026-09-28-confirm-route-joins-finishing-job`): story 6.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: run and stop stay story 6's, and Confirm moves to story 7 (story 6's
+  Planning, 2026-10-02).)*
 - **Changing how fast the path starts or stops.** Story 3's engine and wrapper stand.
 - **Refusing an off that cannot be recorded.** It would change story 3 AC-5.
 - **Keeping the previous `switch.json` when the off fallback runs.** Renaming it to a sibling file, instead of

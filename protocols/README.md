@@ -71,11 +71,21 @@ The initial migration (protocols-directory epic, stories 1–7) is **complete** 
 | Opinionated Views (per-platform views of a content category's items; view briefs) | [drafts/opinionated-views.md](./drafts/opinionated-views.md) | 📝 pre-NIP | **Working copy here.** §§ 1–6 are a cross-platform convention (Tapestry and Brainstorm); § 2.1 is the default card for DList items with no view of their own; § 7, publishing view briefs, is the wire format. Appendix A is the GitHub Accounts brief, from Tapestry's Dictionary; Appendix B is the V4V Songs brief (playback only), written before any build; Tapestry built from it on 2026-10-04, and the build's findings are in its Changes. | the GitHub Accounts and V4V Songs views on staging, Oct 2026 |
 | DList Auxiliary Events (`o`: events that serve a list without being its items, such as Tapestry core nodes and view briefs) | [drafts/dlist-auxiliary-events.md](./drafts/dlist-auxiliary-events.md) | 📝 pre-NIP | **Working copy here.** Nothing emits or reads `o` yet. Graduated from worksheet W25; Tapestry Concepts § Core nodes and Opinionated Views § 7.2 point to it. | Brainstorm design sessions, Oct 2026 (worksheet W25) |
 | Duty Menus (what an Assistant key offers to publish, and where; Nous' shared header) | [drafts/duty-menus.md](./drafts/duty-menus.md) | 📝 pre-NIP | **Working copy here.** An instance publishes a person's Assistant's menu on request and reads a key's menu; nothing fills Treasure Map entries from menus yet, and Nous' header is not yet published. | `duty-menus-and-self-maps` #2 (`docs/DUTY_MENUS_AND_SELF_MAPS_DESIGN_HANDOFF.md`) |
+| Filters on Decentralized Lists (a `dlists` filter field beside `kinds`) | [drafts/filters-on-dlists.md](./drafts/filters-on-dlists.md) | 📝 pre-NIP | **Working copy here.** A stub: it proposes a `dlists` field in `REQ` filters that selects a DList's items by their header, as `kinds` selects events by kind, following NIP-50's `search`. | written here by David, Sept 2026 |
+| Search Over Tags | [drafts/search-over-tags.md](./drafts/search-over-tags.md) | 💭 idea | **Working copy here.** An overview with no wire format yet: matching a search string to the Tags applied to content rather than to the content itself, alone or beside keyword search. | written here by David, Sept 2026 |
 | Amendments proposal, Sept 2026 (to `trusted-lists.md`, `tags.md`, `inherit-from.md`, `tapestry-concepts.md`) | [drafts/amendments-2026-09.md](./drafts/amendments-2026-09.md) | 💭 proposal | **For review.** Apply the accepted items to their target specs, then retire this file. | Brainstorm design sessions, Sept 2026 |
 
 Branch-path notation: `branch:path` means the file exists at that path on the named (unmerged) branch — read it with `git show <branch>:<path>`. Migration **copies** content from those branches; it never implies merging them.
 
 Specs describing features still in flight on a branch (Tags, Communities) carry an explicit header note saying so.
+
+## Not in the index
+
+Files in `drafts/` and `nips/` that the Spec index leaves out on purpose, each with why. Every other file there is in the Spec index: `test/protocols-index.test.js` fails otherwise. The Tapestry connector serves only what the Spec index lists, so a new draft reaches every teammate's Claude once it has a row there.
+
+| File | Why it is left out |
+|---|---|
+| [drafts/treasure-map.md](./drafts/treasure-map.md) | Superseded by [Treasure Maps](./drafts/treasure-maps.md). It is David's first draft of how a kind-`10040` Treasure Map assigns Trusted Lists and DList items to Assistants (Sept 20 to 22, 2026); `treasure-maps.md`, begun Sept 27 in the Brainstorm design sessions, is the working spec. Kept for its history. |
 
 ## Worksheet
 

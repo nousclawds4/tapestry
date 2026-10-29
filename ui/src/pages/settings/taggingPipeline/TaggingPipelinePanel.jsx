@@ -3,22 +3,24 @@
  *
  * A panel for the tagging pipeline: the gap-filling pass, its held removals, the backstop schedule, the real-time
  * path, and the drift between the relay and the graph. Every request it sends is a GET, and it changes nothing,
- * apart from the real-time path's switch (story 5; ADR tagging-edges/0005 D12): one POST through sendSwitch, for the
- * owner or an admin. The pass's run, stop and confirm are story 6's.
+ * apart from the real-time path's switch (story 5; ADR tagging-edges/0005 D12) and the pass's Run and Stop (story 6;
+ * ADR tagging-edges/0006 D15, D17): one POST each through sendSwitch, sendRun and sendStop, for the owner or an admin.
+ * Confirming held removals from the panel is story 7's.
  *
  * Each section reads its own route through readSection, so it loads, fails and retries on its own, and keeps what
- * it last read when a later read fails. The pass and path status, and the switch's record, are re-read every
- * POLL_MS, a tick being skipped while the previous one is in flight; the schedule list every SCHEDULE_POLL_MS; the
- * drift counts only on opening and on Recount. Only the newest request's answer is kept for each read. Every
- * derivation lives in taggingPipelineView.js; this file only fetches, sends the switch's change and renders.
+ * it last read when a later read fails. The pass and path status, the switch's record and the record of who started
+ * or stopped each pass are re-read every POLL_MS, a tick being skipped while the previous one is in flight; the
+ * schedule list every SCHEDULE_POLL_MS; the drift counts only on opening and on Recount. Only the newest request's
+ * answer is kept for each read. Every derivation lives in taggingPipelineView.js; this file only fetches, sends the
+ * switch's change, Run and Stop, and renders.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  POLL_MS, SCHEDULE_POLL_MS, driftView, newestFinishedPass, passView, pathView, scheduleView, switchOutcome,
-  switchRecordView,
+  POLL_MS, SCHEDULE_POLL_MS, busyView, driftView, newestFinishedPass, passView, passWho, pathView, runOutcome,
+  scheduleView, stopOutcome, switchOutcome, switchRecordView,
 } from '../../../utils/taggingPipelineView.js';
-import { readSection, sendSwitch } from '../../../utils/taggingPipelineFetch.js';
+import { readSection, sendRun, sendStop, sendSwitch } from '../../../utils/taggingPipelineFetch.js';
 import PassSection from './PassSection.jsx';
 import HeldSection from './HeldSection.jsx';
 import ScheduleSection from './ScheduleSection.jsx';
@@ -33,6 +35,8 @@ const HELD_PATH = '/api/tagging-edges/held';
 const HELD_PAGE_SIZE = 50;
 /** The switch's record (GET, owner or admin; ADR 0005 D6). sendSwitch posts a change to the same path. */
 const SWITCH_PATH = '/api/tagging-edges/realtime/switch';
+/** Who started or stopped each pass (GET, owner or admin; ADR 0006 D13). sendRun and sendStop post Run and Stop. */
+const PASS_RECORD_PATH = '/api/tagging-edges/pass/record';
 
 function heldUrl(runId, offset) {
   return `${HELD_PATH}?runId=${encodeURIComponent(runId)}&offset=${offset}&limit=${HELD_PAGE_SIZE}`;
@@ -46,6 +50,13 @@ function answered(read) {
 }
 const NO_LIST = { runId: null, offset: 0, state: 'loading', page: null, error: null };
 const NO_CHANGE = { target: null, pending: false, outcome: null };
+/** A Run (ADR 0006 D17): pending while under way, then its outcome. */
+const NO_RUN = { pending: false, outcome: null };
+/**
+ * A Stop (ADR 0006 D17): the prompt is open while `snapshot` is set, the busy items with no stop asked for when it
+ * opened, with the owner's confirmation as passView read it then; pending while under way, then its outcome.
+ */
+const NO_STOP = { snapshot: null, confirmation: null, pending: false, outcome: null };
 
 /**
  * One section's read: { state, body, error, readAt } and a function that reads again. A failure after a good
@@ -77,8 +88,11 @@ export default function TaggingPipelinePanel({ onOpenTab }) {
   const [schedule, readSchedule] = useRead(SCHEDULE_PATH);
   const [drift, readDrift] = useRead(DRIFT_PATH);
   const [record, readRecord] = useRead(SWITCH_PATH);
+  const [passRecord, readPassRecord] = useRead(PASS_RECORD_PATH);
   const [held, setHeld] = useState(NO_LIST);
   const [change, setChange] = useState(NO_CHANGE);
+  const [run, setRun] = useState(NO_RUN);
+  const [stop, setStop] = useState(NO_STOP);
   const heldNewest = useRef(0);
   const polling = useRef(false);
   const mounted = useRef(true);
@@ -94,11 +108,12 @@ export default function TaggingPipelinePanel({ onOpenTab }) {
     readSchedule();
     readDrift();
     readRecord();
+    readPassRecord();
     const pollId = setInterval(async () => {
       if (polling.current) return;
       polling.current = true;
       try {
-        await Promise.allSettled([readStatus(), readRealtime(), readRecord()]);
+        await Promise.allSettled([readStatus(), readRealtime(), readRecord(), readPassRecord()]);
       } finally {
         polling.current = false;
       }
@@ -109,7 +124,7 @@ export default function TaggingPipelinePanel({ onOpenTab }) {
       clearInterval(scheduleId);
       heldNewest.current += 1;
     };
-  }, [readStatus, readRealtime, readSchedule, readDrift, readRecord]);
+  }, [readStatus, readRealtime, readSchedule, readDrift, readRecord, readPassRecord]);
 
   /**
    * Turn the real-time path on or off (ADR 0005 D12). The control is disabled while the change is pending. With no
@@ -133,7 +148,67 @@ export default function TaggingPipelinePanel({ onOpenTab }) {
     if (mounted.current) setChange({ target: on, pending: false, outcome });
   }, [readRealtime, readRecord]);
 
+  /**
+   * Ask for a pass (ADR 0006 D17), as switchPath sends a change: "Run a pass now" asks nothing and is disabled while
+   * pending. With no answer the panel can read, the outcome is unknown: pending clears at once and the status and
+   * the pass record are re-read without waiting. With an answer, pending clears once both re-reads have settled.
+   * Sending a Run clears the last Run's or Stop's outcome.
+   */
+  const runPass = useCallback(async () => {
+    setRun({ pending: true, outcome: null });
+    setStop((s) => ({ ...s, outcome: null }));
+    const result = await sendRun();
+    if (!mounted.current) return;
+    const outcome = runOutcome(result);
+    if (outcome.outcome === 'unknown') {
+      setRun({ pending: false, outcome });
+      readStatus();
+      readPassRecord();
+      return;
+    }
+    await Promise.allSettled([readStatus(), readPassRecord()]);
+    if (mounted.current) setRun({ pending: false, outcome });
+  }, [readStatus, readPassRecord]);
+
+  /**
+   * Stop what the open prompt showed (ADR 0006 D17): exactly its snapshot's passes, each with the state it showed.
+   * The prompt stays open while the stop is under way. With no answer the panel can read, it closes at once, the
+   * outcome is unknown and the status and the pass record are re-read without waiting; with an answer, it closes
+   * once both re-reads have settled. Sending a Stop clears the last Run's or Stop's outcome.
+   */
+  const stopPasses = useCallback(async () => {
+    const targets = stop.snapshot.map(({ key, state }) => ({ key, state }));
+    setStop((s) => ({ ...s, pending: true, outcome: null }));
+    setRun((r) => ({ ...r, outcome: null }));
+    const result = await sendStop(targets);
+    if (!mounted.current) return;
+    const outcome = stopOutcome(result);
+    if (outcome.outcome === 'unknown') {
+      setStop({ ...NO_STOP, outcome });
+      readStatus();
+      readPassRecord();
+      return;
+    }
+    await Promise.allSettled([readStatus(), readPassRecord()]);
+    if (mounted.current) setStop({ ...NO_STOP, outcome });
+  }, [stop.snapshot, readStatus, readPassRecord]);
+
   const pass = status.body ? passView(status.body) : null;
+  const busy = status.body ? busyView(status.body) : null;
+  const who = passWho(passRecord, status.body);
+  // The Stop prompt closes by itself when a read shows nothing busy, but never while its stop is under way (D17). A
+  // read that cannot tell whether a pass is waiting (busy.known false) shows only the live pass, never nothing busy.
+  const nothingBusy = !!busy && busy.known && busy.items.length === 0;
+  useEffect(() => {
+    if (nothingBusy) setStop((s) => (s.snapshot && !s.pending ? { ...s, snapshot: null, confirmation: null } : s));
+  }, [nothingBusy]);
+  // The prompt's snapshot: the busy passes with no stop asked for, and the owner's confirmation, as they read now.
+  const askStop = () => setStop((s) => ({
+    ...s,
+    snapshot: busy.items.filter((it) => !it.stopAskedAt),
+    confirmation: pass.confirmation,
+  }));
+  const cancelStop = () => setStop((s) => ({ ...s, snapshot: null, confirmation: null }));
   // The held list belongs to the latest pass, and is read only when that pass is not running and held removals.
   const heldRunId = pass && !pass.running && pass.latest && pass.latest.held && pass.latest.held.total > 0
     ? pass.latest.runId
@@ -188,9 +263,27 @@ export default function TaggingPipelinePanel({ onOpenTab }) {
       <h2>Tagging pipeline</h2>
       <p className="settings-hint">
         The gap-filling pass and the real-time path keep one TAGS relationship in the graph for each tagging on the
-        relay. This page shows how they are doing. Apart from the real-time path's switch, it changes nothing.
+        relay. This page shows how they are doing, and lets the owner or an admin switch the real-time path on or off,
+        and run or stop a pass.
       </p>
-      <PassSection read={status} view={pass} onRetry={() => readStatus({ showLoading: true })} />
+      <PassSection
+        read={status}
+        view={pass}
+        onRetry={() => readStatus({ showLoading: true })}
+        who={who}
+        controls={{
+          busy,
+          who,
+          record: passRecord,
+          onRetryRecord: () => readPassRecord({ showLoading: true }),
+          run,
+          stop,
+          onRun: runPass,
+          onAskStop: askStop,
+          onCancelStop: cancelStop,
+          onStop: stopPasses,
+        }}
+      />
       <HeldSection
         pass={pass}
         reportFailed={status.state === 'error' && !status.body}
@@ -211,7 +304,7 @@ export default function TaggingPipelinePanel({ onOpenTab }) {
         onRetry={() => readRealtime({ showLoading: true })}
         statusRead={status}
         sched={sched}
-        schedPending={!answered(schedule)}
+        schedPending={schedule.state === 'loading'}
         record={record}
         recordView={recordView}
         onRetryRecord={() => readRecord({ showLoading: true })}

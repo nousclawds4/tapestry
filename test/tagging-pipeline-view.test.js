@@ -42,6 +42,39 @@
  *             names no data-volume remedy, claims no state and says the state shown is from the next read; one
  *             carrying the handler's code keeps the remedy. It fails until a code-less failure has its own sentence.
  *   R2-12 (story 5 § Carry-forwards): TV48's title now says five flags, as the helper holds (a title-only edit).
+ *   TV83–TV108 Story 6 (engineering-team/stories/tagging-edges/6-pass-run-and-stop.md; ADR
+ *             engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md D5, D9, D10, D12, D16, D18 and § Seams
+ *             "New cases the review named"), still clock-free (TV4, TV108):
+ *             TV83 the stopped outcome's copy (EXPLANATIONS passOutcome.stopped and passReason.requested, OUTCOME_TONE.stopped
+ *             neutral, FINISHED unchanged, the signal entries kept); TV84–TV86 busyView; TV87–TV89 runOutcome; TV90–TV92
+ *             stopOutcome; TV93–TV97 stopPromptView; TV98–TV107 passWho; TV108 no clock in any of the five.
+ *             Red until the Implementer: each fails by name ("does not export busyView (ADR tagging-edges/0006 D16 …)", or
+ *             for TV83 "EXPLANATIONS.passOutcome.stopped must exist").
+ *             Story 6's Test Design review, COV-3: TV104 also covers the killed case (a pass ended by its time-out, a
+ *             deploy or a restart, its pessimistic record left as the latest), beside the done and refused cases.
+ *   TV109–TV110 added after Implementation (2026-10-28), for the readings ADR 0006 Amendment 1 § C ratified and the
+ *             copy the Implementer's own check changed (story 6 § Deviations, last group): TV109 a running busy item
+ *             reads as live from its own state, never "stopped on request" beside "running since", when its control
+ *             comes from D5's 1 s reuse; TV110 the plural too-late sentence never says "some". TV90 is revised, not
+ *             replaced: every sentence of each accepted Stop's text must be in the past tense (pastProblems), not only
+ *             one of them, so "It stops at its next safe point." beside a past sentence fails.
+ *
+ * Story 6's readings where ADR 0006 leaves a detail open (reported at the Test Design gate):
+ *   - runOutcome's and stopOutcome's answers are read shape-free, as switchOutcome's are: exactly one of D16's eleven
+ *     outcome names as a string value (done, done-unrecorded, refused-busy, refused-stale, nothing-to-stop,
+ *     not-reachable, queue-unavailable, record-unavailable, refused, failed, unknown), and the sentence is its string
+ *     values holding a space. "In the past tense" (D16) is read as the sentence holding a past-tense verb (PAST). A
+ *     `tone`, when present, is one of the four, never bad for done and never ok for a refusal or a failure.
+ *   - The not-reachable sentence is pinned word for word, because D16 gives it.
+ *   - busyView's items are read in the server's order (D5 sorts them), one per control.busy item, shape-free inside.
+ *   - stopPromptView gets the server's own control.busy items (the snapshot D17 takes) and passView's confirmation; its
+ *     text is read shape-free, and "one block per item" as a list of two blocks for two items.
+ *   - passWho's answer is read through its parts: an object holding a run's runId (or a busy item's key) as a value, or
+ *     the value of a property named by it. A join "says" a who when some part names it in words (the owner, an admin,
+ *     the schedule, the owner's confirmation, a local call, started another way, not recorded, refreshing), with the
+ *     shortened key for the owner or an admin, and carries the time in any form carriesTime reads. Where the history list
+ *     and the gave-up line are computed is left open by D16/D18, so passWho is not asked for them here (the browser
+ *     suite covers both).
  *
  * Story 5's readings where ADR 0005 leaves a detail open (reported at the Test Design gate):
  *   - switchRecordView's and switchOutcome's answer shapes are not fixed, so these tests read them shape-free: every
@@ -1963,9 +1996,913 @@ test('TV82: a failed change whose answer carries no body.code did not come from 
     + `1; story 5's review, requested 6):\n      - ${bad.join('\n      - ')}`);
 });
 
+// ═══ Story 6 (engineering-team/stories/tagging-edges/6-pass-run-and-stop.md; ADR tagging-edges/0006 D5, D9, D10, D12, D16, D18) ═══
+
+const ADR6 = 'ADR tagging-edges/0006';
+/** Story 6's new exports: the same loader, citing ADR 0006. */
+const fn6 = async (name, where) => {
+  const f = await need(name, where, ADR6);
+  assert(typeof f === 'function', `${VIEW_REL} exports ${name}, but it is not a function (${ADR6} ${where})`);
+  return f;
+};
+const busyViewFn = () => fn6('busyView', 'D16 "busyView(statusBody) → {known, why, items, canStop}"');
+const runOutcomeFn = () => fn6('runOutcome', 'D16 "runOutcome(result) and stopOutcome(result), after switchOutcome"');
+const stopOutcomeFn = () => fn6('stopOutcome', 'D16 "runOutcome(result) and stopOutcome(result), after switchOutcome"');
+const stopPromptViewFn = () => fn6('stopPromptView', 'D16 "stopPromptView(items, confirmation)"');
+const passWhoFn = () => fn6('passWho', 'D16 "passWho(recordRead, statusBody) joins the record to runs and busy items"');
+
+// ─── fixtures (story 6): job keys, runs, the status's control member (D12) and the record's GET answer (D11, D13) ───
+
+const T6 = Date.parse('2026-10-27T12:00:00.000Z');
+/** An ISO time `min` minutes from T6 (negative: before it). */
+const at6 = (min) => new Date(T6 + Math.round(min * 60000)).toISOString();
+/** A key of LINEUP_ID's shape, /^reconcileTaggingEdges-[0-9a-f]{12}$/ (D2), distinct per n. */
+const lk = (n) => `reconcileTaggingEdges-${Number(n).toString(16).padStart(12, '0')}`;
+const LEGACY_JOB = 'reconcileTaggingEdges'; // the legacy fixed job id (R7)
+/** A scheduled run's job id in the seed backstop's form, repeat:sched:seed:reconcileTaggingEdges:<millis> (D2). */
+const seedJob = (millis) => `repeat:sched:seed:reconcileTaggingEdges:${millis}`;
+const legacyKey = (iso) => `${LEGACY_JOB}@${Date.parse(iso)}`; // D2: the legacy id's key is id@timestamp
+/** A run id; the hex tail is distinct per n and never holds KEY_OWNER or KEY_ADMIN. */
+const runId6 = (n) => `20261027T11${String(n).padStart(2, '0')}00Z-c0de00${String(n).padStart(2, '0')}`;
+
+/** A finished run in the pass's own shape, starting `startMin` minutes from T6. jobId: a string gives job { id }, null gives
+ * job null (a hand run), undefined leaves no `job` member at all (a report from before story 6, D10 "Old reports"). */
+function run6(n, startMin, jobId, over = {}) {
+  const rec = doneRecord({ runId: runId6(n), startedAt: at6(startMin), endedAt: at6(startMin + 0.1), durationMs: 6000, ...over });
+  if (jobId !== undefined) rec.job = jobId === null ? null : { id: jobId };
+  return rec;
+}
+/** D10: a pass stopped on request at a safe point. */
+const STOPPED6 = { outcome: 'stopped', reasonCode: 'requested', reason: 'stopped on request at a safe point', stopped: true, failure: null };
+
+/** One busy item as the status's control.busy serves it (D12): every time an ISO string, no who. */
+function busyItem(o = {}) {
+  return { key: lk(1), jobId: lk(1), state: 'waiting', since: at6(-2), behind: null, runId: null, stopAskedAt: null,
+    startRecorded: true, confirmation: null, ...o };
+}
+const control6 = (busy = [], o = {}) => ({ queue: 'ok', busy, gaveUp: null, ...o });
+/** The status body with a control member (D12); `control` undefined leaves the member out. */
+function status6(control, o = {}) {
+  const body = statusBody(o);
+  if (control !== undefined) body.control = control;
+  return body;
+}
+
+/** Who, as the record holds it (D11): a kind, and an 8-hex key for the owner or an admin only. */
+const who6 = (kind) => (kind === 'owner' ? { kind, key: KEY_OWNER } : kind === 'admin' ? { kind, key: KEY_ADMIN } : { kind });
+/** One record entry (D11). start / stop: { at, who } / { at, runId, who }, or null when absent. */
+function passEntry({ jobId, start = null, stop = null, skip = false, noRerun = false, gaveUpAt = null }) {
+  return {
+    jobId,
+    start: start ? { at: start.at, who: who6(start.who) } : null,
+    stop: stop ? { at: stop.at, runId: stop.runId === undefined ? null : stop.runId, who: who6(stop.who) } : null,
+    skip, noRerun, gaveUpAt,
+  };
+}
+/** The record's gated GET answer (D13). */
+const recordAnswer = (passes = {}, history = [], state = 'recorded') => ({ success: true, state, history, passes });
+
+// ─── reading story 6's answers (ADR 0006 D16 fixes their content, not their field names) ───────────────────────────
+
+/** "Nothing waiting" in any words: what an answer must never say when the server cannot tell (AC-2). */
+const NOTHING_BUSY = /\bnothing (is |was )?(waiting|busy|running|lined up)\b|\bno pass(es)? (is |are |was |were )?(waiting|busy|running|lined up)\b|\bnot busy\b|\bidle\b/i;
+const OUTCOMES6 = ['done', 'done-unrecorded', 'refused-busy', 'refused-stale', 'nothing-to-stop', 'not-reachable',
+  'queue-unavailable', 'record-unavailable', 'refused', 'failed', 'unknown'];
+/** The outcome runOutcome or stopOutcome names: exactly one of D16's, as a string value of its answer. */
+function outcome6(r, what) {
+  assert(r && typeof r === 'object', `${what}: the answer must name its outcome and carry its sentence (${ADR6} D16); got ${show(r)}`);
+  const names = [...new Set(stringsIn(r).filter((s) => OUTCOMES6.includes(s)))];
+  assert(names.length === 1, `${what}: the answer must name exactly one of ${show(OUTCOMES6)} (${ADR6} D16); got ${show(r)}`);
+  return names[0];
+}
+/** D16 "The sentences are in the past tense": read as the sentence holding a past-tense verb. */
+const PAST = /\b(was|were|had|did|came|could not|couldn't|refused|answered|took|asked|stopped|failed|ended)\b/i;
+/** Story 4's rule for a result's tone (ADR 0004 § UI "Tones"), and what D16's outcomes mean: done is never bad, a refusal or a failure never ok. */
+function toneProblems(r, outcome, what) {
+  const out = [];
+  if (!r || !Object.prototype.hasOwnProperty.call(r, 'tone')) return out;
+  if (!TONES.includes(r.tone)) out.push(`${what}: tone must be one of ${show(TONES)}; got ${show(r.tone)}`);
+  if (outcome === 'done' && r.tone === 'bad') out.push(`${what}: a done outcome is not bad; tone ${show(r.tone)}`);
+  if (['refused', 'failed', 'refused-busy', 'refused-stale', 'queue-unavailable', 'record-unavailable', 'not-reachable'].includes(outcome) && r.tone === 'ok') {
+    out.push(`${what}: a refusal or failure is not ok; tone ${show(r.tone)}`);
+  }
+  return out;
+}
+const answer6 = (status, body) => ({ ok: false, code: `http-${status}`, httpStatus: status, body });
+const okAnswer = (body) => ({ ok: true, body });
+const NO_ANSWER = [
+  { ok: false, code: 'timeout', httpStatus: null, body: null },
+  { ok: false, code: 'network', httpStatus: null, body: null },
+  { ok: false, code: 'bad-json', httpStatus: 200, body: null },
+];
+/** The refusals a viewer can meet (AC-4): the middleware's two texts, ownerOrAdmin's cross-site 403, and a 403 with no JSON. */
+const REFUSALS6 = [
+  answer6(401, { success: false, error: 'Sign in as the owner or an admin to do this.' }),
+  answer6(403, { success: false, error: 'Only the owner or an admin can do this.' }),
+  answer6(403, { success: false, error: 'cross-site request refused' }),
+  answer6(403, null),
+];
+const CODELESS = [answer6(404, null), answer6(502, null)];
+const NEXT_READ = /\bnext\b[^.]*\bread/i;
+/** A code-less failure claims nothing about what a Run did ("whether a pass was lined up" asks, so it passes). */
+const CLAIMS_RUN = /(?<!\b(?:whether|if)\b[^.]{0,40})\b(?:was|were) (?:not )?lined up\b|\bnothing (?:new )?was lined up\b|\bunchanged\b|\bnothing (?:has )?changed\b|\bchanged nothing\b/i;
+/** … nor about what a Stop did. */
+const CLAIMS_STOP = /(?<!\b(?:whether|if)\b[^.]{0,40})\b(?:was|were) (?:not )?(?:taken out of line|asked to stop|stopped)\b|\bunchanged\b|\bnothing (?:has )?changed\b|\bchanged nothing\b/i;
+/** D16, verbatim: the not-reachable sentence. */
+const NOT_REACHABLE_SENTENCE = 'The stop was refused: the pass was starting and had not yet recorded its process, so nothing changed. Press Stop again.';
+
+// The prompt's text (story 6 AC-3, as D16 lists it per item).
+const OUT_OF_LINE = /\bout of line\b/i;
+const WRITES_NOTHING = /\bwrites? nothing\b|\bnothing (is |gets |will be )?written\b|\bwrites? no\b/i;
+const NO_SCHEDULE_CHANGE = /\bno schedule entry\b|\bschedule entr(y|ies)\b[^.]*\b(unchanged|stays?|stay the same|(does|do|will) not change|(doesn't|don't|won't) change|never changes?)\b/i;
+const SAFE_POINT = /\bnext safe point\b/i;
+const TIMEOUT_30 = /\b(30-minute|30 minute|30 minutes|thirty-minute)\b[^.]*\btime-?out\b|\btime-?out\b[^.]*\b30 minutes\b/i;
+const USED_UP = /\bused up\b|\bus(es|ing)\b[^.]{0,40}?\bup\b/i;
+const CONFIRM_AGAIN = /\bconfirm (it |them )?again\b/i;
+const STAYS_PENDING = /\b(stays|remains|left|leaves it|leave it|still|kept) pending\b|\bpending for the next pass\b/i;
+const someText = (v, re) => stringsIn(v).some((s) => re.test(s));
+const allText = (v) => stringsIn(v).join(' | ');
+
+/** Does an answer warn about the owner's confirmation (AC-3: stopping uses it up; the owner must confirm again)? */
+const warns = (v) => someText(v, USED_UP) && someText(v, CONFIRM_AGAIN);
+/** passView(statusBody).confirmation, as D16 hands it to stopPromptView: pending, none, and expired. */
+async function confirmations() {
+  const passView = await passViewFn();
+  return {
+    pending: passView(statusBody({ confirmationPending: clone(PENDING_CONFIRMATION) })).confirmation,
+    none: passView(statusBody({ confirmationPending: null })).confirmation,
+    expired: passView(statusBody({ confirmationPending: { ...clone(PENDING_CONFIRMATION), expired: true } })).confirmation,
+  };
+}
+
+/**
+ * passWho's parts for one run or one busy item: every object in the answer that holds `id` (a run's runId, an item's
+ * key) as an own string value, and the value of every property named `id` (a keyed map). D16 fixes what each join says,
+ * not the answer's shape, so a test asks only that some part speaks for the id and says what the join gives.
+ */
+function partsFor(v, id, out = [], seen = new Set()) {
+  if (!v || typeof v !== 'object' || seen.has(v)) return out;
+  seen.add(v);
+  if (!Array.isArray(v)) {
+    if (Object.values(v).some((x) => x === id)) out.push(v);
+    if (Object.prototype.hasOwnProperty.call(v, id)) {
+      if (v[id] && typeof v[id] === 'object') out.push(v[id]);
+      else if (typeof v[id] === 'string') out.push({ text: v[id] });
+    }
+  }
+  for (const x of Array.isArray(v) ? v : Object.values(v)) partsFor(x, id, out, seen);
+  return out;
+}
+/** Who, read positively (D16 "Who reads as the owner, an admin (with a shortened key), the schedule, the owner's
+ * confirmation, a local call, 'started another way', or not recorded"): a line naming the kind, with the key for the
+ * owner or an admin. */
+const WHO_SAYS = {
+  owner: (ls) => ls.some((s) => /\bthe owner\b(?!['’]s)/i.test(s)) && ls.some((s) => s.includes(KEY_OWNER)),
+  admin: (ls) => ls.some((s) => /\ban admin\b/i.test(s)) && ls.some((s) => s.includes(KEY_ADMIN)),
+  schedule: (ls) => ls.some((s) => /\bthe schedule\b/i.test(s)),
+  confirmation: (ls) => ls.some((s) => /\bthe owner['’]s confirmation\b/i.test(s)),
+  local: (ls) => ls.some((s) => /\ba local call\b/i.test(s)),
+  other: (ls) => ls.some((s) => /\bstarted another way\b/i.test(s)),
+  notRecorded: (ls) => ls.some((s) => /\bnot recorded\b/i.test(s)),
+  refreshing: (ls) => ls.some((s) => /\brefresh/i.test(s)),
+};
+/** Any trace of a who (for "names no …"): the owner's or an admin's words or key. */
+const WHO_TRACE = {
+  ...WHO_SAYS,
+  owner: (ls) => ls.some((s) => /\bthe owner\b(?!['’]s)/i.test(s) || s.includes(KEY_OWNER)),
+  admin: (ls) => ls.some((s) => /\ban admin\b/i.test(s) || s.includes(KEY_ADMIN)),
+};
+const WHO_KINDS = ['owner', 'admin', 'schedule', 'confirmation', 'local', 'other'];
+const others = (...keep) => WHO_KINDS.filter((k) => !keep.includes(k));
+/**
+ * null when some part of `answer` for `id` says every `want` kind, carries every time in `times`, shows no trace of a
+ * `not` kind, carries none of `notTimes` and matches none of `none`; else a message.
+ */
+function whoProblem(answer, id, { want = [], not = [], times = [], notTimes = [], none = [] }, what) {
+  const parts = partsFor(answer, id);
+  if (!parts.length) {
+    return `${what}: nothing in passWho's answer speaks for ${show(id)} — the join is read as some object holding ${show(id)} as a ` +
+      `value (a run's runId, an item's key) or a property named ${show(id)} (${ADR6} D16)`;
+  }
+  const fits = parts.some((p) => {
+    const ls = stringsIn(p);
+    return want.every((k) => WHO_SAYS[k](ls)) && not.every((k) => !WHO_TRACE[k](ls))
+      && times.every((at) => carriesTime(p, at)) && notTimes.every((at) => !carriesTime(p, at))
+      && none.every((re) => !ls.some((s) => re.test(s)));
+  });
+  if (fits) return null;
+  return `${what}: expected a part for ${show(id)} that says ${show(want)}` + (times.length ? `, with the time(s) ${show(times)}` : '')
+    + (not.length ? `, and no trace of ${show(not)}` : '') + (notTimes.length ? ` nor the time(s) ${show(notTimes)}` : '')
+    + (none.length ? ` nor ${none.map(String).join(', ')}` : '') + `; its parts: ${show(parts).slice(0, 700)}`;
+}
+
+/* TV83: the stopped outcome's copy (D16, D10) */
+
+test('TV83: a pass stopped on request reads as its own outcome — explain(passOutcome, stopped) and explain(passReason, requested) are recognised, each sentence saying it stopped on request at a safe point; a stopped latest pass takes the neutral tone (OUTCOME_TONE.stopped), never failed\'s bad; it is not a finished pass (FINISHED stays done and done-removals-held), so newestFinishedPass and drift skip it for the finished pass before it; and the signal sentences stay for reports written before story 6 [story 6 AC-3 "a pass that stops at a safe point shows its own outcome … not failed"; ADR tagging-edges/0006 D16 "The stopped outcome\'s copy", D10]', async () => {
+  const explain = await explainFn();
+  const passView = await passViewFn();
+  const newest = await newestFn();
+  const driftView = await driftViewFn();
+  const bad = [];
+  for (const [kind, code] of [['passOutcome', 'stopped'], ['passReason', 'requested']]) {
+    const r = explain(kind, code);
+    if (!r || r.recognised !== true) {
+      bad.push(`explain(${kind}, ${code}) is not recognised — EXPLANATIONS.${kind}.${code} must exist (D16); got ${show(r)}`);
+      continue;
+    }
+    if (!/\bstopped on request\b/i.test(r.text) || !/\bsafe point\b/i.test(r.text)) {
+      bad.push(`explain(${kind}, ${code}).text must say the pass stopped on request at a safe point (D16); got ${show(r.text)}`);
+    }
+    if (/!/.test(r.text)) bad.push(`explain(${kind}, ${code}).text must have no "!"; got ${show(r.text)}`);
+  }
+  const done = run6(2, -60, lk(2));
+  const stopped = run6(1, -5, lk(1), STOPPED6);
+  const body = statusBody({ latest: stopped, previous: [done] });
+  const v = passView(body);
+  if (!v || v.tone !== 'neutral') bad.push(`passView(a stopped latest pass).tone must be neutral (D16 "OUTCOME_TONE.stopped = 'neutral'"); got ${show(v && v.tone)}`);
+  if (!v || !v.latest || v.latest.outcome !== 'stopped') bad.push(`passView must show the stopped pass as the latest; got ${show(v && v.latest && v.latest.outcome)}`);
+  const finished = newest(body);
+  if (!finished || finished.runId !== done.runId) {
+    bad.push(`newestFinishedPass must skip the stopped latest pass for the done one before it (D16 "FINISHED stays done and done-removals-held"); got ${show(finished && finished.runId)}`);
+  }
+  const d = driftView(driftCounts(known(7030), known(7026)), body, rtLive());
+  if (!d || !d.explainedBy || d.explainedBy.runId !== done.runId) {
+    bad.push(`driftView must explain by the done pass, not the stopped one (D16 "drift never explains by a stopped pass"); explainedBy ${show(d && d.explainedBy)}`);
+  }
+  for (const [kind, code] of [['passReason', 'signal'], ['failureStage', 'signal']]) {
+    const r = explain(kind, code);
+    if (!r || r.recognised !== true) bad.push(`explain(${kind}, signal) must stay recognised, for reports written before story 6 (D16 "The signal entries stay"); got ${show(r)}`);
+  }
+  assert(!bad.length, `the stopped outcome's copy (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+/* TV84–TV86: busyView (story 6 AC-2, AC-3; ADR 0006 D5, D12, D16) */
+
+test('TV84: busyView says the server cannot tell whether a pass is waiting — known false, a why, and nothing that reads as nothing waiting — for a status with no control member (a server from before story 6) and for a control whose queue is off, not-ready or read-failed; a control whose queue read ok is known, and with nothing busy has no items and no Stop [story 6 AC-2 "When the server cannot tell whether a pass is waiting, every viewer is told so. It is never shown as nothing waiting"; ADR tagging-edges/0006 D16 "An absent control reads as not known, never as nothing waiting", D5 "When queue !== \'ok\' … the panel says it cannot tell", D12]', async () => {
+  const busyView = await busyViewFn();
+  const bad = [];
+  const cases = [
+    ['no control member', statusBody()],
+    ['queue off', status6(control6([], { queue: 'off' }))],
+    ['queue not-ready', status6(control6([], { queue: 'not-ready' }))],
+    ['queue read-failed', status6(control6([], { queue: 'read-failed' }))],
+  ];
+  for (const [label, body] of cases) {
+    const v = busyView(body);
+    if (!v || v.known !== false) { bad.push(`${label}: known must be false (the server cannot tell whether a pass is waiting); got ${show(v)}`); continue; }
+    if (!v.why) bad.push(`${label}: why must say why it is not known (D16 {known, why, items, canStop}); got ${show(v.why)}`);
+    const said = stringsIn(v).filter((s) => NOTHING_BUSY.test(s));
+    if (said.length) bad.push(`${label}: it must never read as nothing waiting (AC-2); got ${show(said)}`);
+    if (v.canStop !== false) bad.push(`${label}: with no busy item known there is nothing to stop, so canStop must be false; got ${show(v.canStop)}`);
+    noBang(v, `busyView(${label})`);
+  }
+  const ok = busyView(status6(control6([])));
+  if (!ok || ok.known !== true) bad.push(`queue ok, nothing busy: known must be true (the server read the queue); got ${show(ok)}`);
+  else {
+    if (!Array.isArray(ok.items) || ok.items.length !== 0) bad.push(`queue ok, nothing busy: items must be an empty list; got ${show(ok.items)}`);
+    if (ok.canStop !== false) bad.push(`queue ok, nothing busy: canStop must be false (AC-3 "Otherwise it is not shown"); got ${show(ok.canStop)}`);
+  }
+  assert(!bad.length, `busyView when the server cannot tell (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV85: each busy item has its own sentence, in the server\'s order — waiting since its time, behind a pass ahead of it or behind other heavy database work (or neither, when the server names nothing ahead); running since its time; and "a stop was asked for" with that time only on an item that has one [story 6 AC-2 "What the server reports, for each busy pass: whether it is waiting or running, and since when; what a waiting pass waits behind; whether a stop has been asked for it, and since when"; ADR tagging-edges/0006 D16 "Each item\'s sentence says waiting since <time>, behind a pass ahead or other heavy database work, or running since <time>, plus a stop was asked for at <time>", D5]', async () => {
+  const busyView = await busyViewFn();
+  const bad = [];
+  const bodies = [
+    [busyItem({ key: lk(1), state: 'running', since: at6(-1), runId: runId6(1), stopAskedAt: at6(-0.5) }),
+      busyItem({ key: lk(2), jobId: lk(2), state: 'waiting', since: at6(-0.8), behind: 'pass' }),
+      busyItem({ key: seedJob(T6 - 30000), jobId: seedJob(T6 - 30000), state: 'waiting', since: at6(-0.5), behind: 'pass', startRecorded: false })],
+    [busyItem({ key: lk(3), jobId: lk(3), state: 'waiting', since: at6(-0.6), behind: 'heavy-work' }),
+      busyItem({ key: lk(4), jobId: lk(4), state: 'waiting', since: at6(-0.4), behind: null, stopAskedAt: null })],
+  ];
+  for (const busy of bodies) {
+    const v = busyView(status6(control6(busy)));
+    if (!v || v.known !== true || !Array.isArray(v.items) || v.items.length !== busy.length) {
+      bad.push(`a control with ${busy.length} busy item(s): expected known true and ${busy.length} items; got ${show(v)}`);
+      continue;
+    }
+    busy.forEach((b, i) => {
+      const it = v.items[i];
+      const what = `item ${i} (${b.state}${b.behind ? `, behind ${b.behind}` : ''}${b.stopAskedAt ? ', stop asked' : ''})`;
+      if (!someText(it, b.state === 'running' ? /\brunning\b/i : /\bwaiting\b/i)) bad.push(`${what}: its sentence must say ${b.state}; got ${show(it)}`);
+      if (!carriesTime(it, b.since)) bad.push(`${what}: it must carry since when, ${b.since}; got ${show(it)}`);
+      const ahead = someText(it, /\bpass ahead\b|\bahead of it\b/i);
+      const heavy = someText(it, /\bheavy database work\b/i);
+      if (b.behind === 'pass' && (!ahead || heavy)) bad.push(`${what}: it must say it waits behind a pass ahead of it, not heavy database work; got ${show(it)}`);
+      if (b.behind === 'heavy-work' && (!heavy || ahead)) bad.push(`${what}: it must say it waits behind other heavy database work, not a pass; got ${show(it)}`);
+      if (b.behind === null && (ahead || heavy)) bad.push(`${what}: the server names nothing ahead of it, so it says neither; got ${show(it)}`);
+      const stopLine = someText(it, /\bstop was asked for\b/i);
+      if (b.stopAskedAt && (!stopLine || !carriesTime(it, b.stopAskedAt))) bad.push(`${what}: it must say a stop was asked for at ${b.stopAskedAt}; got ${show(it)}`);
+      if (!b.stopAskedAt && stopLine) bad.push(`${what}: no stop was asked for it, yet it says one was; got ${show(it)}`);
+      noBang(it, what);
+    });
+  }
+  assert(!bad.length, `busyView's item sentences (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV86: canStop is true while some busy item has no stop asked for — a running pass with a stop and a waiting pass without one; a pass alive while the queue read failed (only the liveness item is known, and Stop may still reach it) — and false when every busy item already has a stop asked for [story 6 AC-3 "While some busy pass has no stop asked for, the owner and admins see Stop. Otherwise it is not shown"; ADR tagging-edges/0006 D16 "canStop is true when some item has no stopAskedAt", D9 step 1, D5]', async () => {
+  const busyView = await busyViewFn();
+  const bad = [];
+  const running = busyItem({ key: lk(1), state: 'running', since: at6(-1), runId: runId6(1), stopAskedAt: at6(-0.5) });
+  const cases = [
+    ['a running pass with a stop asked, a waiting one without', control6([running, busyItem({ key: lk(2), jobId: lk(2), behind: 'pass' })]), true, true],
+    ['every busy pass has a stop asked for', control6([running, busyItem({ key: lk(2), jobId: lk(2), behind: 'pass', stopAskedAt: at6(-0.4) })]), false, true],
+    ['the queue read failed while a pass is alive', control6([busyItem({ key: `run:${runId6(1)}`, state: 'running', since: at6(-1), runId: runId6(1) })], { queue: 'read-failed' }), true, false],
+  ];
+  for (const [label, control, want, knownWant] of cases) {
+    const v = busyView(status6(control));
+    if (!v) { bad.push(`${label}: no answer`); continue; }
+    if (v.canStop !== want) bad.push(`${label}: canStop must be ${want}; got ${show(v.canStop)}`);
+    if (v.known !== knownWant) bad.push(`${label}: known must be ${knownWant}; got ${show(v.known)}`);
+    if (!Array.isArray(v.items) || v.items.length !== control.busy.length) bad.push(`${label}: every busy item the server lists is shown (${control.busy.length}); got ${show(v.items)}`);
+  }
+  assert(!bad.length, `busyView's canStop (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+/* TV87–TV89: runOutcome (story 6 AC-1, AC-4, AC-5; ADR 0006 D6, D14, D16) */
+
+test('TV87: each answer the Run route gives has its own outcome and sentence, in the past tense — lined up (done), a pass already waiting or running so nothing new was lined up (refused-busy), the task queue unavailable (queue-unavailable), and the action that could not be recorded so nothing was lined up (record-unavailable) — four different sentences, no "!", and a tone that never calls a refusal ok [story 6 AC-1 "When a pass is busy, the server refuses plainly", "When the task queue is unavailable, the server refuses plainly"; AC-5 "a Run is refused and changes nothing"; ADR tagging-edges/0006 D16 "runOutcome(result)", D6]', async () => {
+  const runOutcome = await runOutcomeFn();
+  const bad = [];
+  const cases = [
+    ['done', okAnswer({ success: true, linedUp: true, key: lk(1), recorded: true }), [/\blined up\b/i]],
+    ['refused-busy', answer6(409, { success: false, code: 'pass-busy', busy: [busyItem({ state: 'running', runId: runId6(1), since: at6(-1) })] }),
+      [/\balready\b/i, /\bwaiting\b/i, /\brunning\b/i, /\blined up\b/i]],
+    ['queue-unavailable', answer6(503, { success: false, code: 'QUEUE_UNAVAILABLE' }), [/\bqueue\b/i]],
+    ['record-unavailable', answer6(500, { success: false, code: 'record-unavailable', cause: 'ENOSPC' }), [/\brecord/i, /\bnothing\b|\bno pass\b|\bnot\b/i]],
+  ];
+  const sentences = new Set();
+  for (const [want, res, words] of cases) {
+    const what = `runOutcome(${res.ok ? '200' : res.code} ${show(res.body && res.body.code)})`;
+    const r = runOutcome(res);
+    const got = outcome6(r, what);
+    if (got !== want) { bad.push(`${what}: expected ${want}; got ${show(r)}`); continue; }
+    const s = sentenceOf(r);
+    if (!s.trim()) { bad.push(`${what}: it must carry a sentence; got ${show(r)}`); continue; }
+    for (const re of words) if (!re.test(s)) bad.push(`${what}: its sentence must match ${re}; got ${show(s)}`);
+    if (!PAST.test(s)) bad.push(`${what}: its sentence must be in the past tense (D16); got ${show(s)}`);
+    bad.push(...toneProblems(r, got, what));
+    noBang(r, what);
+    sentences.add(s);
+  }
+  if (!bad.length && sentences.size !== cases.length) bad.push(`each of the four outcomes has its own sentence; got ${show([...sentences])}`);
+  assert(!bad.length, `runOutcome's answers (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV88: a Run with no usable answer — a timeout, a network failure, or a 2xx whose JSON is bad — is unknown, and its sentence says so; a 401 or 403 (signed out, neither owner nor admin, another site, or no JSON) is refused, and its sentence says to sign in again as the owner or an admin, which a failed Run\'s does not [story 6 AC-1 "If the server has not answered within 15 seconds … the panel says the outcome is unknown"; AC-4 "A refusal can come from a lapsed session, or from a viewer who is no longer owner or admin"; ADR tagging-edges/0006 D16 "unknown (timeout, network or bad-json)", "refused (401 or 403, with the sign in again as the owner or an admin sentence)"]', async () => {
+  const runOutcome = await runOutcomeFn();
+  const bad = [];
+  for (const res of NO_ANSWER) {
+    const what = `runOutcome(${res.code})`;
+    const r = runOutcome(res);
+    const got = outcome6(r, what);
+    if (got !== 'unknown') { bad.push(`${what}: expected unknown; got ${show(r)}`); continue; }
+    if (!/\bunknown\b/i.test(sentenceOf(r))) bad.push(`${what}: its sentence must say the outcome is unknown; got ${show(sentenceOf(r))}`);
+    noBang(r, what);
+  }
+  const failed = sentenceOf(runOutcome(answer6(500, { success: false, code: 'error', cause: 'EIO' })));
+  if (/sign in again/i.test(failed)) bad.push(`runOutcome(http-500): a failed Run is not told to sign in again (refused has its own sentence); got ${show(failed)}`);
+  for (const res of REFUSALS6) {
+    const what = `runOutcome(${res.code} ${show(res.body && res.body.error)})`;
+    const r = runOutcome(res);
+    const got = outcome6(r, what);
+    if (got !== 'refused') { bad.push(`${what}: expected refused; got ${show(r)}`); continue; }
+    const s = sentenceOf(r);
+    if (!/sign in again/i.test(s) || !/owner or an admin/i.test(s)) bad.push(`${what}: its sentence must say to sign in again as the owner or an admin (D16); got ${show(s)}`);
+    bad.push(...toneProblems(r, got, what));
+    noBang(r, what);
+  }
+  assert(!bad.length, `runOutcome with no answer, and refused (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV89: any other failed Run is failed — a 500 carrying the handler\'s code (error, with its cause) carries that code; a 400 and a 415 are failed too; and a failure with no code at all (a body-less 404 or a 502 with no JSON) has its own sentence, which claims nothing about whether a pass was lined up and says the state shown is from the next read [story 6 AC-4 "Refused or failed … the panel shows the reason"; ADR tagging-edges/0006 D16 "failed (with code, or the code-less sentence)", D6 "The catch answers 500 with {code: \'error\', cause}", D14]', async () => {
+  const runOutcome = await runOutcomeFn();
+  const bad = [];
+  const coded = answer6(500, { success: false, code: 'error', cause: 'EIO' });
+  let r = runOutcome(coded);
+  if (outcome6(r, 'runOutcome(http-500 error)') !== 'failed') bad.push(`runOutcome(http-500 error): expected failed; got ${show(r)}`);
+  else if (!stringsIn(r).includes('error')) bad.push(`runOutcome(http-500 error): it must carry the answer's code "error" (D16 "with code"); got ${show(r)}`);
+  const codedSentence = sentenceOf(r);
+  for (const res of [answer6(400, { success: false, error: 'the body must be {}' }), answer6(415, { success: false, error: 'the body must be JSON' })]) {
+    r = runOutcome(res);
+    if (outcome6(r, `runOutcome(${res.code})`) !== 'failed') bad.push(`runOutcome(${res.code}): expected failed (any other non-2xx); got ${show(r)}`);
+  }
+  for (const res of CODELESS) {
+    const what = `runOutcome(${res.code}, no body)`;
+    r = runOutcome(res);
+    if (outcome6(r, what) !== 'failed') { bad.push(`${what}: expected failed; got ${show(r)}`); continue; }
+    const s = sentenceOf(r);
+    if (s === codedSentence) bad.push(`${what}: a failure with no code has its own sentence, not the handler failure's; got ${show(s)}`);
+    const claim = CLAIMS_RUN.exec(s);
+    if (claim) bad.push(`${what}: it claims what the Run did (${show(claim[0])}), which an answer with no code cannot tell; got ${show(s)}`);
+    if (!NEXT_READ.test(s)) bad.push(`${what}: it must say the state shown is from the next read; got ${show(s)}`);
+    noBang(r, what);
+  }
+  assert(!bad.length, `runOutcome's failures (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+/* TV90–TV92: stopOutcome (story 6 AC-3, AC-4, AC-5; ADR 0006 D9, D14, D16) */
+
+const stopAnswer = (hows, recorded = true) => okAnswer({ success: true, stopped: hows.map((how, i) => ({ key: lk(i + 1), how })), recorded });
+
+/**
+ * D16 "The sentences are in the past tense", read for EVERY sentence of an outcome's text (revised 2026-10-28, story 6
+ * § Deviations "asked to stop is in the past tense"): split after '.', '!' or '?' and a space, each part must hold a
+ * past-tense verb (PAST). Reading only the whole text let "It stops at its next safe point." through beside a past one.
+ */
+const sentencesOf6 = (text) => String(text).split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
+function pastProblems(text, what) {
+  const present = sentencesOf6(text).filter((x) => !PAST.test(x));
+  return present.length ? [`${what}: every sentence must be in the past tense (D16); these are not: ${show(present)} (the text: ${show(text)})`] : [];
+}
+
+test('TV90: an accepted Stop is done, with a sentence for what happened — taken out of line, asked to stop, or too late, three different sentences, every sentence of each in the past tense (revised 2026-10-28: each sentence is checked, not only one of them) — also when it acted on two passes, for each plural sentence; and a Stop that took effect but could not be recorded is done-unrecorded, its sentence saying so [story 6 AC-3 "Confirming a stop of a waiting pass", "of a running pass", "A stop that comes too late"; AC-5 "a Stop still takes effect, its answer says it was not recorded"; ADR tagging-edges/0006 D16 "done (… Stop: taken out of line, asked to stop, or too late); done-unrecorded (Stop)", D9 step 5]', async () => {
+  const stopOutcome = await stopOutcomeFn();
+  const bad = [];
+  const sentences = new Set();
+  for (const [how, re] of [['taken-out-of-line', OUT_OF_LINE], ['asked-to-stop', /\basked\b[^.]*\bstop/i], ['too-late', /\btoo late\b/i]]) {
+    const what = `stopOutcome(200, ${how})`;
+    const r = stopOutcome(stopAnswer([how]));
+    const got = outcome6(r, what);
+    if (got !== 'done') { bad.push(`${what}: expected done; got ${show(r)}`); continue; }
+    const s = sentenceOf(r);
+    if (!re.test(s)) bad.push(`${what}: its sentence must match ${re}; got ${show(s)}`);
+    bad.push(...pastProblems(s, what));
+    bad.push(...toneProblems(r, got, what));
+    noBang(r, what);
+    sentences.add(s);
+  }
+  if (!bad.length && sentences.size !== 3) bad.push(`taken out of line, asked to stop and too late each have their own sentence; got ${show([...sentences])}`);
+  const two = stopOutcome(stopAnswer(['taken-out-of-line', 'asked-to-stop']));
+  if (outcome6(two, 'stopOutcome(200, two passes)') !== 'done') bad.push(`stopOutcome(200, a waiting and a running pass): expected done; got ${show(two)}`);
+  bad.push(...pastProblems(sentenceOf(two), 'stopOutcome(200, a waiting and a running pass)'));
+  for (const how of ['taken-out-of-line', 'asked-to-stop', 'too-late']) {
+    const what = `stopOutcome(200, two passes ${how})`;
+    const r = stopOutcome(stopAnswer([how, how]));
+    if (outcome6(r, what) !== 'done') { bad.push(`${what}: expected done; got ${show(r)}`); continue; }
+    bad.push(...pastProblems(sentenceOf(r), what));
+  }
+  for (const how of ['taken-out-of-line', 'asked-to-stop']) {
+    const what = `stopOutcome(200, ${how}, recorded false)`;
+    const r = stopOutcome(stopAnswer([how], false));
+    const got = outcome6(r, what);
+    if (got !== 'done-unrecorded') { bad.push(`${what}: expected done-unrecorded; got ${show(r)}`); continue; }
+    if (!/\b(not|n't)( be(en)?)? recorded\b/i.test(sentenceOf(r))) bad.push(`${what}: its sentence must say the stop was not recorded (AC-5); got ${show(sentenceOf(r))}`);
+    bad.push(...pastProblems(sentenceOf(r), what));
+    noBang(r, what);
+  }
+  assert(!bad.length, `stopOutcome when the stop was accepted (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV91: each plain refusal of a Stop has its own outcome and sentence — a prompt out of date (refused-stale: what was busy changed, so press Stop again), nothing to stop (nothing-to-stop), the pass not reachable (not-reachable, with D16\'s own sentence word for word), and the task queue unavailable (queue-unavailable) [story 6 AC-3 "the stop is refused plainly and changes nothing … so the viewer can press Stop again", "Nothing to stop"; ADR tagging-edges/0006 D16 "refused-busy, refused-stale, nothing-to-stop and not-reachable; queue-unavailable", "The not-reachable sentence", D9 steps 1–3]', async () => {
+  const stopOutcome = await stopOutcomeFn();
+  const bad = [];
+  const cases = [
+    ['refused-stale', answer6(409, { success: false, code: 'prompt-out-of-date', busy: [busyItem({ state: 'running', runId: runId6(1), since: at6(-1) })] }), [/\bchanged\b/i, /\bagain\b/i]],
+    ['nothing-to-stop', answer6(409, { success: false, code: 'nothing-to-stop' }), [/\bnothing\b|\bno pass\b/i]],
+    ['not-reachable', answer6(409, { success: false, code: 'pass-not-reachable' }), []],
+    ['queue-unavailable', answer6(503, { success: false, code: 'QUEUE_UNAVAILABLE' }), [/\bqueue\b/i]],
+  ];
+  const sentences = new Set();
+  for (const [want, res, words] of cases) {
+    const what = `stopOutcome(${res.code} ${res.body.code})`;
+    const r = stopOutcome(res);
+    const got = outcome6(r, what);
+    if (got !== want) { bad.push(`${what}: expected ${want}; got ${show(r)}`); continue; }
+    const s = sentenceOf(r);
+    for (const re of words) if (!re.test(s)) bad.push(`${what}: its sentence must match ${re}; got ${show(s)}`);
+    if (!PAST.test(s)) bad.push(`${what}: its sentence must be in the past tense (D16); got ${show(s)}`);
+    if (want === 'not-reachable' && !stringsIn(r).some((x) => x.includes(NOT_REACHABLE_SENTENCE))) {
+      bad.push(`${what}: it must carry D16's sentence ${show(NOT_REACHABLE_SENTENCE)}; got ${show(s)}`);
+    }
+    bad.push(...toneProblems(r, got, what));
+    noBang(r, what);
+    sentences.add(s);
+  }
+  if (!bad.length && sentences.size !== cases.length) bad.push(`each refusal has its own sentence; got ${show([...sentences])}`);
+  assert(!bad.length, `stopOutcome's plain refusals (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV92: a Stop with no usable answer is unknown; a 401 or 403 is refused with the sign-in-again sentence; a 500 carrying the handler\'s code is failed with that code; and a failure with no code (a body-less 404 or a 502 with no JSON) has its own sentence, which claims nothing about whether the stop took effect and says the state shown is from the next read [story 6 AC-3 "If the server has not answered within 15 seconds, the prompt closes, the panel says the outcome is unknown"; AC-4 "Refused or failed"; ADR tagging-edges/0006 D16 "refused (401 or 403 …)", "failed (with code, or the code-less sentence)", "unknown (timeout, network or bad-json)"]', async () => {
+  const stopOutcome = await stopOutcomeFn();
+  const bad = [];
+  for (const res of NO_ANSWER) {
+    const what = `stopOutcome(${res.code})`;
+    const r = stopOutcome(res);
+    if (outcome6(r, what) !== 'unknown') { bad.push(`${what}: expected unknown; got ${show(r)}`); continue; }
+    if (!/\bunknown\b/i.test(sentenceOf(r))) bad.push(`${what}: its sentence must say the outcome is unknown; got ${show(sentenceOf(r))}`);
+  }
+  for (const res of REFUSALS6) {
+    const what = `stopOutcome(${res.code} ${show(res.body && res.body.error)})`;
+    const r = stopOutcome(res);
+    if (outcome6(r, what) !== 'refused') { bad.push(`${what}: expected refused; got ${show(r)}`); continue; }
+    const s = sentenceOf(r);
+    if (!/sign in again/i.test(s) || !/owner or an admin/i.test(s)) bad.push(`${what}: its sentence must say to sign in again as the owner or an admin; got ${show(s)}`);
+  }
+  const coded = stopOutcome(answer6(500, { success: false, code: 'error', cause: 'EIO' }));
+  if (outcome6(coded, 'stopOutcome(http-500 error)') !== 'failed') bad.push(`stopOutcome(http-500 error): expected failed; got ${show(coded)}`);
+  else if (!stringsIn(coded).includes('error')) bad.push(`stopOutcome(http-500 error): it must carry the answer's code "error"; got ${show(coded)}`);
+  if (/sign in again/i.test(sentenceOf(coded))) bad.push(`stopOutcome(http-500): a failed Stop is not told to sign in again; got ${show(sentenceOf(coded))}`);
+  for (const res of CODELESS) {
+    const what = `stopOutcome(${res.code}, no body)`;
+    const r = stopOutcome(res);
+    if (outcome6(r, what) !== 'failed') { bad.push(`${what}: expected failed; got ${show(r)}`); continue; }
+    const s = sentenceOf(r);
+    if (s === sentenceOf(coded)) bad.push(`${what}: a failure with no code has its own sentence, not the handler failure's; got ${show(s)}`);
+    const claim = CLAIMS_STOP.exec(s);
+    if (claim) bad.push(`${what}: it claims what the Stop did (${show(claim[0])}), which an answer with no code cannot tell; got ${show(s)}`);
+    if (!NEXT_READ.test(s)) bad.push(`${what}: it must say the state shown is from the next read; got ${show(s)}`);
+    noBang(r, what);
+  }
+  assert(!bad.length, `stopOutcome with no answer, refused and failed (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+/* TV93–TV97: stopPromptView (story 6 AC-3; ADR 0006 D16, D17) */
+
+test('TV93: the prompt for a waiting pass says it is taken out of line, so it writes nothing, and that no schedule entry changes — and says nothing of a running pass\'s safe point or its 30-minute time-out [story 6 AC-3 "for a waiting pass: that it is taken out of line before it begins running, so it writes nothing, and that no schedule entry changes"; ADR tagging-edges/0006 D16 "a waiting item: taken out of line, writes nothing, no schedule entry changes"]', async () => {
+  const stopPromptView = await stopPromptViewFn();
+  const C = await confirmations();
+  const bad = [];
+  for (const item of [busyItem({ behind: 'heavy-work' }), busyItem({ key: seedJob(T6 - 60000), jobId: seedJob(T6 - 60000), behind: 'pass', startRecorded: false })]) {
+    const what = `stopPromptView([a waiting pass, behind ${item.behind}], no confirmation)`;
+    const v = stopPromptView([item], C.none);
+    if (!someText(v, OUT_OF_LINE)) bad.push(`${what}: it must say the pass is taken out of line; got ${show(v)}`);
+    if (!someText(v, WRITES_NOTHING)) bad.push(`${what}: it must say the pass writes nothing; got ${show(v)}`);
+    if (!someText(v, NO_SCHEDULE_CHANGE)) bad.push(`${what}: it must say no schedule entry changes; got ${show(v)}`);
+    if (someText(v, SAFE_POINT) || someText(v, TIMEOUT_30)) bad.push(`${what}: a waiting pass is not told of a running pass's safe point or time-out; got ${show(v)}`);
+    noBang(v, what);
+  }
+  assert(!bad.length, `the prompt for a waiting pass (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV94: the prompt for a running pass says it stops at its next safe point, usually within seconds, several minutes when the graph or the relay is slow, at worst its 30-minute time-out; that what it wrote stands and the next pass finishes the rest; and that no schedule entry changes — with nothing of being taken out of line, and no confirmation warning when no confirmation is involved [story 6 AC-3 "for a running pass"; ADR tagging-edges/0006 D16 "a running item: its next safe point, usually within seconds, minutes when the graph or relay is slow, at worst its 30-minute time-out; what it wrote stands; the next pass finishes the rest; no schedule entry changes"]', async () => {
+  const stopPromptView = await stopPromptViewFn();
+  const C = await confirmations();
+  const what = 'stopPromptView([a running pass], no confirmation)';
+  const v = stopPromptView([busyItem({ state: 'running', since: at6(-1), runId: runId6(1) })], C.none);
+  const bad = [];
+  const need6 = [
+    ['its next safe point', SAFE_POINT], ['usually within seconds', /\bseconds\b/i], ['several minutes', /\bminutes\b/i],
+    ['when slow', /\bslow\b/i], ['the graph', /\bgraph\b/i], ['the relay', /\brelay\b/i], ['its 30-minute time-out', TIMEOUT_30],
+    ['what it wrote', /\b(wrote|written)\b/i], ['stands', /\bstands?\b/i], ['the next pass', /\bnext pass\b/i], ['the rest', /\bthe rest\b/i],
+    ['no schedule entry changes', NO_SCHEDULE_CHANGE],
+  ];
+  for (const [label, re] of need6) if (!someText(v, re)) bad.push(`${what}: it must say ${label} (${re}); got ${show(v)}`);
+  if (someText(v, OUT_OF_LINE)) bad.push(`${what}: a running pass is not taken out of line; got ${show(v)}`);
+  if (warns(v)) bad.push(`${what}: no confirmation is involved, so it gives no warning; got ${show(v)}`);
+  noBang(v, what);
+  assert(!bad.length, `the prompt for a running pass (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV95: when two passes are busy the prompt says what happens to each — one block per item, one saying the waiting pass is taken out of line and the other that the running pass stops at its next safe point, neither block carrying the other\'s text [story 6 AC-3 "When more than one pass is busy, it says what happens to each"; ADR tagging-edges/0006 D16 "It gives each item\'s block of the AC-3 text"]', async () => {
+  const stopPromptView = await stopPromptViewFn();
+  const C = await confirmations();
+  const items = [busyItem({ key: lk(1), state: 'running', since: at6(-1), runId: runId6(1) }), busyItem({ key: lk(2), jobId: lk(2), behind: 'pass' })];
+  const v = stopPromptView(items, C.none);
+  const isWaitingBlock = (b) => someText(b, OUT_OF_LINE) && !someText(b, SAFE_POINT);
+  const isRunningBlock = (b) => someText(b, SAFE_POINT) && !someText(b, OUT_OF_LINE);
+  const hit = arraysIn(v).find((a) => a.length === 2 && a.some(isWaitingBlock) && a.some(isRunningBlock));
+  assert(hit, `stopPromptView([a running and a waiting pass]): expected one block per item — a list of two, one saying the waiting pass is ` +
+    `taken out of line (and not the safe point), the other that the running pass stops at its next safe point (and not out of line) ` +
+    `(${ADR6} D16); got ${show(v)}`);
+  noBang(v, 'stopPromptView(two passes)');
+});
+
+test('TV96: the prompt warns that stopping uses the owner\'s confirmation up, and that the owner must confirm again, when a running pass has taken it up (though the pending file is then gone) or the server cannot yet tell whether it has, also beside a waiting pass — and then gives no "stays pending" line; a running pass with no confirmation involved gets no warning [story 6 AC-3 "if the running pass has taken up the confirmation, or the panel cannot yet tell whether it has, the prompt warns that stopping then uses it up, and that the owner must confirm again"; ADR tagging-edges/0006 D16 "the warning, when an item\'s confirmation is taken-up or cannot-tell", D12 "confirmation"]', async () => {
+  const stopPromptView = await stopPromptViewFn();
+  const C = await confirmations();
+  const bad = [];
+  const takenUp = busyItem({ key: lk(1), state: 'running', since: at6(-1), runId: runId6(1), confirmation: 'taken-up' });
+  const starting = busyItem({ key: lk(3), jobId: lk(3), state: 'running', since: at6(-0.2), runId: null, confirmation: 'cannot-tell' });
+  const cases = [
+    ['a running pass that took the confirmation up (no pending file left)', [takenUp], C.none, true],
+    ['a starting pass the server cannot yet tell about (confirmation pending)', [starting], C.pending, true],
+    ['a running pass that took it up, and a waiting pass', [takenUp, busyItem({ key: lk(2), jobId: lk(2), behind: 'pass' })], C.none, true],
+    ['a running pass with no confirmation involved', [busyItem({ key: lk(1), state: 'running', since: at6(-1), runId: runId6(1) })], C.none, false],
+  ];
+  for (const [label, items, conf, want] of cases) {
+    const v = stopPromptView(items, conf);
+    if (!someText(v, SAFE_POINT)) { bad.push(`${label}: the prompt must still say the running pass stops at its next safe point; got ${show(v)}`); continue; }
+    if (warns(v) !== want) bad.push(`${label}: expected ${want ? 'the warning (uses it up; confirm again)' : 'no warning'}; got ${show(v)}`);
+    if (want && someText(v, STAYS_PENDING)) bad.push(`${label}: with the warning shown, no "stays pending" line (D16 "when … no item warns"); got ${show(v)}`);
+    noBang(v, label);
+  }
+  assert(!bad.length, `the prompt's confirmation warning (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV97: with the owner\'s confirmation pending and no item warning, the prompt says it stays pending for the next pass — for a waiting pass taken out of line and for a running pass stopped before it takes it up — with no warning; with no confirmation pending (none, or expired) neither line shows [story 6 AC-3 "a running pass stopped before it takes the confirmation up leaves it pending for the next pass, and so does a waiting pass taken out of line"; ADR tagging-edges/0006 D16 "the stays pending line, when confirmation.state === pending and no item warns"]', async () => {
+  const stopPromptView = await stopPromptViewFn();
+  const C = await confirmations();
+  const bad = [];
+  const waiting = busyItem({ behind: 'pass' });
+  const running = busyItem({ key: lk(2), jobId: lk(2), state: 'running', since: at6(-1), runId: runId6(2) });
+  const cases = [
+    ['a waiting pass, confirmation pending', [waiting], C.pending, true, OUT_OF_LINE],
+    ['a running pass before its claim, confirmation pending', [running], C.pending, true, SAFE_POINT],
+    ['a waiting pass, no confirmation', [waiting], C.none, false, OUT_OF_LINE],
+    ['a running pass, the confirmation expired', [running], C.expired, false, SAFE_POINT],
+  ];
+  for (const [label, items, conf, want, block] of cases) {
+    const v = stopPromptView(items, conf);
+    if (!someText(v, block)) { bad.push(`${label}: the prompt must still give the item's block (${block}); got ${show(v)}`); continue; }
+    if (someText(v, STAYS_PENDING) !== want) bad.push(`${label}: expected ${want ? 'the line saying the confirmation stays pending for the next pass' : 'no stays-pending line'} (${STAYS_PENDING}); got ${show(v)}`);
+    if (warns(v)) bad.push(`${label}: no item warns here, so no warning; got ${show(v)}`);
+  }
+  assert(!bad.length, `the prompt's stays-pending line (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+/* TV98–TV107: passWho (story 6 AC-5; ADR 0006 D16, D18; § Seams "New cases the review named") */
+
+test('TV98: passWho joins each run to the record entry whose jobId is its job id, and reads who started it, with the start\'s time — an admin and the owner each with their shortened key, the schedule, the owner\'s confirmation, a local call, and "started another way" — each run its own, never another\'s [story 6 AC-5 "for each pass it shows, who started it"; "Who is one of …"; ADR tagging-edges/0006 D16 "passWho … A run\'s start", "Who reads as the owner, an admin (with a shortened key), the schedule, the owner\'s confirmation, a local call, started another way, or not recorded", D11]', async () => {
+  const passWho = await passWhoFn();
+  const schedMillis = Date.parse(at6(-125.5));
+  const plan = [
+    [1, -5, lk(1), 'admin'], [2, -65, lk(2), 'owner'], [3, -125, seedJob(schedMillis), 'schedule'],
+    [4, -185, lk(4), 'confirmation'], [5, -245, lk(5), 'local'], [6, -305, 'dash-added-6', 'other'],
+  ];
+  const runs = plan.map(([n, min, jobId]) => run6(n, min, jobId));
+  const passes = {};
+  const startAt = {};
+  for (const [n, min, jobId, kind] of plan) {
+    startAt[n] = kind === 'schedule' ? new Date(schedMillis).toISOString() : at6(min - 0.3);
+    passes[jobId] = passEntry({ jobId, start: { at: startAt[n], who: kind } });
+  }
+  const v = passWho(readyRead(recordAnswer(passes)), statusBody({ latest: runs[0], previous: runs.slice(1) }));
+  const bad = plan.map(([n, , , kind]) => whoProblem(v, runId6(n), { want: [kind], not: [...others(kind), 'notRecorded'], times: [startAt[n]] },
+    `run ${runId6(n)} (started by ${kind})`)).filter(Boolean);
+  assert(!bad.length, `passWho's start joins (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV99: a run with no record entry to join reads "start not recorded", whatever its id — a report from before story 6 (no job), a hand run (job null), a lined-up job whose record write failed, a scheduled job id with no entry (never "the schedule" for a run), and an entry whose start is after the run began — while a run with its entry reads its who [story 6 AC-5 "Before story 6. A pass from before this story shows its start as not recorded"; "When the server cannot record an action … shows as not recorded"; ADR tagging-edges/0006 D16 "No such entry reads start not recorded, whatever the id: for example a report with no job, or a start whose record write failed", D10 "Old reports"]', async () => {
+  const passWho = await passWhoFn();
+  const runs = [
+    run6(1, -5, undefined), run6(2, -65, null), run6(3, -125, lk(3)), run6(4, -185, seedJob(Date.parse(at6(-185.5)))),
+    run6(5, -245, lk(5)), run6(6, -305, lk(6)),
+  ];
+  const passes = {
+    [lk(5)]: passEntry({ jobId: lk(5), start: { at: at6(-240), who: 'owner' } }), // asked for after run 5 began: not its start
+    [lk(6)]: passEntry({ jobId: lk(6), start: { at: at6(-305.3), who: 'admin' } }),
+  };
+  const v = passWho(readyRead(recordAnswer(passes)), statusBody({ latest: runs[0], previous: runs.slice(1) }));
+  const bad = [];
+  for (const [n, label] of [[1, 'no job member'], [2, 'a hand run'], [3, 'a lined-up job with no entry'], [4, 'a scheduled job with no entry'], [5, 'an entry asked for after the run began']]) {
+    bad.push(whoProblem(v, runId6(n), { want: ['notRecorded'], not: WHO_KINDS }, `run ${runId6(n)} (${label})`));
+  }
+  bad.push(whoProblem(v, runId6(6), { want: ['admin'], not: ['notRecorded', ...others('admin')], times: [at6(-305.3)] }, `run ${runId6(6)} (its entry: an admin)`));
+  const problems = bad.filter(Boolean);
+  assert(!problems.length, `passWho with no entry to join (${ADR6} D16):\n      - ${problems.join('\n      - ')}`);
+});
+
+test('TV100: a run with the legacy fixed id joins the "other" entry the gate recorded whose start is the latest one not after the run\'s start, and reads "started another way" with that entry\'s time — never an older or a later legacy entry\'s — and an earlier legacy run joins its own older entry [story 6 AC-5 "started another way when the server cannot tell"; ADR tagging-edges/0006 D16 "the record entry whose jobId equals the run\'s job.id and whose start.at is the latest one not after the run\'s startedAt", "A legacy-id run joins the other entry the gate recorded, and reads started another way (R7)", D2 "the legacy key"]', async () => {
+  const passWho = await passWhoFn();
+  const older = at6(-122);
+  const mine = at6(-1.5);
+  const later = at6(-0.5);
+  const passes = {};
+  for (const t of [older, mine, later]) passes[legacyKey(t)] = passEntry({ jobId: LEGACY_JOB, start: { at: t, who: 'other' } });
+  const r2 = run6(2, -1, LEGACY_JOB);
+  const r1 = run6(1, -121, LEGACY_JOB);
+  const v = passWho(readyRead(recordAnswer(passes)), statusBody({ latest: r2, previous: [r1] }));
+  const bad = [
+    whoProblem(v, r2.runId, { want: ['other'], not: [...others('other'), 'notRecorded'], times: [mine], notTimes: [older, later] }, `the latest legacy run ${r2.runId}`),
+    whoProblem(v, r1.runId, { want: ['other'], not: [...others('other'), 'notRecorded'], times: [older], notTimes: [mine, later] }, `the earlier legacy run ${r1.runId}`),
+  ].filter(Boolean);
+  assert(!bad.length, `passWho's legacy-id join (${ADR6} D16, R7):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV101: a run\'s stop is the entry whose stop.runId is the run\'s runId, under any key — its job\'s own entry, or a run:<runId> entry that holds no start — read as who asked it to stop and when, beside its start\'s who; a run with no stop entry names no stopper [story 6 AC-3 "stopped on request by <who> at <the time the stop was asked for>"; AC-5 "who asked it to stop, if anyone"; ADR tagging-edges/0006 D16 "A run\'s stop. It takes the entry whose stop.runId equals the run\'s runId, under any key", D9 "A run: target", D18]', async () => {
+  const passWho = await passWhoFn();
+  const r1 = run6(1, -5, lk(1), STOPPED6);
+  const r2 = run6(2, -65, lk(2), STOPPED6);
+  const m3 = Date.parse(at6(-125.3));
+  const r3 = run6(3, -125, seedJob(m3));
+  const s1 = at6(-4.9);
+  const s2 = at6(-64.9);
+  const passes = {
+    [lk(1)]: passEntry({ jobId: lk(1), start: { at: at6(-5.3), who: 'local' }, stop: { at: s1, runId: r1.runId, who: 'admin' }, noRerun: true }),
+    [lk(2)]: passEntry({ jobId: lk(2), start: { at: at6(-65.3), who: 'confirmation' } }),
+    [`run:${r2.runId}`]: passEntry({ jobId: lk(2), stop: { at: s2, runId: r2.runId, who: 'owner' } }),
+    [seedJob(m3)]: passEntry({ jobId: seedJob(m3), start: { at: new Date(m3).toISOString(), who: 'schedule' } }),
+  };
+  const v = passWho(readyRead(recordAnswer(passes)), statusBody({ latest: r1, previous: [r2, r3] }));
+  const bad = [
+    whoProblem(v, r1.runId, { want: ['local', 'admin'], not: ['owner', 'confirmation', 'schedule'], times: [at6(-5.3), s1] }, `run ${r1.runId} (a local call started it; an admin stopped it, on its own entry)`),
+    whoProblem(v, r2.runId, { want: ['confirmation', 'owner'], not: ['admin', 'local', 'schedule'], times: [s2] }, `run ${r2.runId} (the owner's confirmation started it; the owner stopped it, under run:<runId>)`),
+    whoProblem(v, r3.runId, { want: ['schedule'], not: ['owner', 'admin'], notTimes: [s1, s2] }, `run ${r3.runId} (the schedule started it; no stop)`),
+  ].filter(Boolean);
+  assert(!bad.length, `passWho's stop join by stop.runId (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV102: failing a stop.runId match, a run takes the stop of the entry its start joined to only when that stop\'s runId is null — so a legacy job\'s stalled re-run never takes the stop an admin asked of the orphaned run before it, while that orphan shows it [ADR tagging-edges/0006 D16 "Failing that, it takes the stop of the entry its start joined to, but only when that stop\'s runId is null", R7, § Context "a stalled re-run keeps its timestamp"]', async () => {
+  const passWho = await passWhoFn();
+  const r1 = run6(1, -5, lk(1), STOPPED6);
+  const sNull = at6(-4.95);
+  const t0 = at6(-62);
+  const orphan = run6(3, -61, LEGACY_JOB, STOPPED6);
+  const rerun = run6(2, -59, LEGACY_JOB);
+  const sOrphan = at6(-60.5);
+  const passes = {
+    [lk(1)]: passEntry({ jobId: lk(1), start: { at: at6(-5.3), who: 'owner' }, stop: { at: sNull, runId: null, who: 'admin' } }),
+    [legacyKey(t0)]: passEntry({ jobId: LEGACY_JOB, start: { at: t0, who: 'other' }, stop: { at: sOrphan, runId: orphan.runId, who: 'admin' }, noRerun: true }),
+  };
+  const v = passWho(readyRead(recordAnswer(passes)), statusBody({ latest: r1, previous: [rerun, orphan] }));
+  const bad = [
+    whoProblem(v, r1.runId, { want: ['owner', 'admin'], times: [sNull] }, `run ${r1.runId} (its own entry's stop, runId null)`),
+    whoProblem(v, orphan.runId, { want: ['other', 'admin'], times: [t0, sOrphan] }, `the orphaned legacy run ${orphan.runId} (stop.runId is its own)`),
+    whoProblem(v, rerun.runId, { want: ['other'], not: ['admin', 'owner'], notTimes: [sOrphan] }, `the stalled re-run ${rerun.runId} (the joined entry's stop names another run)`),
+  ].filter(Boolean);
+  assert(!bad.length, `passWho's stop fallback (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV103: a stopped run whose start was not recorded still shows who stopped it and when, and so does a stopped hand run with no job id (its stop under run:<runId>); a stopped run whose stop was not recorded names no stopper [§ Seams "New cases the review named": "A stopped run whose start was not recorded shows stopped on request by <who> at <time>. So does a stopped hand run, which has no job id"; story 6 AC-5 "a Stop still takes effect … and the panel shows it with no who"; ADR tagging-edges/0006 D16, D18, R6]', async () => {
+  const passWho = await passWhoFn();
+  const r1 = run6(1, -5, lk(1), STOPPED6);
+  const r2 = run6(2, -65, null, STOPPED6);
+  const schedMillis = Date.parse(at6(-125.4));
+  const r3 = run6(3, -125, seedJob(schedMillis), STOPPED6);
+  const s1 = at6(-4.9);
+  const s2 = at6(-64.9);
+  const passes = {
+    [`run:${r1.runId}`]: passEntry({ jobId: lk(1), stop: { at: s1, runId: r1.runId, who: 'owner' } }),
+    [`run:${r2.runId}`]: passEntry({ jobId: null, stop: { at: s2, runId: r2.runId, who: 'admin' } }),
+    [seedJob(schedMillis)]: passEntry({ jobId: seedJob(schedMillis), start: { at: new Date(schedMillis).toISOString(), who: 'schedule' } }),
+  };
+  const v = passWho(readyRead(recordAnswer(passes)), statusBody({ latest: r1, previous: [r2, r3] }));
+  const bad = [
+    whoProblem(v, r1.runId, { want: ['notRecorded', 'owner'], not: ['admin'], times: [s1] }, `run ${r1.runId} (start not recorded; the owner stopped it)`),
+    whoProblem(v, r2.runId, { want: ['notRecorded', 'admin'], not: ['owner'], times: [s2] }, `the hand run ${r2.runId} (no job id; an admin stopped it)`),
+    whoProblem(v, r3.runId, { want: ['schedule'], not: ['owner', 'admin'], notTimes: [s1, s2] }, `run ${r3.runId} (the schedule started it; its stop was not recorded)`),
+  ].filter(Boolean);
+  assert(!bad.length, `passWho for stopped runs (${ADR6} D16, § Seams):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV104: a stop that came too late — the pass finished, was refused at its start checks, or was ended by its time-out, a deploy or a restart (its pessimistic record left as the latest, no longer running: failed, reason stopped, stopped: true, no end) before its next safe point — still shows who asked for it and when, and never reads "stopped on request", because the pass\'s own outcome stands [story 6 AC-3 "A stop that comes too late. A pass can end another way before its next safe point: it finishes, is refused, fails, hits its time-out, or is ended by a deploy or a restart. Its outcome is then what it was, and the panel says the stop came too late"; § Seams "a stop that comes too late, including a pass refused at its start checks"; ADR tagging-edges/0006 D18 "for a pass with a stop entry but another outcome, a stop was asked for at <time> by <who>, but the pass ended first", D9 step 3 "too-late", step 4 "If the pass has ended by then, or kill throws ESRCH, the stop came too late", D10 "The pessimistic record and its rewrites (C15) are unchanged"]', async () => {
+  const passWho = await passWhoFn();
+  const r1 = run6(1, -5, lk(1));
+  const r2 = run6(2, -65, lk(2), { outcome: 'refused', reasonCode: 'identity', reason: 'a tagging stamp identity is missing', failure: { stage: 'identity', code: 'missing', message: 'missing' } });
+  // The killed case: the owner's pass, which an admin asked to stop, ended by its time-out, a deploy or a restart before
+  // its next safe point. Its pessimistic record is left as the latest, not alive — the one most easily misread as
+  // stopped on request, since it carries stopped: true and reasonCode 'stopped'.
+  const r3 = run6(3, -2, lk(3), { endedAt: null, durationMs: null, outcome: 'failed', reasonCode: 'stopped', reason: STOPPED_REASON, stopped: true });
+  const s1 = at6(-4.95);
+  const s2 = at6(-64.95);
+  const s3 = at6(-1.9);
+  const tooLate = {
+    [lk(1)]: passEntry({ jobId: lk(1), start: { at: at6(-5.3), who: 'local' }, stop: { at: s1, runId: r1.runId, who: 'admin' } }),
+    [lk(2)]: passEntry({ jobId: lk(2), start: { at: at6(-65.3), who: 'confirmation' }, stop: { at: s2, runId: r2.runId, who: 'owner' } }),
+  };
+  const killed = { ...tooLate, [lk(3)]: passEntry({ jobId: lk(3), start: { at: at6(-2.3), who: 'owner' }, stop: { at: s3, runId: r3.runId, who: 'admin' } }) };
+  const views = [
+    ['before the killed pass began, the done pass the latest', passWho(readyRead(recordAnswer(tooLate)), statusBody({ latest: r1, previous: [r2] }))],
+    ['after the killed pass ended, its record the latest and nothing running', passWho(readyRead(recordAnswer(killed)), statusBody({ running: false, latest: r3, previous: [r1, r2] }))],
+  ];
+  const bad = [];
+  for (const [when, v] of views) {
+    bad.push(whoProblem(v, r1.runId, { want: ['local', 'admin'], times: [s1], none: [/\bstopped on request\b/i] }, `${when}: run ${r1.runId} (done; the admin's stop came too late)`));
+    bad.push(whoProblem(v, r2.runId, { want: ['confirmation', 'owner'], times: [s2], none: [/\bstopped on request\b/i] }, `${when}: run ${r2.runId} (refused at its identity check; the owner's stop came too late)`));
+  }
+  bad.push(whoProblem(views[1][1], r3.runId, { want: ['owner', 'admin'], times: [s3], none: [/\bstopped on request\b/i] },
+    `${views[1][0]}: run ${r3.runId} (ended by its time-out, a deploy or a restart — failed, reason stopped, no end; the admin's stop came too late)`));
+  const problems = bad.filter(Boolean);
+  assert(!problems.length, `passWho for a stop that came too late (${ADR6} D16, D18):\n      - ${problems.join('\n      - ')}`);
+});
+
+test('TV105: a running busy item with a run takes who from its run, so the two lines agree — even an orphan\'s run:<runId> item the record holds no start for — and a starting item (running, no run yet) reads its entry\'s who when startRecorded is true, "refreshing" while the record answer lacks that entry, and "start not recorded" when startRecorded is false [story 6 AC-5 "for each pass it shows, who started it"; ADR tagging-edges/0006 D16 "A running busy item with a run takes who from its run, as LatestPass does", "A starting item … uses startRecorded"]', async () => {
+  const passWho = await passWhoFn();
+  const live = run6(1, -2, lk(1), { endedAt: null, durationMs: null, outcome: 'failed', reasonCode: 'stopped', reason: STOPPED_REASON, stopped: true });
+  const orphanJob = lk(7);
+  const passes = {
+    [lk(1)]: passEntry({ jobId: lk(1), start: { at: at6(-2.3), who: 'admin' } }),
+    [lk(4)]: passEntry({ jobId: lk(4), start: { at: at6(-0.3), who: 'owner' } }),
+  };
+  const busy = [
+    busyItem({ key: lk(1), jobId: lk(1), state: 'running', since: live.startedAt, runId: live.runId, startRecorded: true }),
+    busyItem({ key: lk(4), jobId: lk(4), state: 'running', since: at6(-0.2), runId: null, startRecorded: true }),
+    busyItem({ key: lk(5), jobId: lk(5), state: 'running', since: at6(-0.1), runId: null, startRecorded: true }),
+    busyItem({ key: lk(6), jobId: lk(6), state: 'running', since: at6(-0.1), runId: null, startRecorded: false }),
+  ];
+  const v = passWho(readyRead(recordAnswer(passes)), status6(control6(busy), { running: true, latest: live }));
+  const bad = [
+    whoProblem(v, lk(1), { want: ['admin'], not: ['owner', 'notRecorded'] }, 'the running item of the live run (an admin started it)'),
+    whoProblem(v, lk(4), { want: ['owner'], not: ['admin', 'notRecorded'] }, 'a starting item, startRecorded true, its entry the owner\'s'),
+    whoProblem(v, lk(5), { want: ['refreshing'], not: [...WHO_KINDS, 'notRecorded'] }, 'a starting item, startRecorded true, the record answer lacking its entry'),
+    whoProblem(v, lk(6), { want: ['notRecorded'], not: WHO_KINDS }, 'a starting item, startRecorded false'),
+  ];
+  // The orphan: alive after a restart, keyed run:<runId>, no start under that key, its run's job entry the owner's.
+  const orphan = run6(2, -9, orphanJob, { endedAt: null, durationMs: null, outcome: 'failed', reasonCode: 'stopped', reason: STOPPED_REASON, stopped: true });
+  const ov = passWho(readyRead(recordAnswer({ [orphanJob]: passEntry({ jobId: orphanJob, start: { at: at6(-9.3), who: 'owner' } }) })),
+    status6(control6([busyItem({ key: `run:${orphan.runId}`, jobId: orphanJob, state: 'running', since: orphan.startedAt, runId: orphan.runId, startRecorded: false })], { queue: 'read-failed' }), { running: true, latest: orphan }));
+  bad.push(whoProblem(ov, `run:${orphan.runId}`, { want: ['owner'], not: ['notRecorded', 'admin'] }, 'an orphan\'s run:<runId> item (startRecorded false; its run\'s entry the owner\'s)'));
+  const problems = bad.filter(Boolean);
+  assert(!problems.length, `passWho for running and starting items (${ADR6} D16):\n      - ${problems.join('\n      - ')}`);
+});
+
+test('TV106: a waiting busy item reads its entry\'s who when startRecorded is true, and "refreshing" while the record answer lacks it; with startRecorded false and not yet picked up, a scheduled job (the seed id form) is the schedule at its id\'s millis, a key not of LINEUP_ID\'s shape (a dashboard add, a legacy key) is "started another way", and a lined-up key is "start not recorded"; once picked up and waiting for the heavy lock, startRecorded false reads "start not recorded", even for a scheduled job [story 6 AC-5 "the schedule, for a run a Scheduled Tasks entry starts"; "started another way when the server cannot tell"; § Seams "A due scheduled run waiting behind a pass shows the schedule before it is picked up. The fixtures include the seed form of the id"; ADR tagging-edges/0006 D16 "A waiting busy item"]', async () => {
+  const passWho = await passWhoFn();
+  const dueMillis = T6 - 90000;
+  const heavyMillis = T6 - 600000;
+  const passes = { [lk(1)]: passEntry({ jobId: lk(1), start: { at: at6(-3), who: 'local' } }) };
+  const items = [
+    ['startRecorded, its entry a local call\'s', busyItem({ key: lk(1), jobId: lk(1), behind: 'pass' }), { want: ['local'], not: [...others('local'), 'notRecorded'] }],
+    ['startRecorded, the record answer lacking its entry', busyItem({ key: lk(2), jobId: lk(2), behind: 'pass' }), { want: ['refreshing'], not: [...WHO_KINDS, 'notRecorded'] }],
+    ['a due scheduled run behind a pass, not picked up', busyItem({ key: seedJob(dueMillis), jobId: seedJob(dueMillis), behind: 'pass', since: new Date(dueMillis).toISOString(), startRecorded: false }),
+      { want: ['schedule'], not: [...others('schedule'), 'notRecorded'], times: [new Date(dueMillis).toISOString()] }],
+    ['a job added from the queue dashboard', busyItem({ key: 'dash-added-7', jobId: 'dash-added-7', behind: null, startRecorded: false }), { want: ['other'], not: [...others('other'), 'notRecorded'] }],
+    ['a legacy-id job', busyItem({ key: legacyKey(at6(-4)), jobId: LEGACY_JOB, behind: 'pass', startRecorded: false }), { want: ['other'], not: [...others('other'), 'notRecorded'] }],
+    ['a lined-up job whose start write failed', busyItem({ key: lk(3), jobId: lk(3), behind: 'pass', startRecorded: false }), { want: ['notRecorded'], not: WHO_KINDS }],
+    ['a scheduled job picked up, waiting for the heavy lock', busyItem({ key: seedJob(heavyMillis), jobId: seedJob(heavyMillis), behind: 'heavy-work', since: new Date(heavyMillis).toISOString(), startRecorded: false }),
+      { want: ['notRecorded'], not: WHO_KINDS }],
+  ];
+  const v = passWho(readyRead(recordAnswer(passes)), status6(control6(items.map(([, it]) => it))));
+  const bad = items.map(([label, it, want]) => whoProblem(v, it.key, want, `a waiting item: ${label}`)).filter(Boolean);
+  assert(!bad.length, `passWho for waiting items (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV107: passWho never shows a kept record — after a failed record read (an http-500 or a refused 403 that kept the last good body, or a network failure with none) no key and no who of the record appears and it says the record could not be read; while the first read is still loading nothing of a record appears [story 6 AC-5 "Who may read it. Only a signed-in owner or admin may read who … A signed-out reader … gets no who"; ADR tagging-edges/0006 D16 "Kept bodies. Like switchRecordView, it says loading or failed rather than showing a kept body"]', async () => {
+  const passWho = await passWhoFn();
+  const r1 = run6(1, -5, lk(1), STOPPED6);
+  const body = recordAnswer({
+    [lk(1)]: passEntry({ jobId: lk(1), start: { at: at6(-5.3), who: 'admin' }, stop: { at: at6(-4.9), runId: r1.runId, who: 'owner' } }),
+  }, [{ action: 'stop', key: lk(1), at: at6(-4.9), who: who6('owner') }, { action: 'start', key: lk(1), at: at6(-5.3), who: who6('admin') }]);
+  const status = status6(control6([busyItem({ key: lk(2), jobId: lk(2), behind: 'pass' })]), { latest: r1 });
+  const bad = [];
+  const refused = { ok: false, code: 'http-403', httpStatus: 403, body: { success: false, error: 'Only the owner or an admin can do this.' } };
+  for (const [label, read] of [['http-500, body kept', failedRead(body)], ['http-403, body kept', failedRead(body, refused)],
+    ['network, no body yet', failedRead(null, { ok: false, code: 'network', httpStatus: null, body: null })], ['the first read, loading', READ_LOADING]]) {
+    const v = passWho(read, status);
+    const all = stringsIn(v);
+    const keys = [KEY_OWNER, KEY_ADMIN].filter((k) => all.some((s) => s.includes(k)));
+    if (keys.length) bad.push(`${label}: no key of the record may show, so no who of it does; found ${show(keys)} in ${show(v)}`);
+    if (read.state === 'error' && !all.some((s) => /(could not|cannot|can't) be read|\bfailed\b|\bunavailable\b/i.test(s))) {
+      bad.push(`${label}: it must say the record could not be read (D16 "it says loading or failed"); got ${show(v)}`);
+    }
+    if (read.state === 'loading' && !all.some((s) => /\bload/i.test(s))) bad.push(`${label}: it must say it is loading (D16); got ${show(v)}`);
+  }
+  assert(!bad.length, `passWho with a failed or loading record read (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
+test('TV108: story 6\'s view functions read no clock — busyView, runOutcome, stopOutcome, stopPromptView and passWho give the same answer for the same input with the client clock stubbed to 2099 and to 1970, and never call Date.now, so every viewer and every reload sees the same [story 6 AC-2 "Every viewer sees the same, whoever pressed, and a reload keeps it"; ADR tagging-edges/0006 § Constraints "the view module stays clock-free", D16 "all clock-free", D12 (the server computes the verdicts); TV4]', async () => {
+  const fns = [await busyViewFn(), await runOutcomeFn(), await stopOutcomeFn(), await stopPromptViewFn(), await passWhoFn()];
+  const [busyView, runOutcome, stopOutcome, stopPromptView, passWho] = fns;
+  const items = [busyItem({ key: lk(1), state: 'running', since: at6(-1), runId: runId6(1), confirmation: 'cannot-tell' }), busyItem({ key: lk(2), jobId: lk(2), behind: 'pass' })];
+  const status = status6(control6(items), { running: true, latest: run6(1, -1, lk(1), { endedAt: null }), confirmationPending: clone(PENDING_CONFIRMATION) });
+  const record = readyRead(recordAnswer({ [lk(1)]: passEntry({ jobId: lk(1), start: { at: at6(-1.3), who: 'admin' } }) }));
+  const conf = (await confirmations()).pending;
+  const all = () => [busyView(clone(status)), runOutcome(answer6(409, { success: false, code: 'pass-busy', busy: clone(items) })),
+    stopOutcome(stopAnswer(['asked-to-stop'])), stopPromptView(clone(items), clone(conf)), passWho(clone(record), clone(status))];
+  const far = await withClock(Date.parse('2099-01-01T00:00:00.000Z'), async (calls) => ({ v: all(), n: calls.n }));
+  const old = await withClock(0, async (calls) => ({ v: all(), n: calls.n }));
+  assert(far.n === 0 && old.n === 0, `story 6's view functions must not call Date.now (${ADR6} § Constraints); it was called ${far.n + old.n} time(s)`);
+  ['busyView', 'runOutcome', 'stopOutcome', 'stopPromptView', 'passWho'].forEach((name, i) => {
+    same(far.v[i], old.v[i], `${name}: the same input must give the same answer whatever the client clock (${ADR6} D16 "all clock-free")`);
+  });
+});
+
+/* TV109–TV110: added after Implementation (2026-10-28), the as-built readings ADR 0006 Amendment 1 § C ratified and
+ * the copy the Implementer's own check changed (story 6 § Deviations, last group). */
+
+test('TV109: a busy running item with a run, served beside a status that says that run has ended — a control from D5\'s 1 s reuse: status.running false, the latest run stopped on request — reads as live from its own state: beside its "Running since" line its stop says a stop was asked for, when and by whom, never "Stopped on request" and never "ended first"; the latest run itself, which has ended, still reads "Stopped on request" [ADR tagging-edges/0006 Amendment 1 § C "D16: a running busy item\'s who" ("takes who from that run, joined as live … not from status.running", "the line must not say running and stopped on request together"); D16 "as LatestPass does, so the two lines agree"]', async () => {
+  const passWho = await passWhoFn();
+  const busyView = await busyViewFn();
+  const stopAt = at6(-1);
+  const run = run6(1, -3, lk(1), { ...STOPPED6, endedAt: at6(-0.1), durationMs: 174000 });
+  const item = busyItem({ key: lk(1), jobId: lk(1), state: 'running', since: run.startedAt, runId: run.runId, stopAskedAt: stopAt });
+  const passes = { [lk(1)]: passEntry({ jobId: lk(1), start: { at: at6(-3.3), who: 'owner' }, stop: { at: stopAt, runId: run.runId, who: 'admin' }, noRerun: true }) };
+  const status = status6(control6([item]), { running: false, latest: run });
+  const bad = [];
+  const line = stringsIn(busyView(clone(status)).items);
+  if (!line.some((x) => /\bRunning\b/.test(x))) bad.push(`setup: busyView should give the item its "Running since" line; it gives ${show(line)}`);
+  const v = passWho(readyRead(recordAnswer(passes)), clone(status));
+  const itemText = partsFor(v, lk(1)).flatMap((x) => stringsIn(x));
+  const contradicts = itemText.filter((x) => /\bstopped on request\b/i.test(x) || /\bended first\b/i.test(x));
+  if (contradicts.length) bad.push(`the running item ${lk(1)} must not read as ended beside its "Running since" line (${ADR6} Amendment 1 § C); it says ${show(contradicts)}`);
+  bad.push(whoProblem(v, lk(1), { want: ['owner', 'admin'], times: [stopAt], none: [/\bstopped on request\b/i, /\bended first\b/i] },
+    'the running item (started by the owner; a stop asked for by an admin, live)'));
+  const runText = partsFor(v, run.runId).flatMap((x) => stringsIn(x));
+  if (!runText.some((x) => /\bstopped on request\b/i.test(x))) bad.push(`setup: the latest run, ended, should read "Stopped on request" (D18); its parts say ${show(runText)}`);
+  const problems = bad.filter(Boolean);
+  assert(!problems.length, `passWho for a running item beside a status that says its run ended (${ADR6} Amendment 1 § C, D16):\n      - ${problems.join('\n      - ')}`);
+});
+
+test('TV110: a Stop whose every target came too late says so of all of them, never "some" — for two and for three passes the plural sentence says the stops came too late and the passes\' own outcomes stand, every sentence in the past tense; one too-late pass keeps the singular sentence [story 6 § Deviations, last group ("the plural too-late sentence no longer says some"); ADR tagging-edges/0006 D16 stopOutcome "too late"; story AC-3 "A stop that comes too late … Its outcome is then what it was"]', async () => {
+  const stopOutcome = await stopOutcomeFn();
+  const bad = [];
+  for (const n of [1, 2, 3]) {
+    const what = `stopOutcome(200, ${n} too-late)`;
+    const r = stopOutcome(stopAnswer(Array.from({ length: n }, () => 'too-late')));
+    if (outcome6(r, what) !== 'done') { bad.push(`${what}: expected done; got ${show(r)}`); continue; }
+    const s = sentenceOf(r);
+    if (/\bsome\b/i.test(s)) bad.push(`${what}: every target came too late, so the sentence must not say "some"; got ${show(s)}`);
+    if (!/\btoo late\b/i.test(s)) bad.push(`${what}: the sentence must say the stop came too late; got ${show(s)}`);
+    if (!/\bown outcomes? stands?\b/i.test(s)) bad.push(`${what}: the sentence must say the pass's own outcome stands (AC-3); got ${show(s)}`);
+    bad.push(...pastProblems(s, what));
+  }
+  assert(!bad.length, `stopOutcome when every stop came too late (${ADR6} D16):\n      - ${bad.join('\n      - ')}`);
+});
+
 // ─── runner ────────────────────────────────────────────────────────────────────────────────────────────────────
 async function run() {
-  console.log('\n--- tagging pipeline view model tests (epic tagging-edges, Story 4 — ADR 0004 § UI, T1–T6) ---');
+  console.log('\n--- tagging pipeline view model tests (epic tagging-edges, Stories 4–6 — ADR 0004 § UI, T1–T6; ADR 0005; ADR 0006 D16) ---');
   let pass = 0, fail = 0;
   const failures = [];
   for (const [name, fn] of tests) {

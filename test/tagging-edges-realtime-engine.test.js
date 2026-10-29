@@ -56,6 +56,13 @@
  * RE82 comes from the review's round 2, non-blocking R2-NB9: a subscription's close is logged through log() with its
  * fixed reason and its close code, and nothing unredacted. It passes now.
  *
+ * RE70b comes from story 6 (engineering-team/stories/tagging-edges/6-pass-run-and-stop.md AC-6; ADR tagging-edges/0006
+ * § Constraints "a stopped pass that ends through finish() still gets its catch-up", D10): RE70 with a pass that ends
+ * stopped on request (the fakes' w.passEnd(runId, { outcome: 'stopped', reasonCode: 'requested', stopped: true });
+ * its defaults stay a finished pass's 'done', 'done', false). It passes now and is meant to: the engine reads only
+ * runId, startedAt, endedAt and process from report.json, so it treats every ended pass alike. It pins that against a
+ * later change that would key the catch-up on outcome.
+ *
  * Bounded memory (RE58) runs this same file in a CHILD Node process with --max-old-space-size=160
  * (`node test/tagging-edges-realtime-engine.test.js --re58-child <scenario>`), over lean fakes; it prints one
  * `RE58-RESULT {json}` line. The test is counted skipped, with a note, only when a node process cannot be spawned.
@@ -1799,7 +1806,7 @@ test('RE40: ADR 0002 residual 2 ("create after delete") — a pass that read not
   await within(proc, MIN, () => absent(w, addr(X)), 'within 60 s of the pass ending the relationship is gone again');
 });
 
-/** RE68–RE70's fixture: a pass runs, and X is created by a round that overlaps it. → X */
+/** RE68–RE70b's fixture: a pass runs, and X is created by a round that overlaps it. → X */
 async function createdDuringPass(w, proc, name) {
   w.passStart(PASS_RUN);
   await drive(proc, SEC, 100);
@@ -1838,6 +1845,19 @@ test('RE70: when a pass that overlapped a round ends, a catch-up runs within 45 
   const mark = w.nextSeq();
   w.passEnd(PASS_RUN);
   await within(proc, 45 * SEC, () => callsAfter(w, 'readKeys', mark).length > 0, 'a catch-up reads the graph\'s keys (its step 1) within 45 s of the pass ending', 250);
+});
+
+test('RE70b: a pass stopped on request at a safe point gets the same catch-up — when a pass that overlapped a round ends through finish() as stopped (its final report: endedAt set, outcome "stopped", reasonCode "requested", stopped true), a catch-up still reads the graph\'s keys within 45 s of its end (story 6 AC-6 "When the path is on, it catches up after a pass ends as story 3 defines, a stopped pass included"; ADR tagging-edges/0006 § Constraints "a stopped pass that ends through finish() still gets its catch-up", D10 stopNow(); ADR 0003 § Coexisting with the pass)', async () => {
+  const w = newWorld();
+  const proc = await boot(w);
+  await createdDuringPass(w, proc, 're70b-x');
+  await drive(proc, 2 * SEC, 100);
+  const mark = w.nextSeq();
+  w.passEnd(PASS_RUN, { outcome: 'stopped', reasonCode: 'requested', stopped: true });
+  const ended = w.report && w.report.latest;
+  assert(ended && ended.runId === PASS_RUN && ended.endedAt != null && ended.outcome === 'stopped' && ended.reasonCode === 'requested' && ended.stopped === true,
+    `fixture: the pass's final report should read stopped on request (endedAt set, outcome "stopped", reasonCode "requested", stopped true); got ${show(ended)}`);
+  await within(proc, 45 * SEC, () => callsAfter(w, 'readKeys', mark).length > 0, 'a catch-up reads the graph\'s keys (its step 1) within 45 s of the stopped pass ending, as for a pass that finished (RE70)', 250);
 });
 
 test('RE41: a pass that dies with endedAt null causes no endless re-look loop — once its re-looks and catch-up are done, the path reads neither the graph nor the relay while nothing changes (ADR D6 "a dead pass\'s window ends when the path first sees it dead"; T17)', async () => {

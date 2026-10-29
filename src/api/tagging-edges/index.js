@@ -1,11 +1,13 @@
 /**
  * The gap-filling pass's routes (tagging-edges story 2, ADR tagging-edges/0002).
  *
- *   GET  /api/tagging-edges/status                  public read: the latest report, the previous ones, and
- *                                                   any pending owner confirmation (without its nonce)
+ *   GET  /api/tagging-edges/status                  public read: the latest report, the previous ones, any
+ *                                                   pending owner confirmation (without its nonce), and which
+ *                                                   passes are waiting or running (control, with no who; story 6)
  *   GET  /api/tagging-edges/held?runId=&offset=&limit   public read, paged: the LATEST report's held list only
  *   POST /api/tagging-edges/confirm-held-removals   owner only: { runId } → a single-use confirmation record
- *                                                   the next pass claims, then an enqueue through the task system
+ *                                                   the next pass claims, then a start through the pass's
+ *                                                   controller (ADR tagging-edges/0006 D8)
  *
  * What is served: counts, run ids, timestamps, relay- and graph-derived values (tagging addresses, event ids,
  * property-key names), the held list's digest, the pass's pid and process start time, reason text and redacted
@@ -44,14 +46,11 @@ function defaultDeps() {
     now: () => Date.now(),
     nonce: () => crypto.randomBytes(16).toString('hex'),
     ownerPubkey: () => require('../../utils/config').getConfigFromFile('BRAINSTORM_OWNER_PUBKEY'),
-    // false when the queue is disabled (never initialised) or Redis does not answer
-    isQueueAvailable: () => require('../../manage/taskQueue/queue').isQueueAvailable(),
-    runViaQueueAsync: (args) => require('../../manage/taskQueue/queue').runViaQueueAsync(args),
-    taskTimeoutMs: () => {
-      const registry = require('../../manage/taskQueue/taskRegistry.json');
-      const { resolveTaskTimeout } = require('../../utils/taskTimeout');
-      return resolveTaskTimeout(registry.tasks[TASK_NAME], registry).timeoutMs;
-    },
+    // 'off' when the queue is disabled (never initialised), 'ready' while Redis is, else 'not-ready'; issues no command
+    queueHealth: () => require('../../manage/taskQueue/queue').queueHealth(),
+    // the default controller's start and busy snapshot (ADR tagging-edges/0006 D1, D8), shared with Run and the worker
+    lineUp: (args) => require('../../pipeline/tagging-edges/control').controller.lineUp(args),
+    snapshot: (...args) => require('../../pipeline/tagging-edges/control').controller.snapshot(...args),
   };
 }
 
@@ -194,6 +193,20 @@ function fsError(res, err) {
   return res.status(500).json({ success: false, error: `could not read the pass's state: ${code}${rel}` });
 }
 
+/**
+ * The status's `control` member (ADR tagging-edges/0006 D12): the controller's busy snapshot, which carries no who and
+ * every time as an ISO string, or null when it cannot be dated — reused for up to a second while nothing has changed
+ * (D5). A snapshot that cannot be taken reads as "cannot tell", never as nothing busy, and never hides the report.
+ */
+async function controlOf(d) {
+  try {
+    const s = await d.snapshot({ fresh: false });
+    return { queue: s.queue, busy: s.items, gaveUp: s.gaveUp };
+  } catch (_) {
+    return { queue: 'read-failed', busy: [], gaveUp: null };
+  }
+}
+
 /** GET /api/tagging-edges/status */
 async function handleStatus(req, res, deps) {
   const d = withDeps(deps);
@@ -204,7 +217,9 @@ async function handleStatus(req, res, deps) {
     try { confirmation = await readJson(d, 'confirmation.json'); } catch (err) { confirmation = { unreadable: (err && err.code) || 'error' }; }
     let alive = false;
     try { alive = !!(report && report.latest && (await d.isAlive(report.latest.process || report.latest))); } catch (_) { alive = false; }
-    return res.json(computeStatus({ report, alive, confirmation, now: d.now() }));
+    const answer = computeStatus({ report, alive, confirmation, now: d.now() });
+    answer.control = await controlOf(d);
+    return res.json(answer);
   } catch (err) {
     return fsError(res, err);
   }
@@ -326,13 +341,18 @@ async function handleConfirmHeldRemovals(req, res, deps) {
       return res.status(409).json({ success: false, code: 'pass-started', error: 'a pass started; confirm its report when it ends' });
     }
 
+    // Through the controller (ADR tagging-edges/0006 D8): a pass busy with no stop asked for takes the confirmation up,
+    // so nothing is added (joined); otherwise a new job is lined up under its own id, never joining one that is ending.
     let enqueued = false;
     let jobId;
+    let joined = false;
     try {
-      if (await d.isQueueAvailable()) {
-        const out = await d.runViaQueueAsync({ taskName: TASK_NAME, timeoutMs: d.taskTimeoutMs() });
-        enqueued = !!(out && out.success !== false);
-        jobId = out && out.jobId ? out.jobId : undefined;
+      if (d.queueHealth() === 'ready') {
+        const out = await d.lineUp({ who: { kind: 'confirmation' }, mode: 'confirm' });
+        const b = (out && out.body) || {};
+        enqueued = b.enqueued === true;
+        jobId = typeof b.jobId === 'string' ? b.jobId : undefined;
+        joined = b.joined === true;
       }
     } catch (err) {
       console.warn(`[tagging-edges] confirmation recorded but not enqueued: ${(err && err.code) || 'error'}`);
@@ -340,6 +360,7 @@ async function handleConfirmHeldRemovals(req, res, deps) {
     }
     const answer = { success: true, confirmed: true, enqueued, expiresAt: record.expiresAt };
     if (jobId !== undefined) answer.jobId = jobId;
+    if (joined) answer.joined = true;
     return res.json(answer);
   } catch (err) {
     return fsError(res, err);
