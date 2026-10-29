@@ -3,7 +3,7 @@
 > **Audience:** the active team running this fork at `tapestry.brainstorm.world`.
 > **Prerequisite reading:** [BIBLE.md](./BIBLE.md) — what tapestry *is* and how it works. This file documents the specifics of *our* deployment that aren't useful to other operators forking the codebase.
 
-**Last updated:** 2026-10-28
+**Last updated:** 2026-10-29
 
 ---
 
@@ -56,6 +56,8 @@ feat/foo (off staging)
 
 For Matthias's sandbox: he PRs from his fork's `magic-carpet` branch into our `feature-magic-carpet`. Merging deploys to `magic-carpet.brainstorm.world`. Code on `feature-magic-carpet` is **not** intended for production until promoted via the standard `feature-magic-carpet → staging → main` path.
 
+**Backporting to `feature-magic-carpet` needs care.** The branch is thousands of commits behind `staging`. It predates the router-config sanitization work (its `src/api/strfry/routerConfig.js` is about half the length of staging's) and the registered test gate (`test/registry.js`, `npm run gate:status`). A cherry-pick from `staging` often conflicts in such files and has to be adapted by hand, and its `npm test` won't run a backported suite: run that suite on its own with `node -e "require('./test/<suite>.test.js').run()"`.
+
 ---
 
 ## 2. Branches
@@ -95,6 +97,8 @@ The first deploy to a new droplet takes 5–15 minutes (the strfry C++ Redis pat
 
 These are the **deploy** workflows (push-triggered). The one non-deploy workflow is the pull-request **test gate** — see [§15](#15-ci-test-gate-prs-to-stagingmain).
 
+**A new GitHub copy of the repo: disable Actions before its first push.** The deploy workflows run on any push to their branch, so pushing a deploy branch into a fresh repo starts a deploy at once, with whatever secrets that repo holds. Turn Actions off (Settings → Actions) before the first push, and back on once the repo's `DEPLOY_*` secrets are set and the droplets pull from it.
+
 ---
 
 ## 4. Branch protection ruleset
@@ -119,6 +123,7 @@ Short-lived feature branches (`feat/*`, `fix/*`, `chore/*`) are NOT protected; t
 ### Pre-prod: `staging.brainstorm.world`
 
 - (specs to be filled in — sized to match prod for accurate verification)
+- **Synthetic test accounts live here, and a real account depends on one of them.** curated-dlist-update's live test (its audit, "The first real Update") ran six synthetic accounts, whose profiles say "Synthetic test account"; one of them declared a shared list and authored its items. The real Brainstorm account now curates that list ("First real-account adoption" in the same audit). In any cleanup of staging's test data, revoke that curation first and remove the list's header and items **last**, or a real account is left pointing at nothing.
 
 ### Sandbox: `magic-carpet.brainstorm.world`
 
@@ -138,6 +143,16 @@ Short-lived feature branches (`feat/*`, `fix/*`, `chore/*`) are NOT protected; t
 ### Sandbox: `curate.brainstorm.world` — DECOMMISSIONED (September 2026)
 
 - **Droplet deleted.** Branch `feat/curate` retained as an archive; `DEPLOY_*_CURATE` secrets removed (see §2). Was stood up 2026-05-15.
+
+### Memory settings (since the October 2026 outage, §9.13)
+
+None of these is in the repo; each lives on its droplet.
+
+- **Swap:** an 8 GB `/swapfile` (listed in `/etc/fstab`) with `vm.swappiness=10` (`/etc/sysctl.d/99-swappiness.conf`) on prod, staging and tags. Magic-carpet has none, by the owner's choice.
+- **Neo4j (prod):** sized in `/opt/tapestry/.env` instead of by the entrypoint's whole-machine formula: `BRAINSTORM_NEO4J_HEAP_MB=6144`, `BRAINSTORM_NEO4J_CACHE_MB=8192`, `BRAINSTORM_NEO4J_TX_MAX_MB=3072`. `docker-compose.yml` passes them through; the boot log says `BRAINSTORM_NEO4J_* override active` when they apply.
+- **Meilisearch (prod):** capped in the untracked `/opt/tapestry/docker-compose.override.yml`: `mem_limit` and `memswap_limit` 10g, `MEILI_MAX_INDEXING_MEMORY=4Gb`, `MEILI_MAX_INDEXING_THREADS=4`.
+
+A deploy resets only `docker-compose.yml` (§3), so `.env` and the override file survive it. A change to either takes effect when compose next recreates the containers (`docker compose up -d`, which every deploy runs).
 
 ### Empirical RAM/disk on production (April 2026)
 
@@ -285,6 +300,8 @@ End-to-end procedure for adding a new long-lived sandbox to the deploy fleet. Th
 | **Vinney Cavallo** | `vcavallo` | Contributor | `feature-relay-discovery`, `feature-tapestry-discovery` (PR #32 parked) |
 | **Matthias DeBernardini** | `matthiasdebernardini` | Contributor | works from his fork (`matthiasdebernardini/magic-carpet-v2`); PRs into `feature-magic-carpet` |
 
+Mention or assign Vinney as `@vcavallo`, never `@Vinney`: the GitHub user `vinney` is someone else.
+
 Universal credits and contributor list lives in [BIBLE.md §20 "People"](./BIBLE.md#20-people).
 
 ---
@@ -302,9 +319,10 @@ Universal credits and contributor list lives in [BIBLE.md §20 "People"](./BIBLE
 The app publishes signed events to public relays by default. A per-deployment opt-in guard (event-tagging ADR 0002) can force **local-relay-only** publishing:
 
 - **Default (flag unset): publishes externally — unchanged.** Production, staging, and every sandbox keep working with no action. There is **no migration**; you do not need to set anything to preserve current behaviour.
-- **`BRAINSTORM_PUBLISH_LOCAL_ONLY=true`** (in a deployment's `brainstorm.conf`, or the container env): every publish path stays on that deployment's local strfry — nothing reaches public relays. Use only for a deployment you deliberately want isolated.
+- **`BRAINSTORM_PUBLISH_LOCAL_ONLY=true`** (in a deployment's `brainstorm.conf`, or the container env): the app's publish paths stay on that deployment's local strfry. Use only for a deployment you deliberately want isolated.
+- **The guard does not cover the strfry-router.** Any `up` or `both` router stream uploads what lands in local strfry, whoever wrote it, so with the guard on, events still leave through the router: the live tag suites' fixtures, posted to `/api/strfry/publish`, reach `wss://dcosl.brainstorm.world` through any `both` stream for kind 39999. The shipped `dcosl` preset is such a stream (off until someone enables it), and the public instances run `both` streams to dcosl for the tag kinds. To isolate a deployment, also turn off its `up` and `both` streams; `GET /api/strfry/router-status` lists them.
 - **Check a deployment's posture:** `curl -s <host>/api/publish-policy` → `allowExternalPublish:false` means the guard is on.
-- The guard is **client-side and fail-open** (an unreadable policy publishes externally), so it is a convenience/safety switch, not a hard egress control. Local-dev usage and the full reference live in [docs/CONFIGURATION.md → Publish policy](./docs/CONFIGURATION.md#publish-policy-external-publish-guard).
+- The guard is **client-side and fail-open** (an unreadable policy publishes externally), so it is a convenience/safety switch, not a hard egress control. Its ADR (event-tagging/0002) puts router redistribution out of scope. Local-dev usage and the full reference live in [docs/CONFIGURATION.md → Publish policy](./docs/CONFIGURATION.md#publish-policy-external-publish-guard).
 
 ### 9.1. `gh` CLI defaults to the upstream fork
 
@@ -460,6 +478,40 @@ docker exec tapestry supervisorctl restart brainstorm    # or: docker compose up
 **Do NOT rotate via the web Neo4j Browser at `:7474`.** It can reach a *different* instance/droplet than the app's in-container Neo4j — during this rotation that caused a cross-instance mix-up where the app got "unauthorized due to authentication failure" because config held the new password but the Neo4j the app actually talks to still had the old one. Always rotate through `docker exec tapestry cypher-shell` so you're changing the same database the app uses.
 
 **Lesson:** the deploy `sed` only remaps `80:80` → `127.0.0.1:8080`; every other Docker-published port (`7474`/`7687`/`8687` Neo4j, `7778` control-panel API, `7700` Meili, `3069` nostr-search-api) stays on `0.0.0.0` and is internet-reachable. Nothing external needs them. **Firewalling them is deferred → OPEN.md #66** (full runbook in `engineering-team/audits/security-auth-exposure/book.md` § Companion). Use a **DO Cloud Firewall, not `ufw`** — Docker rewrites iptables ahead of ufw, so `ufw deny 7687` is silently bypassed; a network-layer firewall filters before the packet reaches the droplet.
+
+### 9.11. Proving a deploy: a signed-out probe can't show that a route exists
+
+The access check (`src/middleware/auth.js`) judges every `/api` request before Express routes it. A signed-out request to a path the route table (`src/middleware/routeAccess.js`) doesn't open answers **401**, whether or not the route is registered, so a 401 from a new endpoint on staging or prod proves nothing about the deploy. Prove it with something only the new build serves:
+
+- **A string new in the served bundle:** find the bundle with `curl -s $H/ | grep -oE 'assets/index-[^"]*\.js'`, then grep it.
+- **A public read the change alters:** curated-dlist-update was proved by `/api/relay/external?strict=1` answering in its new form.
+- **An in-container loopback call,** which the access check trusts (§14): `docker exec tapestry curl -s -X POST http://127.0.0.1:7778/<path> …` gets Express's 404 before the deploy and the handler's own answer after. Send only a payload the handler must refuse, so nothing is written.
+
+**Cold first loads are slow.** Right after a restart, Neo4j-backed reads wait while Neo4j warms up: `/tapestry/lists` waits about 15 s on `/api/dlists/item-counts`, and the Dictionary pages are slow the same way (about 1 s once warm). Retry before calling it a regression.
+
+### 9.12. nginx limits a request line to 8 KB and a proxied call to 60 seconds
+
+Both are nginx defaults, and both reach the app:
+
+- **Request line, 8 KB.** A GET that carries ids in its query string fails past it with an HTML 414 instead of JSON: about 110 event ids, at ~73 URL characters each. Read in chunks. Vote reads name 50 ids at a time (`VOTES_IDS_PER_READ`, `ui/src/utils/treasureMap.js`); the z-tag scan in `ui/src/pages/shared-concepts/ActiveZTags.jsx` sends 20 coordinates per request.
+- **Proxy timeout, 60 s.** A call still running at 60 s gets a 504 while the server carries on, so the client can't tell what happened. A long handler has to answer inside it: the curation Update holds itself to 45 s (`DEADLINE_MS`, `src/api/dlist-curation/update.js`). `docker/nginx.conf` raises the in-container limit for a few long paths (firmware install, the strfry scan count and stream); the host nginx block in §6.3 step 6 sets no timeout.
+
+### 9.13. 2026-10-15: production livelocked out of memory and was down for eight days
+
+Three things combined. Meilisearch had been OOM-killed about weekly since late August, at 13–19 GB each time, and grew back after each kill. Neo4j was sized by the entrypoint's whole-machine formula (no `BRAINSTORM_NEO4J_*` override). And the droplet had no swap. On 2026-10-15 an OOM kill hit Neo4j's java and the host never recovered: it livelocked, CPU pinned with no disk or network I/O, until a restart on 2026-10-23. The settings now in place are in §5 "Memory settings".
+
+### 9.14. Patching Node: a normal deploy keeps the old Node
+
+The `tapestry` image installs Node from NodeSource's `setup_22.x` onto `ubuntu:22.04`, and `nostr-search-api` builds `FROM node:22-alpine`. Both layers are cached, so a deploy's `docker compose up -d --build` keeps the Node already in them. To take a Node security release on a droplet:
+
+1. **Free memory first.** A no-cache build running beside the live stack once OOM-killed staging's Neo4j. Check `free -m` and the swap (§5) before you start.
+2. **Build detached:** `docker compose build --pull --no-cache tapestry nostr-search-api` in `/opt/tapestry`, run so that it outlives your SSH session (a transient unit from `systemd-run` works; an `ssh … nohup setsid` call hung the local ssh). It takes about 10 minutes.
+3. **Restart and check:** `docker compose up -d`, then `docker exec tapestry node --version` and `docker exec nostr-search-api node --version`.
+
+### 9.15. Scripting gotchas
+
+- **`grep -q '"success"'` also matches `"success":false`.** Match the value: `grep -q '"success":true'` (the API's JSON has no spaces).
+- **In an agent session, never put `nohup … &` inside a call that is itself backgrounded.** The call exits 0 at once, the real process runs untracked, and no completion notice ever comes. Make the long command itself the backgrounded call.
 
 ---
 
@@ -983,6 +1035,56 @@ The HUP-and-relisten approach is faster than `docker compose restart tapestry`, 
 - **Nothing in this loop survives a container rebuild.** The next `docker compose up --build` or `/cycle-local` invocation reverts every in-container edit to whatever's in the freshly-built image. The proper way to land changes durably is to **commit + push** (so CI builds a new image) or **run `/cycle-local`** (which builds a new image locally and restarts the stack).
 - **Source files baked into the image come from `npm install` at image-build time**, not from a `COPY` of `ui/src/`. So if you add a *new* source file to your host tree, even `/cycle-local` won't pick it up unless the `package.json` / `npm publish` flow includes it. (This is the same bear-trap that bit us when Story 5's new component files weren't in the container at first — the existing container was built before Stories 2/3/4 added their files.)
 - **CSS-only changes still require a `npm run build`** — there is no separate `npm run build:css`. Vite handles CSS as part of the JS bundle/asset graph. Plan a ~15–20s build cycle per CSS tweak.
+- **After merging `staging` into your branch, rebuild the UI and restart the control panel before trusting a local test run.** A stale `dist/`, or a server process that predates the merged-in code, fails suites that would pass.
+
+### Calling the API from the host: go through the container's loopback
+
+The access check trusts only a request whose socket peer is loopback and that carries no `X-Forwarded-For` or `X-Real-IP` header (`req.localTrusted`, ADR security-auth-exposure/0001). A host-side call to the published `:7778` doesn't qualify: its peer isn't the container's loopback, so it is judged like internet traffic, and a write without an owner session is refused. An agent session that writes to the local graph does it from inside the container:
+
+```sh
+docker exec tapestry curl -s -X POST http://127.0.0.1:7778/api/normalize/<op> \
+  -H 'Content-Type: application/json' -d '<json>'
+```
+
+- **Cypher:** `POST /api/neo4j/query` with `{"cypher": …, "params": {…}}`, over the same loopback. It runs **writes** for a loopback caller too, so send read-only Cypher unless you mean to write.
+- **`docker exec tapestry cypher-shell` can fail auth.** It reads the container's `NEO4J_PASSWORD` environment variable, which is fixed when the container is created and can lag the password the app actually uses (`/etc/brainstorm.conf`). Use `/api/neo4j/query` instead.
+
+### Is the container running the code you expect?
+
+Without the `docker-compose.dev.yml` bind mount, the container's code changes one file at a time (`docker cp`, `/cycle-local`) and drifts from every branch. To compare it with a ref (about a minute; run from the repo root):
+
+```sh
+B=origin/staging
+git ls-tree -r --name-only "$B" bin src firmware public config setup docker package.json package-lock.json > /tmp/parity-files
+while read -r f; do echo "$(git show "$B:$f" | shasum | cut -c1-40)  $f"; done < /tmp/parity-files > /tmp/parity-want
+docker exec -i tapestry sh -c 'cd /usr/local/lib/node_modules/brainstorm && while read -r f; do
+  if [ -f "$f" ]; then echo "$(sha1sum < "$f" | cut -c1-40)  $f"; else echo "missing  $f"; fi; done' \
+  < /tmp/parity-files > /tmp/parity-have
+diff /tmp/parity-want /tmp/parity-have
+```
+
+Two differences are expected: `firmware/active` reads as missing because it is a symlink to a directory (`[ -L ]` finds it, `[ -f ]` doesn't), and `public/kg/` is absent because `.dockerignore` leaves it out. For the UI, build with `npm --prefix ui run build` (it writes the repo-root `dist/`) and compare the `assets/index-*.js` name in `dist/index.html` with the container's.
+
+To sync: back up the container's copies (under its `/tmp`), `docker cp` each differing file (`mkdir -p` any new directory first), run `docker exec tapestry supervisorctl restart brainstorm`, wait for `Brainstorm Control Panel running on HTTP port 7778` in `/var/log/supervisor/brainstorm.log`, and re-run the check until it shows no differences. Static `public/` pages and `dist/` need no restart. The local container is shared, so first make sure no other session is mid-test on it.
+
+### A throwaway instance for live tests (`scripts/scratch-stack.sh`)
+
+A live test that must not touch the shared local stack runs on a throwaway instance: `TAPESTRY_CONTAINER=$(bash scripts/scratch-stack.sh up)`, run the suite (suites that use `test/helpers/stackHttp.js` reach it through `TAPESTRY_CONTAINER`), then `bash scripts/scratch-stack.sh down`. It boots from the local image with fresh volumes, its own assistant key, this checkout's `src/` mounted read-only and no published ports; the script's header has the rest.
+
+- **It starts empty.** Nothing arrives by relay ingestion (there are no `nostr-kind` elements, for one), so a live test brings its own fixtures.
+- **Size its Neo4j at `docker run`.** The entrypoint sizes Neo4j from the whole Docker VM at every start, which is right for one instance and too much for a second beside it. Pass `BRAINSTORM_NEO4J_HEAP_MB`, `BRAINSTORM_NEO4J_CACHE_MB` and `BRAINSTORM_NEO4J_TX_MAX_MB` with `-e` at `docker run`, as `scratch-stack.sh` does. Shrinking it after boot, which `scripts/brain-drill.sh` still does with `sed` and a restart, comes too late: a first boot at full size may never come up beside the shared stack.
+- **Check headroom first** with `docker stats --no-stream`: the instance needs about 2–3 GB of the Docker VM.
+
+### Previewing a UI change against staging's data
+
+When the local stack lacks the data a UI change needs, serve a scratch build whose `/api` goes to staging:
+
+1. From `ui/`: `npx vite build --outDir <scratch>/ui-build --emptyOutDir`. (The config's own `outDir` is the repo-root `dist/`, which the container may be serving.)
+2. Write a preview config outside the repo that imports `ui/vite.config.js`, spreads it, and sets `preview: { port: 4174, strictPort: true, proxy: { '/api': { target: 'https://staging.brainstorm.world', changeOrigin: true } } }`.
+3. If the change adds or reshapes an endpoint, stub only that one: a plugin whose `configurePreviewServer(server)` answers its path from a JSON file built from staging's real response plus the new fields.
+4. `npx vite preview --config <your config> --outDir <scratch>/ui-build`.
+
+**Never press a write action in that preview:** every `/api` call goes to staging.
 
 ### Known friction — candidates for improvement
 
