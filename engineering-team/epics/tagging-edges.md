@@ -158,7 +158,11 @@ Planning: admins may also see the panel and use every control but confirming hel
    Decided at the same Planning: a scheduled run whose time has come and that is waiting counts as waiting, for Run,
    for every viewer and for Stop; direct local calls stay exempt from the run-task gate, recorded as a local call; and,
    for this pass, the run-task route answers as Run does (refused while busy, never answered as lined up when no pass
-   will run, another site refused). The story holds the rest.)* The owner's decisions at story 5's Planning (2026-10-01), with story 4's (2026-09-30):
+   will run, another site refused). The story holds the rest.)* **Done** (review PASS 2026-10-28, round 2; ADR
+   `tagging-edges/0006`). On staging since 2026-10-29 (PR nousclawds4/tapestry#6), with its staging evidence complete;
+   not yet on main. Its review's 9 carry-forwards, and round 1's non-blocking 1 and 2, are for the owner to place
+   (`reviews/tagging-edges/6-pass-run-and-stop.md` § "Re-review, round 2"). The owner's decisions at story 5's
+   Planning (2026-10-01), with story 4's (2026-09-30):
    - **Run a pass now,** for the owner or an admin. It is refused plainly while any pass is running, or while a pass
      someone asked for is waiting to start, even one waiting behind scoring for the shared heavy-task lock. The
      backstop's future scheduled run never counts as waiting.

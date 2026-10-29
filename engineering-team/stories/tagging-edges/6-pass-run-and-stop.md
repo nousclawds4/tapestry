@@ -532,7 +532,7 @@ The backend was restarted at 14:41:54Z with `scripts/dev-refresh.sh`, running `5
     The story's diff adds no `console.*` call. That key is already public at `/api/about-this-instance`.
     *(Corrected at the review fix round, 2026-10-28: the list named only the owner-key line and the sign-in route.)*
 - **Left for staging** (the evidence plan): the owner's and an admin's Runs with who shown, an admin stopping a waiting
-  pass while other heavy work holds the lock, and a stranger's "no who".
+  pass while other heavy work holds the lock, and a stranger's "no who". *(Done on staging, 2026-10-29: § Staging.)*
 
 ### The local stack, at the fix round (2026-10-28)
 
@@ -552,6 +552,106 @@ as before.
     released.
   - **The record's entry** for the key carries `jobId: 'reconcileTaggingEdges@x'`, the start as "another way", the
     owner's stop with the run's `runId`, and `noRerun: true`. Then nothing was busy.
+
+### Staging (2026-10-29, times UTC)
+
+PR nousclawds4/tapestry#6 (head `0c2d5329`, its Test run `40800867889` green at 01:35:29Z) was merged to staging by
+hand at 04:35:32Z (`9c0deef4`), with no `scripts/check-safe-to-merge.sh` run before it (OPEN.md row 340). Read
+afterwards by their `lastRunAt`, neither enabled schedule entry was running at the merge: they had last started at
+14:26:19Z and 23:40:46Z on 2026-10-28. A task started by hand would not show there. Deploy run `40818613276`
+succeeded, 04:35:34Z to 04:37:17Z.
+The smoke test (`docs/SMOKE_TEST.md`) was clean apart from `get-user-data`'s 504 on the heavy test pubkey (OPEN.md
+row 61).
+
+- **Read-only checks.**
+  - The served bundle changed from `index-BPseA8Eb.js` to `index-CHcumCZ-.js`, which carries the pass's run, stop and
+    record routes.
+  - The public status carries `control` `{queue: 'ok', busy: [], gaveUp: null}` and no who. Signed out, the record
+    read answered 401.
+- **The admin half** (Virgil, `f0178122`, an admin on staging, through the panel in headless Chromium, 05:15:52Z to
+  05:16:23Z). A throwaway key, made for the run, was the user who is neither owner nor admin. Both keys stayed in
+  memory.
+  - **Before.** Nothing was busy, the queue was idle, and the record read `empty`. Signed out, Run, Stop, the record
+    read and run-task for this pass each answered 401.
+  - **The admin's Run.** The panel's Run answered 200 at 05:15:54.246Z and lined up
+    `reconcileTaggingEdges-d700694e15a6`, `recorded: true`. The panel read "Running since … Started by an admin
+    (f0178122…) at …", and the same start topped "Recent actions, newest first.".
+    - **A second Run** sent at once through the route, not the panel's button, answered 409 `pass-busy`.
+    - **The other user** got 403 at run-task for this pass and at the record read. Their status read listed the pass
+      running, with no who.
+    - **The pass,** `20261029T051554Z-716e02fe` with `job.id` the key, ran 05:15:54.993Z to 05:15:57.745Z: `done`,
+      7,265 taggings read, nothing changed. The panel then showed its start as the admin's.
+  - **The admin's Stop of a waiting pass.** ADR 0006 § Seams leaves the owner to choose how to hold the lock on
+    staging. This run held it with `neo4jConstraintsAndIndexes`, which only adds rules and indexes that are missing.
+    That task was started through run-task, the route the Task Explorer uses, once the queue was idle: a job keeps
+    the lock for up to about 5 s after its script ends (ADR 0006 § What exists).
+    - **The heavy task** went active at 05:16:04.295Z. Its session ran 05:16:04 to 05:16:11.
+    - **The admin's Run** (05:16:04.415Z) lined up `reconcileTaggingEdges-b6da41f0a827`. The signed-out status listed
+      it as waiting since 05:16:04.413Z, behind `heavy-work`. The panel read "Waiting since …, behind other heavy
+      database work, such as scoring. Started by an admin (f0178122…) at …".
+    - **What shows the lock was held.** The semaphore's own events, in the Task Explorer's signed-out data, name the
+      holder. `neo4jConstraintsAndIndexes` took the `neo4j-heavy` lease at 05:16:04.297Z and released it at
+      05:16:15.126Z, 11 s later. The pass's wait began at 05:16:04.417Z (cap 1) and ended `abandoned` at
+      05:16:04.919Z. The heavy task was the only active job.
+    - **While it waited,** a second Run through the route answered 409 `pass-busy`. The other user got 403 at both
+      routes, and no who.
+    - **The prompt** read "The pass waiting since … is taken out of line before it begins running, so it writes
+      nothing." and "No schedule entry changes."
+    - **"Stop the pass"** answered 200 `taken-out-of-line`, `recorded: true`, 0.43 s into the wait (05:16:04.848Z).
+    - **After the stop,** nothing was busy and the latest report was still the admin's first pass. The panel read
+      "The waiting pass was taken out of line before it began running, so it wrote nothing.", and "Stop asked for by an
+      admin (f0178122…)" topped the history.
+  - **The other user's Settings,** signed in: "Settings are only available to the owner." and "You are signed in as
+    guest. Owner access is required."
+    The refusal at run-task has held for every task since 2026-10-10 (the evidence plan's note, § Open questions).
+    This run adds the "no who" half.
+- **The owner's half** (the owner, signed in as themselves on another machine, 16:36:52Z to 16:37:35Z).
+  - **What the owner reported.** They followed the same steps: Run, then Run again while the pass was busy. They saw
+    "Started by the owner (e5272de9…)" and, on their fourth press, "A pass was already waiting or running, so nothing
+    new was lined up." Their second and third presses came after the pass before had ended, so each lined up a new
+    pass.
+  - **The record, read afterwards as an admin** (16:39:25Z), holds three starts by the owner (`e5272de9`):
+    - at 16:36:52.407Z (`…-b70561c5cb3a`);
+    - at 16:37:00.792Z (`…-ea7535d63c07`);
+    - at 16:37:32.752Z (`…-cb5548c37971`).
+
+    Each pass's report has `job.id` its key and ended `done`, in 1.5 to 2.5 s, with 7,265 taggings read and nothing
+    changed. Nothing after the third start was recorded.
+  - **The refusal leaves no server-side trace.** A Run refused as busy answers 409 before the record is written, and
+    the app keeps no request log; only the nginx access logs would hold it, and reading them needs SSH. So this half
+    of it rests on the owner's report. The panel shows that sentence only for a `pass-busy` answer. The admin half's
+    two 409s are the server's own refusals.
+  - **Why it took four presses.** The panel keeps Run disabled until the answer and both re-reads that follow it
+    settle. On a pass this short, that leaves about a second or two in which a second press is refused.
+- **No who for anyone else.**
+  - Signed-out reads carry no `who` member and not the admin's key, in full or short:
+    - after the admin half: the status, the held list, the path's status, the Task Explorer's data for this task, the
+      task dashboard, the schedule list and the deploy-safety status;
+    - after the owner's half: the status, the held list, the Task Explorer's data, the schedule list and the
+      deploy-safety status, which carry no `e5272de9` either; the record read answered 401.
+  - Keys older than this story still show. The task dashboard names the owner's full key, public at
+    `/api/owner/pubkey`, as the `target` of owner-scoring tasks run from 2026-06-07 to 2026-10-14. The dashboard and
+    the schedule list also name a customer's key. None of those entries is a pass.
+  - The status read as an admin carries no who either.
+  - The status does carry other short keys, both from story 2: the stamp identities, and the owner's prefix as
+    `confirmationPending.mintedBy` while a confirmation is pending (it was null).
+  - The other user's own page held only their own key.
+- **What the evidence changed on staging.**
+  - **Passes.** Five passes were lined up. Four ran and changed nothing; the admin's waiting pass was stopped before
+    it began. The record grew from empty to seven entries, one of them the schedule's own start at 14:26:18Z.
+  - **The pass report's history.** `report.json` keeps the latest pass and nine before it. The four passes that ran,
+    with the schedule's own, pushed the daily reports of 2026-10-19 to 10-23 out of it, so the panel's earlier passes
+    now begin at 2026-10-24.
+  - **The heavy task** ran once and wrote its timestamp to `brainstorm.conf`.
+  - **The admin's preference.** Loading the panel signed in sent the app's own `PUT /api/user-prefs {"pov":"user"}`
+    for the admin. The page sends back the `pov` it read from the server at load (`ui/src/context/PovContext.jsx`),
+    so the stored value stayed `user`. The other user's page requests were not journaled.
+  - **Sign-ins.** The admin signed in twice (05:15:52Z and 16:39:25Z) and the throwaway key once. Each left a session
+    in Redis, and the sign-in route's own lines (`src/middleware/auth.js:420`, `:492`) wrote each full key to the
+    backend's console log, as on the local stack.
+  - **The schedule.** Its `lastRunAt` follows each pass that runs, so it now reads 16:37:33.363Z, the owner's third.
+    Its next run (daily at 14:26:18.654Z) did not move.
+- **Production** gets read-only checks only, after a promotion.
 
 ## Deviations
 
