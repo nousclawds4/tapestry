@@ -31,6 +31,8 @@ Tester. See `engineering-team/roles/tester.md`.
 - Single happy-path test. Edge cases need explicit tests too.
 - Skipping the "confirm the test fails" step. A test that doesn't actually fail tells you nothing.
 - Tests that depend on graph state without saying so. Document prerequisites (`POST /api/firmware/install`, etc.) in the test plan.
+- Browser specs that nobody has seen pass, or fail. Run them on a throwaway oracle built from the ADR outside the repo, then mutate it one rule at a time ([Tester § Browser tests](../roles/tester.md#browser-tests-prove-they-can-pass-then-prove-they-bite)). The same section lists the traps that make a spec pass for the wrong reason: a "GET-only" check on `/tapestry` pages, overflow checked without height, a "never shows X" without a held answer, a "no X" that a loading state satisfies.
+- A signed-in page left unchecked because the browser has no NIP-07 signer. [Tester § Checking a signed-in page](../roles/tester.md#checking-a-signed-in-page-without-a-nip-07-signer) has three ways in.
 - A test that asserts something did *not* happen ("nothing runs", "no shell", "never shows X") also passes when the code under test returns early. Pair it with an assertion that the path under test ran (the handler answered, the call was reached), and set up whatever that path needs: config, an owner, a fixture (audit `admin-action-owner-check` §7 #3).
 
 ## Per-phase commits
