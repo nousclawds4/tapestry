@@ -589,7 +589,10 @@ The ratified staging evidence must exist before staging is promoted to main.
      - Before the fix round this corner threw. Now an owner's or admin's BullBoard add (R3) reaches it.
      - The Stop makes the opposite choice for the same job: it leaves the schedule start out (`:625`). So the panel
        reads "Started by the schedule at <pickup time>" when the gate wrote the start (`taggingPipelineView.js:839-843`),
-       and "Started by the schedule" with no time when the Stop wrote the entry (`:943`).
+       and "Started by the schedule" with no time when the Stop wrote the entry (`:943`). *(Corrected at the
+       record-fix check, 2026-10-28: the no-time line shows while the job waits to be picked up, with no Stop
+       involved; after a Stop that came first the job leaves the busy list and the panel shows only the stop. ADR D3's
+       note and the story's bullet say so.)*
      - D12's fix-round note (ADR `:803-808`) and the story's Deviations bullet (`:712-718`) name only the Stop's choice.
      - CT70 pins only "a valid ISO time" (test header `:112`). A mutation that falls back to `iso(0)` passes 73/0.
    - **Reproduced.** Probes at HEAD with an injected clock (scratch `rev6r2/verify-asks-code/scripts/f1.js`,
@@ -674,12 +677,15 @@ Their ids match their filenames, their types are valid, and none duplicates a ro
    - **Part 2 misdiagnoses `.last-run.json`** (`:23-25`). Playwright 1.56.1 writes it into the run's output folder
      (`node_modules/playwright/lib/runner/lastRun.js:42`). A run with `--output <scratch>` puts it in scratch, while the
      config's json reporter still writes the repo's `test-results/results.json`. That explains the ten-hour gap. The
-     wording came from round 1's harness friction 10.
+     wording came from round 1's harness friction 10. *(Corrected at the record-fix check, 2026-10-28: an `--output`
+     run did not cause this gap. A `--list` run wrote `results.json` and no `.last-run.json`; the row now says so.)*
    - **Part 1 misses a second write into the repo.** The documented run passes no `--output`, so each run empties the
      checkout's `test-results/` ("clear output", `node_modules/playwright/lib/runner/tasks.js:196-206`) and rewrites it
      and `playwright-report/`. This round's browser run cleared the gitignored `test-results/` that way. No record cites
      the removed files, and copies are in scratch.
    - **What should change.** Add a sighting to the row. Give the recipe's scratch form `--output <scratch>`.
+     *(Corrected at the record-fix check, 2026-10-28: `--output` alone still lets the config's reporters write into
+     the repo; the row's fix shape adds the three reporter variables.)*
 
 ## Verdict (round 2)
 

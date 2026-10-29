@@ -447,6 +447,11 @@ All line numbers are at `48de58a7` (after the merge of `origin/staging`); prefer
   - **Another job the record does not know:** record the start `{kind: 'other'}` at `job.timestamp`, best effort. This
     applies to a key that does not match `LINEUP_ID` and is not in `linedUp`. A `lineUp`-made key with no start (its
     record write failed) stays unrecorded, as AC-5 requires.
+    *(Amended at story 6's review, round 2, 2026-10-28: when that time, the id's millis or `job.timestamp`, is one a
+    JavaScript Date cannot hold, which only a job added outside the app can carry, the start is recorded at the pickup
+    time instead. So the panel shows such a start with no time while the job waits to be picked up, and at the pickup
+    time from then on. A Stop that writes the entry first, while the job waits, leaves the schedule start out (D12's
+    note) and takes the job out of the busy list, so the panel shows no start for it, only the stop.)*
   - Then set `phases[key] = {jobId: job.id, phase: 'waiting-for-lock', since: now}` and answer `'go'`.
 - **`shouldAbandon`** is synchronous: `skips.has(key) || noRerun.has(key)`. `noRerun` matters here only for a stalled
   re-run, after a backend restart, of a job whose orphaned pass was stopped while this re-run waited.

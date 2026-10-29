@@ -198,7 +198,8 @@ backend its live suites measured.** It is the second door again: current files, 
   measured a process 26 days older than the tree. Story 6's Evidence § The gate, as first written, quoted them with no
   word about which backend they measured (the fix round adds it, review requested change 10).
 - **The restart showed it.** The review's run `20261028T154319Z-13921-dcd1`, after the restart, differed from the
-  baseline in seven suites the story did not touch: three now pass, one no longer skips, and three newly fail (ledger
+  baseline in seven suites the story did not touch: three now pass, one no longer skips, and three gained a failing
+  test, two of them newly failing (`teach-it-what-matters` already failed H7; only its H6 is new; ledger
   `2026-10-28-live-tests-expect-404-not-401`).
 - **What the record holds.** Its environment fields are host, node, cwd, argv and git. Nothing names the control panel
   that answered or when it started.

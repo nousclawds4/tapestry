@@ -713,9 +713,14 @@ These are small judgement calls made at Implementation (2026-10-28), too small f
     status snapshot nor the start's record throws on such a time.
     - A busy item with such a time is served with `since: null`.
     - The stop entry leaves out its schedule start, and the status's `gaveUp.at` is null rather than a throw.
+    - At pickup, the gate records such a job's start at the pickup time, since `recordStart` falls back to the clock.
+      So the panel shows that start with no time while the job waits to be picked up, and at the pickup time from then
+      on. A Stop that comes first writes no start and takes the job out of the busy list, so the panel shows only the
+      stop (ADR D3's note).
     - **Why.** One busy job with such a time, in its id or its timestamp, could otherwise make the status say it cannot
-      tell what is waiting, make Run, Stop and the confirm route answer 500, and fail the job at pickup (Requested 5;
-      CT70).
+      tell what is waiting, make Run and Stop answer 500, and fail the job at pickup (Requested 5; CT70). The confirm
+      route still recorded the confirmation, but lined up no pass (200, `enqueued: false`). *(Corrected at the review,
+      round 2, 2026-10-28: this read "make Run, Stop and the confirm route answer 500".)*
   - **The job id in a task's environment.** `processor.js` sets `BRAINSTORM_TASK_JOB_ID` only when the job's id has no
     NUL character and is at most 200 characters long (UTF-16 code units, `String.prototype.length`). Otherwise it
     leaves the variable out: the task launches as it did before this story, and the pass records `job: null`, as for
