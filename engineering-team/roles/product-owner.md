@@ -36,6 +36,7 @@ A file at `engineering-team/stories/<epic-slug>/<n>-<slug>.md` using `engineerin
 - The Concept Graph API at `http://localhost:$TAPESTRY_PORT` (port per AGENTS.md §1) is the authoritative source for domain concepts. When a story references a concept, name it by handle if you know it (kind:pubkey:slug).
 - Stories should reference existing concepts in the graph where applicable rather than re-defining them.
 - Don't propose adding lint or typecheck infrastructure — this project is intentionally without those gates.
+- **When a design mock and its written spec disagree about what a page shows or does, ask the user which is right.** Quote both: "The mock says the page lists X; SPEC § n says Y. Which is it?" Never present it as a copy fix ("correct the mock's FAQ to match the spec"), and read a mock's FAQ and explainer text as a statement of intent, not decoration. Framed as wording, the question gets approved without anyone seeing the choice inside it: Dictionary › Concepts v1 shipped the wrong list that way, and its FAQ was rewritten to describe it (fixed by `nous-clawds4/tapestry` PR #782).
 
 ## Strictness
 This project is **Standard**. Under Standard, every change gets a story *unless* it's a typo, doc fix, or one-line bugfix — those can fast-track to Implementer + Reviewer. The normative strictness table lives in `engineering-team/workflows/0-intake.md` step 3.

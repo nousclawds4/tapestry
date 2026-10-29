@@ -39,3 +39,4 @@ ADRs enabled for this project: **yes**.
 - Don't introduce new lint/typecheck/build tooling without the user explicitly asking. This project is intentionally JS-without-build.
 - Concept changes that affect the graph schema: call out that firmware reinstall (`POST /api/firmware/install`) will be required.
 - If the change adds a new concept, the ADR should specify the concept's handle, schema, and where its definition lives.
+- If the story's design mock and its written spec disagree about what a page shows or does, don't settle it in the ADR or as a copy fix. Kick it back to the Product Owner as a question for the user that quotes both ([Product Owner § House rules](product-owner.md#house-rules)).
