@@ -16,8 +16,9 @@ function Warning({ children }) {
 
 /**
  * What the backstop schedule's verdict is, in words, from scheduleView's result. With no view, it says the backstop
- * is still being checked while the schedule list's first read has not answered (`pending`), and otherwise that it
- * could not be checked: the read failed, or its answer was not a list (ADR 0005 D13, clarified at story 5's review).
+ * is still being checked while the schedule list is being read (`pending`: its first read, or a Retry after a failed
+ * one; ADR 0006 D20), and otherwise that it could not be checked: the read failed, or its answer was not a list (ADR
+ * 0005 D13, clarified at story 5's review).
  */
 export function BackstopVerdict({ view, pending = false }) {
   if (!view && pending) {

@@ -4597,7 +4597,13 @@ paths:
       summary: Execute a task by name
       description: >-
         Owner, admin or a direct-local caller only (src/middleware/routeAccess.js); 401 when not signed in, 403 for any
-        other signed-in person.
+        other signed-in person. For taskName=reconcileTaggingEdges, the tagging gap-filling pass, the route answers as
+        the Tagging pipeline panel's Run does (tagging-edges story 6, ADR tagging-edges/0006 D7): it also refuses a
+        request from another site, and refuses while a pass is waiting or running; a direct local call is admitted and
+        its start recorded as a local call; with TASK_QUEUE_ENABLED off this pass is refused (it takes no legacy direct
+        spawn); no JSON body is needed. Each of this pass's own answers carries `message`, the sentence the Task
+        Explorer shows, beside `error` (and `code` on a failure). A refusal lines up and records nothing. Every other
+        task is unchanged.
       requestBody:
         content:
           application/json:
@@ -4605,15 +4611,46 @@ paths:
               type: object
       responses:
         '401':
-          description: Not signed in
+          description: >-
+            Not signed in: the route table's `{ success: false, error: 'Sign in as the owner or an admin to do this.' }`,
+            for every task, with no `message` (the Task Explorer shows "Task failed").
         '403':
-          description: Signed in, but not the owner or an admin
+          description: >-
+            Signed in, but not the owner or an admin: the route table's `{ success: false, error: 'Only the owner or an
+            admin can do this.' }`, for every task, with no `message`. For reconcileTaggingEdges also a request from
+            another site, direct local calls included (an `Origin` that does not parse, such as `null`, or whose
+            hostname differs from `Host`'s; a request with no `Origin` passes): `{ success: false, error: 'cross-site
+            request refused', message: 'A request from another site was refused. Nothing was lined up.' }`. Only where
+            the route table and the pass's own re-check disagree: `{ success: false, error: 'Owner or admin access
+            required', message: 'Only the owner or an admin can run this pass.' }`.
         '200':
-          description: Task result
+          description: >-
+            Task result. For reconcileTaggingEdges, a pass lined up under its own job id
+            (`reconcileTaggingEdges-<12 hex>`), its start recorded first: `{ success: true, message: 'A gap-filling pass
+            was lined up.', queued: true, jobId }`.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
+        '409':
+          description: >-
+            reconcileTaggingEdges only: a pass is already waiting (a scheduled run whose time has come included) or
+            running, and nothing new was lined up: `{ success: false, code: 'pass-busy', error: 'a pass is already
+            waiting or running', message: 'A pass is already waiting or running. Nothing new was lined up.' }`.
+        '500':
+          description: >-
+            reconcileTaggingEdges only. The start could not be recorded, so nothing was lined up: `{ success: false,
+            code: 'record-unavailable', error: 'the action could not be recorded', message: 'The start could not be
+            recorded, so nothing was lined up.', cause }`. Or the pass could not be lined up (its start is taken back
+            out of the record): `{ success: false, code: 'error', error: 'the request could not be completed', message:
+            'The pass could not be lined up.', cause }`. `cause` is an allow-listed error code, or 'error'.
+        '503':
+          description: >-
+            The task queue is unavailable. For every task with TASK_QUEUE_ENABLED on and Redis unreachable:
+            `{ success: false, error: 'task queue (Redis) unreachable', code: 'QUEUE_UNAVAILABLE' }`. For
+            reconcileTaggingEdges also with the flag off, Redis not ready, the queue unreadable, or an add that timed
+            out: `{ success: false, code: 'QUEUE_UNAVAILABLE', error: 'the task queue is unavailable', message: 'The
+            task queue is unavailable. Nothing was lined up.' }`.
 
   /api/scheduled-tasks/create:
     post:

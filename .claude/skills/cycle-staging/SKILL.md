@@ -22,10 +22,19 @@ Push the current feature branch to origin, open a PR against `staging`, merge it
 ## Critical gotcha: gh CLI may default to upstream
 
 Check the remote layout first (`git remote -v`) — it varies per checkout. Some contributor checkouts carry two remotes:
-- `origin` → `nous-clawds4/tapestry` (the actual deploy target)
+- `origin` → `nousclawds4/tapestry` (the actual deploy target since the move of 2026-10-23)
 - `upstream` → `Pretty-Good-Freedom-Tech/brainstorm` (the original project)
 
-When an `upstream` remote exists, `gh` resolves the repo to it by default, so commands silently target the wrong repo. **Always pass `--repo nous-clawds4/tapestry` on every `gh` command in this skill**, regardless of layout — it's harmless on single-remote checkouts and load-bearing on two-remote ones.
+When an `upstream` remote exists, `gh` resolves the repo to it by default, so commands silently target the wrong repo. **Always pass `--repo nousclawds4/tapestry` on every `gh` command in this skill**, regardless of layout — it's harmless on single-remote checkouts and load-bearing on two-remote ones.
+
+**The old repo.** Until 2026-10-23 the deploy target was `nous-clawds4/tapestry` (with a hyphen). Some checkouts still
+carry it as a second remote, `nous-clawds4`. The droplets are meant to follow the new repo, but the old one keeps its
+GitHub Actions and its deploy secrets. Its deploy workflows fire on pushes to the long-lived deploy branches in
+`scripts/long-lived-branches.txt`: `staging`, `main`, `feat/tags` and `feature-magic-carpet`, and also the archived
+`feat/communities` and `feat/curate`.
+- **Never push those branches to it.** A push there can start an out-of-band deploy that skips the safe-to-merge check.
+- **Feature branches may be mirrored there**, to keep the two in sync.
+- **PR numbers restarted at #1** on `nousclawds4/tapestry`. Name the repo when you cite a PR (`nousclawds4/tapestry#N`).
 
 ## Procedure
 
@@ -50,7 +59,7 @@ If push fails (auth, conflicts, etc.), surface and stop.
 ### 3. Open PR
 
 ```bash
-gh pr create --repo nous-clawds4/tapestry \
+gh pr create --repo nousclawds4/tapestry \
   --base staging \
   --head <branch-name> \
   --title "<title>" \
@@ -92,13 +101,13 @@ The cadence, bound, and verdict-handling rules live in the doc and the script �
 ### 5. Merge
 
 ```bash
-gh pr merge <PR#> --repo nous-clawds4/tapestry --merge
+gh pr merge <PR#> --repo nousclawds4/tapestry --merge
 ```
 
 Project convention is plain merge commits (not squash) — the staging history shows individual commits-in-merge-commits as a clear ladder. `gh pr merge` may exit with code 1 even on success when there are warnings; verify the merge happened with:
 
 ```bash
-gh pr view <PR#> --repo nous-clawds4/tapestry --json state,mergedAt,mergeCommit
+gh pr view <PR#> --repo nousclawds4/tapestry --json state,mergedAt,mergeCommit
 ```
 
 `state` should be `"MERGED"` and `mergedAt` should be present.
@@ -110,12 +119,12 @@ The run can appear **up to ~2 minutes after the merge** (Actions queue lag — O
 ```bash
 SHA=<mergeCommit oid>; RUN=""
 for i in $(seq 1 30); do   # up to 5 minutes
-  RUN=$(gh run list --repo nous-clawds4/tapestry --workflow=deploy-staging.yml --limit 5 \
+  RUN=$(gh run list --repo nousclawds4/tapestry --workflow=deploy-staging.yml --limit 5 \
         --json databaseId,headSha --jq ".[] | select(.headSha==\"$SHA\") | .databaseId" | head -1)
   [ -n "$RUN" ] && break; sleep 10
 done
 [ -n "$RUN" ] || { echo "no deploy-staging.yml run for $SHA after 5 min — stop and surface"; exit 1; }
-gh run watch "$RUN" --repo nous-clawds4/tapestry --exit-status
+gh run watch "$RUN" --repo nousclawds4/tapestry --exit-status
 ```
 
 Typical staging deploy is ~80s on warm Docker layer cache, ~2m+ when `package.json` or other invalidating files change. If the run fails, surface the failure and stop. If no run appears within the bound, stop and surface — do not smoke-test.
@@ -152,7 +161,7 @@ After reporting, stop. **Do not promote to main without explicit user approval.*
 - **PR creation fails with "no commits between branches":** the feature branch is already merged or has no diff. Stop.
 - **Safe-to-merge check exits 1/2 (bound exhausted while unsafe, or no usable answer):** stop without merging, surface the full journal output and the last observed state, and let the user decide. Don't merge, and don't silently retry past the bound.
 - **`mergeStateStatus` is `BLOCKED` or `BEHIND`:** rebase the branch onto current `origin/staging` and retry. If conflicts, surface them — don't auto-resolve.
-- **Deploy run shows failure:** read the workflow log (`gh run view <id> --repo nous-clawds4/tapestry --log-failed`), surface the relevant error, and stop. Don't merge a revert without the user's say-so.
+- **Deploy run shows failure:** read the workflow log (`gh run view <id> --repo nousclawds4/tapestry --log-failed`), surface the relevant error, and stop. Don't merge a revert without the user's say-so.
 - **Stability poll never reaches streak 3 within 90×2s = 3min:** something is genuinely broken. Surface the last few HTTP codes and stop.
 - **Post-stability 502s in Tier 2:** retry once before treating as failure (per OPERATIONS §8.5 post-stability flicker note). Then if still failing, surface.
 

@@ -6,7 +6,11 @@
  *   - One BullMQ Queue + one Worker per task in the registry (per-task topology).
  *   - A single shared ioredis connection (BullMQ best-practice for many queues).
  *   - BullMQ-native jobId-based dedup: (taskName, pubkey) for customer tasks,
- *     taskName alone for non-customer tasks.
+ *     taskName alone for non-customer tasks. The gap-filling pass
+ *     (reconcileTaggingEdges) is the exception: an on-demand start of it goes
+ *     only through its controller's lineUp (src/pipeline/tagging-edges/control),
+ *     under its own id, never through enqueueTask or runViaQueueAsync (ADR
+ *     tagging-edges/0006). Its schedules are unchanged.
  *   - Per-task concurrency from /etc/brainstorm-task-queue.json (with sane
  *     defaultConcurrency fallback). When the file is absent, every task runs
  *     concurrency = 1 (phase-1 safe default).
@@ -26,6 +30,7 @@ const Redis = require('ioredis');
 const brainstormConfig = require('../../../utils/brainstormConfig');
 const processor = require('./processor');
 const resourceSemaphore = require('./resourceSemaphore');
+const jobGates = require('./jobGates');
 
 const QUEUE_CONFIG_PATH = '/etc/brainstorm-task-queue.json';
 const DEFAULT_QUEUE_CONFIG = { defaultConcurrency: 1, concurrencyByTask: {} };
@@ -114,10 +119,41 @@ async function initTaskQueue({ registry } = {}) {
     const taskDef = registry.tasks[taskName];
     const resourceClass = taskDef && taskDef.resourceClass;
 
+    // Opt-in job gate (ADR tagging-edges/0006 D3), resolved once per task as
+    // its worker is built. It is null for every task but the gap-filling
+    // pass; a tagged task with no gate keeps the callback below unchanged.
+    const gate = jobGates.gateFor(taskName);
+
     // Conditional Worker-callback wrap. Tagged tasks acquire the resource-
     // class semaphore before processor.processJob runs; untagged tasks call
-    // the processor directly (story #13 behavior unchanged).
-    const workerFn = resourceClass
+    // the processor directly (story #13 behavior unchanged). A gated task
+    // asks its gate before and after the acquire, may complete the job as
+    // skipped without spawning, and always tells the gate the job ended.
+    const workerFn = resourceClass && gate
+      ? async (job) => {
+          let release = null;
+          try {
+            if ((await gate.beforeAcquire(job)) === 'skip') return gate.skipped(job);
+            try {
+              release = await semaphore.acquire(resourceClass, {
+                taskName,
+                target: (job && job.data && job.data.customerArgs && job.data.customerArgs.pubkey) || '',
+                jobId: job && job.id,
+                shouldAbandon: () => gate.shouldAbandon(job),
+              });
+            } catch (err) {
+              if (err && err.code === 'RESOURCE_CLASS_WAIT_TIMEOUT') await gate.gaveUp(job, err);
+              throw err;
+            }
+            if (!release) return gate.skipped(job);
+            if ((await gate.afterAcquire(job)) === 'skip') return gate.skipped(job);
+            return await processor.processJob(job, taskDef);
+          } finally {
+            if (release) await release();
+            gate.ended(job);
+          }
+        }
+      : resourceClass
       ? async (job) => {
           const release = await semaphore.acquire(resourceClass, {
             taskName,
@@ -163,6 +199,18 @@ async function isQueueAvailable() {
     console.warn(`[task-queue] Redis ping failed: ${e.message}`);
     return false;
   }
+}
+
+/**
+ * Queue health from the shared connection's status alone (ADR
+ * tagging-edges/0006 D2): 'off' before initTaskQueue (or after close),
+ * 'ready' while the connection is ready, 'not-ready' otherwise. It issues
+ * no Redis command, so unlike isQueueAvailable's ping it cannot hang while
+ * Redis is unreachable.
+ */
+function queueHealth() {
+  if (!_state) return 'off';
+  return _state.redis.status === 'ready' ? 'ready' : 'not-ready';
 }
 
 function getQueue(taskName) {
@@ -275,6 +323,7 @@ module.exports = {
   initTaskQueue,
   closeTaskQueue,
   isQueueAvailable,
+  queueHealth,
   enqueueTask,
   runViaQueueSync,
   runViaQueueAsync,

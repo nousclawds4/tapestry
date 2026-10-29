@@ -46,7 +46,7 @@ Follow [`.claude/skills/cycle-staging/SKILL.md`](../cycle-staging/SKILL.md):
 
 1. Verify preconditions (clean tree, on a feature branch).
 2. Push the branch with `-u origin <branch>`.
-3. Open the PR (`gh pr create --repo nous-clawds4/tapestry --base staging`).
+3. Open the PR (`gh pr create --repo nousclawds4/tapestry --base staging`).
 4. Safe-to-merge check (delegated to cycle-staging — the merge's immediate precursor).
 5. Merge it (`gh pr merge … --merge`).
 6. Watch `deploy-staging.yml` to completion.

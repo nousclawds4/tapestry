@@ -6,6 +6,8 @@
 **Amends:** `tagging-edges/0001` (see "Amendments to ADR 0001")
 **Amended (2026-09-28):** by `tagging-edges/0003` — the binding for story 3 (items 2–4), the R2-NB3 limit, the
 residuals, owner decision 2, the pre-image line, `scanStrict`'s contract, C16, and a new clarification C20.
+**Amended (2026-10-02):** by `tagging-edges/0006` — run, stop, the stopped outcome, who started a pass, the run-task
+route's answers for this pass.
 
 ## Context
 
@@ -41,6 +43,8 @@ repairs drift. The acceptance criteria, restated (the story holds the exact word
   fields. The pass runs only through the task system (on demand, or a schedule; a disabled daily seed on fresh
   installs). Two passes never run at once. A stopped pass leaves each relationship at one version, reads as failed
   and stopped, and the next pass finishes the job.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: a stop asked for on the panel, or any SIGTERM or SIGINT, now reads
+  as its own outcome, `stopped`, not `failed` (story 6 AC-3).)*
 - **AC-8** — nothing else moves; a written relationship carries only the definition's values plus any bookkeeping
   value this ADR names.
 
@@ -79,7 +83,9 @@ between NostrUser nodes; it defines no concept and changes none. The canonical s
   (`src/manage/taskQueue/queue/processor.js:21-39`); a schedule entry forwards only `warmStart` and `limit`
   (`src/manage/taskQueue/queue/entryResolver.js:107-116`). A non-customer job's id is the task name
   (`src/manage/taskQueue/queue/index.js:64-69`), so a second on-demand request joins a waiting or active job
-  (:190-200). The `neo4j-heavy` wrap engages only inside the BullMQ Worker (:118-131; BIBLE.md:1659); its lease lasts
+  (:190-200). *(Amended by `tagging-edges/0006`, 2026-10-28: this pass's starts from app code each add a new job id
+  (0006 D2). They no longer join; a BullBoard add can still use any id.)*
+  The `neo4j-heavy` wrap engages only inside the BullMQ Worker (:118-131; BIBLE.md:1659); its lease lasts
   4 h and is never renewed (`src/manage/taskQueue/queue/resourceSemaphore.js:30-32`). A task's time-out block
   carries a `forceKill` flag (`src/utils/taskTimeout.js:47`, passed on by `src/api/manage/commands/runTask.js:164`),
   but `launchChildTask.sh:403` reads it with jq's `// true`, which treats `false` as absent, so a time-out always
@@ -93,6 +99,16 @@ between NostrUser nodes; it defines no concept and changes none. The canonical s
   answers 401 without one (`src/api/admin/index.js:97-106`); a session pubkey is only ever set together with
   `authenticated = true` (`src/middleware/auth.js:53-54`). The one route that refuses cross-site requests does so
   with its own Origin check (`sameHost`, `src/api/dlist-curation/update.js:107-115`, ADR `curated-dlist-update/0006`).
+  *(Amended by `tagging-edges/0006`, 2026-10-28: this bullet is stale for every task since 2026-10-10.)*
+  - **Who may now.** `/api/run-task` and schedule create, update and delete admit only the owner, an admin or a
+    direct local call (`security-auth-exposure` story 6, PR #840).
+  - **Where it is held.** Since `security-auth-exposure` story 8, the route table
+    (`src/middleware/routeAccess.js:365-372`; ADR `security-auth-exposure/0005`), which removed the lists cited at
+    `auth.js:388-424`.
+  - **The moved lines.** Local trust is now `src/middleware/auth.js:356-371`, `isOwner()` (an alias of
+    `isOwnerOrAdmin`) is `:277-294`, and the session pubkey is set with `authenticated = true` at `:54-55`.
+  - **For this pass,** run-task also refuses a request from another site, refuses while busy, and refuses with the
+    queue off (0006 D7).
 - *Schema checks.* The server list is `src/api/status/queries/expectedNeo4jSchema.js:10-18`; the Dashboard list is
   `ui/src/pages/Dashboard.jsx:223-232`, compared by name (:262-266), with a fix button that runs the setup script
   (:279-297). The setup script runs under `set -e` (`setup/neo4jConstraintsAndIndexes.sh:2`) with one unguarded
@@ -233,6 +249,10 @@ Each decision below names its options; the chosen one is marked.
   and `limit` shows how raw arguments reach argv (`processor.js:32-34`).
 - **B. A schedule-entry argument.** Rejected: schedule CRUD is open to any signed-in session, and a confirmation must
   never ride a schedule.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: the premises of A and B are stale since 2026-10-10, as the note
+  under "Who can reach what" says: that any signed-in session can start a task, and that schedule CRUD is open to
+  any signed-in session. Both rejections stand: the owner's side can still set a flag or a schedule argument, and a
+  confirmation must never ride either.)*
 - **C. BullMQ job data from an owner route.** Rejected: BullBoard (owner *or admin*) can add jobs and patch job data,
   and a stalled job re-runs with its original data after a deploy.
 - **D. A single-use record written only by an owner-only route and claimed by the pass (chosen).** The route is
@@ -471,6 +491,12 @@ they are at most a tenth of what remains. Removals are applied last, so a stop l
   the answer says `enqueued: false`: the next pass to get past its start checks within 24 h uses it (the owner starts
   one from the legacy Task Explorer). An enqueue that joins a waiting job is fine: that job has not started, so it
   will claim the record.
+  *(Amended by `tagging-edges/0006` D8, 2026-10-28.)* Since story 6:
+  - the enqueue is now `lineUp({who: {kind: 'confirmation'}, mode: 'confirm'})`, checked by `queueHealth()`;
+  - while a pass that has not yet claimed is busy, nothing is added or recorded, and the answer says `joined: true`;
+  - otherwise a new job is added under its own id.
+
+  A join is now the controller's decision, never BullMQ's id.
 
 The pass **claims** the record at runner step 7 — after its identity, config and schema checks, while holding its
 lock — by `rename(confirmation.json → claimed/<runId>-<nonce>.json)`, atomic, so one claimant. It honours the claim
@@ -491,6 +517,9 @@ which any session may start (story Out of scope, "Who may start a task") — and
 limit. The confirmation is applied by the next pass that gets past its start checks, whatever started it, bounded to
 entries the owner saw held and that are still due. Root access inside the container is out of scope: it can already
 run `cypher-shell`.
+*(Amended by `tagging-edges/0006`, 2026-10-28: "which any session may start" is stale since 2026-10-10. Only the
+owner, an admin or a direct local call may start a task. A run-task start of this pass is also gated as 0006 D7 says.
+It still carries no confirmation.)*
 
 ### The report
 
@@ -517,6 +546,9 @@ identities {canonical, local} (8-character prefixes), reads {graph{rows, ms}, re
 phases [{phase, ms, batches, transientRetries}], anomalies {sameAddressConflicts, snapshotConflicts},
 running, process {pid, startTime}
 ```
+
+*(Amended by `tagging-edges/0006`, 2026-10-28: the outcome enum adds `stopped`. Records gain `job: {id} | null`,
+which is additive (reportVersion 1).)*
 
 `unresolved` counts relationships at tagging addresses whose resulting state has `tagAddress` null. `taggingsRead`
 counts scanned events carrying either `nostr-user-tag` stamp; on a first run, `added = taggingsRead − refused.total`.
@@ -550,12 +582,19 @@ writes `failed`, `stopped: true`, `reasonCode: 'signal'` (story 4's Stop can use
 2026-09-30, the controls, Stop included, are story 5's. Noted at story 4's review, round 1.)* *(Since story 5's
 Planning, 2026-10-01, the pass's controls, Stop included, are story 6's; story 5 is the real-time path's switch.
 Amended at story 5's Architecture, from story 4's review, round 2, R2-8; ADR `tagging-edges/0005`.)*
+*(Amended by `tagging-edges/0006`, 2026-10-28.)* Since story 6:
+- a SIGTERM or SIGINT stops at the next of the five safe points (before and after the claim, after each read, before
+  each write batch) and writes `stopped`, `reasonCode: 'requested'`;
+- the handlers now last from just after the lock checks to the end of `finish()`;
+- the pass's run and stop are story 6's, and Confirm is story 7's (story 6's Planning, 2026-10-02).
 
 **Who reads it.** `GET /api/tagging-edges/status` returns `{ reportVersion, running, latest, previous,
 confirmationPending }` (the pending record without its nonce); `GET /api/tagging-edges/held?runId=&offset=&limit≤1000`
 pages **the latest report's** held list and no other. Both are public reads, following the house convention for
 status GETs (`deploy-safety`, `status/neo4j-constraints`, `scheduled-tasks/list`). *(Amended in review round 1,
-2026-09-28: this said every value is relay-derived or a count.)* They serve counts, run ids, timestamps, relay- and
+2026-09-28: this said every value is relay-derived or a count.)* *(Amended by `tagging-edges/0006`, 2026-10-28: the
+status also returns `control: {queue, busy, gaveUp}`, with no who (0006 D12).)*
+They serve counts, run ids, timestamps, relay- and
 graph-derived values (tagging addresses, event ids, property-key names), the held list's digest, the pass's pid and
 process start time (`process`, in the shape above), reason text and redacted error text. The stamp identities and the
 confirming owner appear only as 8-character prefixes, while a tagging address carries its author's full pubkey. No
@@ -705,7 +744,7 @@ Each goes into ADR 0001 in the same commit as this ADR, with an "Amended by `tag
 | **AC-4** | Every read the plan is made from (graph snapshot, relay scan) precedes every write (runner steps 8–9 before 11). The verify re-read belongs to its write transaction: its failure rolls back that batch only, earlier committed batches stand with each tagging at one version, and the run ends failed with `failure {stage: 'write', read: 'graph-verify'}` — AC-7's stopped-partway case (owner decision 8). The strict scan's completeness rule (D2), the graph read's time-out and completeness checks. Identities, config and schema are checked before any graph read, relay read or claim (steps 4–6, before the claim at step 7); an identity failure names the identity and its source. `failure.stage` / `failure.read` in the report. |
 | **AC-5** | Plan-then-apply with the frozen limit over the base of relationships at tagging addresses; moves are updates; outcome `done-removals-held` with counts by reason; no memory between passes. Owner-only, cross-site-refusing route; a single-use record bound to run id and held digest, claimed by rename after the start checks; a confirmed run removes only held-and-still-due entries (`C`) and judges the rest against `base − \|C\|`. No argument, env, job-data or schedule channel. |
 | **AC-6** | `tags_address` created by the boot hook on every deploy and restart; the pass's pre-flight creates it or refuses before any write; the setup script's last statement powers the Dashboard fix; both name-based lists carry the name, so they agree. |
-| **AC-7** | `report.json` on the data volume, with every listed field, read through `GET /api/tagging-edges/status`. A registry task with a disabled daily seed; the confirm route enqueues through the queue. Queue dedup, the pgrep guard and the kernel lock; a start that finds the lock held is refused. Pessimistic-first report plus liveness gives "failed — stopped" after a kill or a container restart; each committed transaction leaves every tagging it touched at one version; the next pass converges. A confirmed run stopped before its removals finish has spent its confirmation (AC-5: one run): the next pass reaches the state a completed unconfirmed run reaches — over-limit removals held again — and the owner confirms that report (owner decision 7). |
+| **AC-7** | `report.json` on the data volume, with every listed field, read through `GET /api/tagging-edges/status`. A registry task with a disabled daily seed; the confirm route enqueues through the queue. Queue dedup, the pgrep guard and the kernel lock; a start that finds the lock held is refused. Pessimistic-first report plus liveness gives "failed — stopped" after a kill or a container restart; each committed transaction leaves every tagging it touched at one version; the next pass converges. A confirmed run stopped before its removals finish has spent its confirmation (AC-5: one run): the next pass reaches the state a completed unconfirmed run reaches — over-limit removals held again — and the owner confirms that report (owner decision 7). *(Amended by `tagging-edges/0006`, 2026-10-28: app starts of this pass no longer dedup by id (0006 D2). Concurrency 1, the controller's busy check, the pgrep guard and the kernel lock keep one pass at a time.)* |
 | **AC-8** | The only node clause is a bare keyed `MERGE`; `SET r = props` with exactly the nine contract keys; a key outside the nine is dropped only after its pre-image is recorded (the guard, step 1); no bookkeeping value, so nothing named `timestamp`. Static audit of every statement. *(Amended in review round 1, 2026-09-28.)* The social and scores clause is evidenced by the live sandbox's SL15 (a scored fixture person with a `FOLLOWS` keeps its labels, properties and `FOLLOWS` after creates and moves written through the pass's own port to the real Neo4j; green at review, test plan § Verification); the local end-to-end run's before/after snapshot (story § Evidence) shows the rest, but its graph held no `FOLLOWS`, `MUTES` or `REPORTS`, so it cannot show that clause. |
 
 ## Consequences
@@ -791,6 +830,8 @@ Each goes into ADR 0001 in the same commit as this ADR, with an "Amended by `tag
    its removals finish has spent its confirmation, and the next pass holds the over-limit removals again for the owner
    to confirm. The alternative is to let a pass re-honour, within the 24 h expiry, a claimed record whose claimant's
    report reads failed and stopped with removals unfinished, validated the same way.
+   *(Amended by `tagging-edges/0006`, 2026-10-28: a stopped claimant now reads `stopped`. The claim is spent as
+   before.)*
 8. **AC-4's zero-change guarantee covers the reads the plan is made from** (graph snapshot, relay scan); a read
    failure while applying (the verify re-read inside a write transaction) is AC-7's partial stop. The cost: batches
    committed before it stand, each tagging at one version.
@@ -819,8 +860,11 @@ Each goes into ADR 0001 in the same commit as this ADR, with an "Amended by `tag
     a minimal button on a legacy page (about 40 lines). *(Amended at story 5's Architecture, 2026-10-01, from story
     4's review, round 2, R2-8; ADR `tagging-edges/0005`. Since story 4 the panel shows the report. Until story 6,
     AC-5's confirmation is a signed-in `fetch` from the owner's browser.)*
+    *(Amended by `tagging-edges/0006`, 2026-10-28: until story 7, AC-5's confirmation is the signed-in `fetch`.)*
 15. **A start refused because another pass holds the lock writes no report**; it emits `TASK_ERROR` / `TASK_END`
     (`not-started`) and the running pass's report stays latest.
+    *(Amended by `tagging-edges/0006`, 2026-10-28: a pass taken out of line never starts a process and writes no
+    report (0006 D3).)*
 
 ## Implementation notes
 
@@ -893,7 +937,8 @@ Test-file changes named here belong to Phase 3 (the Tester's lane); the Implemen
   including `require('../../api/profile-tags').NOSTR_USER_TAG_Z_TAG` inside the canonical getter, following
   `identificationTaggings.js:71-73`); a `require.main === module` entry that sets `process.exitCode` (0 done or held,
   2 refused, 1 failed; `--lock-busy` exits 0). `deps = { now, randomId, lock, state, identities, env, openGraph, scan,
-  emit, proc, signals }`. Sequence:
+  emit, proc, signals }`. *(Amended by `tagging-edges/0006`, 2026-10-28: `stopped` exits 0, and the deps gain `job`
+  (0006 D10).)* Sequence:
   1. `--lock-busy`: emit `TASK_START`, `TASK_ERROR` and `TASK_END` `{ outcome: 'not-started', why: 'another pass is
      running' }`; touch no file; exit 0. Otherwise verify `/proc/self/fdinfo/9` shows a `FLOCK … WRITE` lock (on
      `pass.lock` itself, since C20), else refuse `not-started-under-the-lock` the same way (so a hand-run
@@ -1125,6 +1170,8 @@ refused or failed. The report, not the job result, is authoritative.
   failed pre-image append → failed, `write`, with no write call for that batch; a verify re-read failure after
   committed batches → failed, `write`, `graph-verify`; a stop signal between batches → failed / stopped; held and
   confirmed flows (valid, expired, digest mismatch, report changed, absent); counters from committed attempts only.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: a stop between batches is now `stopped`, `reasonCode: 'requested'`,
+  exit 0.)*
 - *Graph port, stack-free:* a fake session returning `neo4j.int(n)` counts, and the apply still succeeds;
   `applyLocked` awaits `preimage` before opening the transaction and refuses to run without one.
 - *State:* atomic writes (a crash between temp and rename keeps the old file); of two concurrent claims exactly one
@@ -1179,6 +1226,7 @@ only be present), C12 and C13 as written:
   - 0 for `--lock-busy`.
 
   It never calls `process.exit`. The `require.main` entry passes `process` as `proc`.
+  *(Amended by `tagging-edges/0006`, 2026-10-28: `stopped` exits 0.)*
 - **C3.** A start outside the lock emits TASK_START, TASK_ERROR and then TASK_END `{ outcome: 'not-started',
   reasonCode: 'not-started-under-the-lock', why }`, and touches no file.
 - **C4.** `ensureTagsConstraint({ timeoutMs })`:
@@ -1241,10 +1289,16 @@ only be present), C12 and C13 as written:
 - The real-time path (story 3) and any control-panel page or button (story 4), except the bindings for story 3 above.
   *(Amended at story 5's Architecture, 2026-10-01, from story 4's review, round 2, R2-8; ADR `tagging-edges/0005`:
   the panel is story 4's, the path's switch on it story 5's, and the pass's run, stop and confirm story 6's.)*
+  *(Amended by `tagging-edges/0006`, 2026-10-28: the pass's run and stop are story 6's, Confirm story 7's.)*
 - Carrying revokes between instances (row `2026-09-27-revokes-do-not-travel`) and the UI revoke naming the address (row
   `2026-09-27-ui-revoke-names-id-only`).
 - Cleaning test-fixture taggings off the relays; it will trip the limit and go through on a confirmed run.
 - Who may start a task, and gating non-owner access to other admin mutations (intake 2026-07-21).
+  *(Amended by `tagging-edges/0006`, 2026-10-28.)*
+  - **Settled elsewhere.** Who may start a task, and gating non-owner access to admin mutations (intake 2026-07-21),
+    were settled by `security-auth-exposure` stories 6 and 8 (2026-10-10): the owner, admins and direct local calls.
+    The intake entry was picked up there, and its book `admin-action-owner-check` closed on 2026-10-11.
+  - **ADR 0006's part.** What run-task answers for this pass.
 - Adding the schedule to existing instances' schedule files; the owner does that.
 - A provenance marker or any other bookkeeping value on `TAGS`; a `TAGS.eventId` index.
 - Converging the other strfry readers onto `scanStrict`, fixing the shared config reader's logging, and centralising

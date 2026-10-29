@@ -3,8 +3,8 @@
 **Id:** 2026-09-28-confirm-route-joins-finishing-job
 **Type:** bug
 **Opened:** 2026-09-28 (tagging-edges #2 review, Non-blocking 3)
-**Status:** OPEN
-**Done:** —
+**Status:** DONE
+**Done:** 2026-10-28 — tagging-edges story 6 (ADR `tagging-edges/0006` D8), branch `feat/tagging-edges-6`: the confirm route lines up through the controller's `lineUp` (`src/api/tagging-edges/index.js`, `handleConfirmHeldRemovals`, ~:344-355). It joins only a pass the busy list shows waiting or running with no stop asked for; otherwise it adds a new job under its own id, `reconcileTaggingEdges-<12 hex>`, so it never joins a job that is finishing. Story 7 re-checks it from the panel.
 
 **What was seen.** After a gap-filling pass exits, its BullMQ job stays active for up to about 5 s, because
 `launchChildTask.sh` checks the child every 5 s (`check_interval=5`, `src/manage/taskQueue/launchChildTask.sh:375`).

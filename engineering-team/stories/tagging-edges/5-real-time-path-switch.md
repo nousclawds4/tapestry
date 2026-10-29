@@ -299,7 +299,10 @@ standing failure. The comparison below uses a baseline from before the story.)*
   - concept-count-canonical, 17 / 2;
   - summaries-element-count, 12 / 1.
 - **The browser spec** passes 86 of 86, against the panel built inside the container into the gitignored `tmp/`,
-  served on the host, with Node 22 and Chromium.
+  served on the host, with Node 22 and Chromium. *(Added at story 6's Implementation, 2026-10-28, carry-forward
+  C5-10: this line named no commit. The run to cite is the re-review's, round 2, on `442c9dec`: 86 of 86, twice, with
+  no retries, against the UI built inside the container from the committed tree at `442c9dec`
+  (`reviews/tagging-edges/5-real-time-path-switch.md` § "Re-review, round 2", Quality gates).)*
 - **A baseline worktree's record reads `dirty`** (`dirtyCount: 1`). Its one untracked entry is its `node_modules`
   symlink into the main checkout, which `.gitignore`'s `node_modules/` does not match, since git sees a symlink as a
   file. Its `ui/node_modules` symlink is ignored by `ui/.gitignore`. No tracked file changed.
@@ -433,8 +436,10 @@ Small judgement calls made at Implementation (2026-10-01), too small for an ADR 
     and `/api/admin/remove` write, and only otherwise `BRAINSTORM_ADMIN_PUBKEYS` in `brainstorm.conf`. It says the
     owner's key and the admin list are re-read on every request. *(Corrected at story 5's review, round 1, requested
     change 7: this named only `BRAINSTORM_ADMIN_PUBKEYS`.)*
-  - **§12.9 gives a failed on's remedy:** a 500 with a `code`; check that the data volume has free space and is
-    writable.
+  - **§12.9 gives a failed on's remedy:** the switch could not be read or written, so a 500 with a `code`; check that
+    the data volume has free space and is readable and writable. *(Corrected at story 6's Implementation, 2026-10-28,
+    carry-forward C5-5: this said "free space and is writable". OPERATIONS §12.9 says the switch "could not be read or
+    written", and, as the panel's failed-on sentence and ADR 0005 D12 do, "readable and writable".)*
   - **BIBLE §16's story-3 entry** keeps "Owner-only switch", with "(owner or admin since story 5, below)". Story 4's
     "sends only GETs" stands as built.
   - **The new §16 entry** is dated 2026-10-01, the implementation date, as story 4's was.

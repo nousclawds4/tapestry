@@ -156,9 +156,9 @@ function Problems({ view, body }) {
 /**
  * `read` is the path status read ({ state, body, error, readAt }); `view` is pathView of its body, or null. The
  * switch (story 5): `statusRead` is the pass status read, `sched` scheduleView of the schedule list or null,
- * `schedPending` true while that list's first read has not answered, `record` the switch record's read and
- * `recordView` switchRecordView of it, `change` the panel's change state and `onSwitch(on)` sends one. The control
- * and the record render only once the path status has a body.
+ * `schedPending` true while that list is being read (its first read, or a Retry), `record` the switch record's read
+ * and `recordView` switchRecordView of it, `change` the panel's change state and `onSwitch(on)` sends one. The
+ * control and the record render only once the path status has a body.
  */
 export default function PathSection({
   read, view, onRetry, statusRead, sched, schedPending, record, recordView, onRetryRecord, change, onSwitch,

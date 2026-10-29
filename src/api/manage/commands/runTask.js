@@ -361,6 +361,8 @@ async function executeTask(command, args, taskName, task, registry, executionCon
 async function handleRunTask(req, res) {
     try {
         const { taskName } = req.query;
+        // The gap-filling pass answers here as the panel's Run does (tagging-edges story 6, ADR tagging-edges/0006 D7).
+        if (String(taskName) === 'reconcileTaggingEdges') return await require('../../tagging-edges/pass').handleRunTaskForPass(req, res);
         
         // Validate required parameters
         if (!taskName) {

@@ -24,3 +24,8 @@ section with an `### On PASS` heading after a CHANGES_REQUESTED verdict; harness
 **Fourth occurrence, 2026-10-11 (book `duty-menus-and-self-maps`, story 2 review round 1, `72d34d23`).** A reviewer agent wrote the review to the template, so `## On PASS (same commit)` followed the CHANGES_REQUESTED verdict. The commit went lint-red (L1, "PASS-final but status 'Approved'") until the heading was renamed `## Close-out on a pass (same commit)` in the next commit.
 
 **Pointer:** `engineering-team/audits/manage-treasure-map/audit.md` § 7.
+
+**Another occurrence, 2026-10-28 (the review of `chore/skills-repo-nousclawds4`, a docs-lane harness fix).** A reviewer
+agent wrote its round-1 CHANGES_REQUESTED review to the template, and the file read as PASS until it folded the closing
+`## On PASS (same commit)` section into the verdict. Tagging-edges #5's review hit the same on 2026-10-01, before this
+row was filed: its "On PASS (same commit)" heading tripped harness-lint L1, and the heading was removed.

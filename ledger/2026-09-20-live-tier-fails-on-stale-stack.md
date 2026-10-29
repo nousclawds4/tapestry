@@ -190,3 +190,20 @@ Those five were copied in with the `/cycle-local` § 2 recipe; the originals are
   `.dockerignore` excludes by design. The served UI bundle matched a fresh `staging` build, so it needed no deploy.
 - **Result:** `/llms.txt` answers 200 `text/plain`, and `llms-txt` passes 27/27.
 - **Still open:** this row, for the structural fix (a drift check at deploy time, or the build-identity probe).
+
+**Seen again, 2026-10-28 (tagging-edges #6 review, round 1, Harness friction 5): the gate record does not say which
+backend its live suites measured.** It is the second door again: current files, an old process.
+- **The runs.** The local backend had run since 2026-10-02 01:39. The Implementer's three cited gate runs started
+  before its restart at 14:41:54Z (`…-e887` at 00:26Z, `…-46dd` at 05:29Z, `…-0e14` at 14:28Z), so their live suites
+  measured a process 26 days older than the tree. Story 6's Evidence § The gate, as first written, quoted them with no
+  word about which backend they measured (the fix round adds it, review requested change 10).
+- **The restart showed it.** The review's run `20261028T154319Z-13921-dcd1`, after the restart, differed from the
+  baseline in seven suites the story did not touch: three now pass, one no longer skips, and three gained a failing
+  test, two of them newly failing (`teach-it-what-matters` already failed H7; only its H6 is new; ledger
+  `2026-10-28-live-tests-expect-404-not-401`).
+- **What the record holds.** Its environment fields are host, node, cwd, argv and git. Nothing names the control panel
+  that answered or when it started.
+
+**Fix-shape addendum.** The gate record could carry the backend's start time, or the commit it booted from, read once
+when the run starts. `npm run gate:status` could then warn when it predates the newest `src/` or `bin/` commit. It is
+fix shape 2's build-identity probe, recorded once per run instead of checked per suite.

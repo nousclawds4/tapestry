@@ -11,7 +11,7 @@
 # which runs this and then adds triage/prioritization. See OPEN.md and CLAUDE.md.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
-REPO="nous-clawds4/tapestry"
+REPO="nousclawds4/tapestry"
 KEEPLIST="scripts/long-lived-branches.txt"
 hr() { printf '\n──────── %s ────────\n' "$1"; }
 
@@ -299,10 +299,10 @@ if [ -f "$KEEPLIST" ]; then
   keep_branches=$(grep -vE '^\s*(#|$)' "$KEEPLIST" | awk '{print $1}')
   keep_pattern="origin/(HEAD|$(echo "$keep_branches" | paste -sd'|' - | sed 's/|/|/g'))"
 fi
-git branch -r --no-merged origin/main 2>/dev/null \
+git branch -r --list 'origin/*' --no-merged origin/main 2>/dev/null \
   | grep -vE "^\s*${keep_pattern}\$" \
   | sed 's/^/  /' | head -40
-[ -z "$(git branch -r --no-merged origin/main 2>/dev/null | grep -vE "^\s*${keep_pattern}\$")" ] && echo "  (none)"
+[ -z "$(git branch -r --list 'origin/*' --no-merged origin/main 2>/dev/null | grep -vE "^\s*${keep_pattern}\$")" ] && echo "  (none)"
 
 if [ -f "$KEEPLIST" ]; then
   hr "Held by design (scripts/long-lived-branches.txt) — drift check vs origin"

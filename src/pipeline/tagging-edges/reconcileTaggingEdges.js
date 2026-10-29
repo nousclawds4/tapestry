@@ -17,8 +17,8 @@
  * removals again (owner decision 7). A batch's verify re-read that fails ends the run failed with the
  * committed batches standing (owner decision 8). The report says why.
  *
- * Exit codes: 0 done or done-removals-held (and a start refused because another pass holds the lock);
- * 2 refused; 1 failed.
+ * Exit codes: 0 done, done-removals-held or stopped (a SIGTERM or SIGINT honoured at a safe point: ADR
+ * tagging-edges/0006 D10), and a start refused because another pass holds the lock; 2 refused; 1 failed.
  */
 
 const path = require('path');
@@ -40,10 +40,12 @@ const SAVE_EVERY_BATCHES = 10;
 const PREVIOUS_CAP = 9;
 const STRIPPED_KEYS_CAP = 100;
 const STOPPED_REASON = 'stopped before it finished (time-out, deploy or restart)';
+const JOB_ID_RE = /^[A-Za-z0-9:._@-]{1,200}$/;
 
 /** The real dependencies, required lazily so this module loads stack-free. */
 function defaultDeps(argv = process.argv.slice(2)) {
   const state = require('./state');
+  const jobEnv = process.env.BRAINSTORM_TASK_JOB_ID;
   return {
     now: () => Date.now(),
     randomId: () => require('crypto').randomBytes(4).toString('hex'),
@@ -62,6 +64,8 @@ function defaultDeps(argv = process.argv.slice(2)) {
     // clarification C2: `process` itself; its start time comes from state.processStartTime(pid) (step 3).
     proc: process,
     signals: process,
+    // ADR tagging-edges/0006 D10: the BullMQ job id the processor passes in the environment, else null.
+    job: typeof jobEnv === 'string' && JOB_ID_RE.test(jobEnv) ? jobEnv : null,
   };
 }
 
@@ -123,7 +127,7 @@ function emptyRelationships() {
 }
 
 /** The first record a pass writes: it already reads "failed — stopped", so a kill leaves it true. */
-function pessimisticRecord({ runId, startedAt, pid, startTime }) {
+function pessimisticRecord({ runId, startedAt, pid, startTime, job }) {
   return {
     runId,
     startedAt,
@@ -149,6 +153,7 @@ function pessimisticRecord({ runId, startedAt, pid, startTime }) {
     anomalies: { sameAddressConflicts: 0, snapshotConflicts: 0 },
     running: true,
     process: { pid, startTime },
+    job: job ? { id: job } : null,
   };
 }
 
@@ -171,7 +176,7 @@ async function validateClaim(claim, previous, deps, nowMs) {
 function exitCodeFor(result) {
   if (!result) return 1;
   if (result.reportWriteFailed) return 1;
-  if (result.outcome === 'done' || result.outcome === 'done-removals-held') return 0;
+  if (result.outcome === 'done' || result.outcome === 'done-removals-held' || result.outcome === 'stopped') return 0;
   if (result.outcome === 'not-started') return result.reasonCode === 'lock-busy' ? 0 : 2;
   if (result.outcome === 'refused') return 2;
   return 1;
@@ -207,6 +212,20 @@ async function runInner(depsIn) {
     return { outcome: 'not-started', reasonCode: 'not-started-under-the-lock', why };
   }
 
+  // The stop handlers (ADR tagging-edges/0006 D10): registered here, past the lock checks, and removed as finish()'s
+  // very last step, so every pid a report carries has them; never at module top level (the real-time engine requires
+  // this module for makeRunId).
+  let stopRequested = false;
+  const onStop = () => { stopRequested = true; };
+  const signals = deps.signals && typeof deps.signals.on === 'function' ? deps.signals : null;
+  if (signals) { signals.on('SIGTERM', onStop); signals.on('SIGINT', onStop); }
+  const removeHandlers = () => {
+    if (signals && typeof signals.removeListener === 'function') {
+      signals.removeListener('SIGTERM', onStop);
+      signals.removeListener('SIGINT', onStop);
+    }
+  };
+
   // 2. The run id.
   const t0 = deps.now();
   let hex = '';
@@ -235,13 +254,14 @@ async function runInner(depsIn) {
       : proc.startTime != null ? proc.startTime
         : deps.state.processStartTime(proc.pid);
   } catch (_) { startTime = null; }
-  const latest = pessimisticRecord({ runId, startedAt: iso(t0), pid: proc.pid == null ? null : proc.pid, startTime: startTime == null ? null : startTime });
+  const latest = pessimisticRecord({ runId, startedAt: iso(t0), pid: proc.pid == null ? null : proc.pid, startTime: startTime == null ? null : startTime, job: deps.job });
   const save = () => deps.state.writeReport({ reportVersion: 1, latest, previous });
   try {
     await save();
   } catch (err) {
     emit('TASK_ERROR', { runId, outcome: 'failed', stage: 'report', code: (err && err.code) || 'error' });
     emit('TASK_END', { runId, outcome: 'failed', reasonCode: 'report', confirmed: null, counts: {} });
+    removeHandlers(); // no report carries this pid: the atomic write failed
     return { ...latest, outcome: 'failed', reasonCode: 'report', failure: fsFailure('report', err, 'report.json'), running: false, reportWriteFailed: true };
   }
   // Phase-boundary rewrites are best effort; a port that answers with a promise has its rejection swallowed too.
@@ -250,10 +270,6 @@ async function runInner(depsIn) {
   };
 
   let graph = null;
-  let stopRequested = false;
-  const onStop = () => { stopRequested = true; };
-  const signals = deps.signals && typeof deps.signals.on === 'function' ? deps.signals : null;
-  if (signals) { signals.on('SIGTERM', onStop); signals.on('SIGINT', onStop); }
 
   let phaseStart = deps.now();
   const phase = (name, extra = {}) => {
@@ -275,10 +291,6 @@ async function runInner(depsIn) {
       running: false,
     });
     if (!('stopped' in fields)) latest.stopped = false;
-    if (signals && typeof signals.removeListener === 'function') {
-      signals.removeListener('SIGTERM', onStop);
-      signals.removeListener('SIGINT', onStop);
-    }
     let writeFailed = false;
     try { await save(); } catch (_) { writeFailed = true; }
     if (!writeFailed) { try { if (typeof deps.state.prune === 'function') await deps.state.prune(); } catch (_) { /* best effort */ } }
@@ -298,16 +310,19 @@ async function runInner(depsIn) {
     emit('TASK_END', { runId, outcome, reasonCode: latest.reasonCode, confirmed: latest.confirmed, counts });
     // Close the driver last (ADR step 12), so a close that stalls cannot keep the final report unwritten.
     if (graph) { try { await graph.close(); } catch (_) { /* closing */ } }
+    // Last of all (ADR tagging-edges/0006 D10): a signal before this only sets stopRequested, which nothing reads now.
+    removeHandlers();
     if (writeFailed) return { ...latest, reportWriteFailed: true };
     return latest;
   };
   const refuse = (reasonCode, failure, reason) => finish('refused', { reasonCode, reason, failure });
   const fail = (reasonCode, failure, reason) => finish('failed', { reasonCode, reason, failure });
-  const stopNow = () => finish('failed', {
-    reasonCode: 'signal',
-    reason: 'stopped by a signal at a batch boundary',
+  // A stop on request (ADR tagging-edges/0006 D10): its own outcome, exit 0, no TASK_ERROR.
+  const stopNow = () => finish('stopped', {
+    reasonCode: 'requested',
+    reason: 'stopped on request at a safe point',
     stopped: true,
-    failure: { stage: 'signal', code: 'signal', message: 'SIGTERM or SIGINT' },
+    failure: null,
   });
 
   try {

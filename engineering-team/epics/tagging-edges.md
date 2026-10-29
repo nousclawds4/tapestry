@@ -13,11 +13,12 @@ strfry→Neo4j letter ingest (OPEN.md #136 stage 2), which it does not attempt.
 **Neo4j carries one relationship per tagging, from the tagger to the tagged person, kept current in real time
 and repaired retroactively, and the owner can manage that pipeline from the control panel.** Before story 2 no
 tagging reached Neo4j at all; every tag surface still scans the relay per request. *(Amended 2026-09-30 at story 4's
-Planning: admins may also see the panel and use every control but confirming held removals; see items 5 and 6.)*
+Planning: admins may also see the panel and use every control but confirming held removals; see items 5–7.)*
 
 ## Stories
 
-`stories/tagging-edges/`. All six are features (Standard: all five phases).
+`stories/tagging-edges/`. All seven are features (Standard: all five phases). *(Six until story 6's Planning,
+2026-10-02, when the owner moved Confirm to story 7.)*
 
 1. `1-tagging-edge-contract.md` — what one relationship is: which events count, what the relationship carries,
    which version of a tagging stands, what a revoke removes; documented in BIBLE. No relationship is written yet.
@@ -116,7 +117,9 @@ Planning: admins may also see the panel and use every control but confirming hel
    owner-only switch route to admins (the Architect amends ADR 0003). *(Split from the planned controls at Planning,
    2026-10-01, by what they act on; the owner's decisions are in the story.)* **Done** (review PASS 2026-10-01, round 2; ADR
    `tagging-edges/0005`). On staging since 2026-10-02 (PR #805),
-   with its staging evidence complete. Its review's 10 carry-forwards are placed under story 6 (C5-1..C5-10).
+   with its staging evidence complete (recorded in PR #813). On production since 2026-10-02 (PR #809): another
+   session's promotion of all of staging shipped it before that evidence existed (ledger
+   `2026-10-02-promotion-outruns-pre-main-evidence`); production was checked read-only afterwards and was healthy. Its review's 10 carry-forwards are placed under story 6 (C5-1..C5-10).
    **Carry-forwards from story 4's review** (placed by the owner 2026-10-01; `reviews/tagging-edges/4-tagging-pipeline-panel.md`
    § "Re-review, round 2", R2-1 to R2-14). Each becomes a docs, copy or test task of story 5. Line numbers are at
    `77ae0da4`; the review gives each one's evidence and ask in full.
@@ -149,15 +152,24 @@ Planning: admins may also see the panel and use every control but confirming hel
      inline ternaries).
    - *R2-14 (docs):* story 4 § Deviations' `CANONICAL_Z_RE` line cites row `2026-10-01-drift-copies-canonical-z-pattern`.
 
-6. *(planned)* The pass's controls, on story 4's panel. The owner's decisions at story 5's Planning (2026-10-01),
-   with story 4's (2026-09-30):
+6. `6-pass-run-and-stop.md` — running and stopping the pass, on story 4's panel, for the owner or an admin.
+   *(Split at this story's Planning, 2026-10-02, the owner: Confirm moves to item 7. The bullets below are the
+   decisions as made at story 5's Planning; the Confirm bullet and the confirm half of "Run and Confirm" are story 7's.
+   Decided at the same Planning: a scheduled run whose time has come and that is waiting counts as waiting, for Run,
+   for every viewer and for Stop; direct local calls stay exempt from the run-task gate, recorded as a local call; and,
+   for this pass, the run-task route answers as Run does (refused while busy, never answered as lined up when no pass
+   will run, another site refused). The story holds the rest.)* **Done** (review PASS 2026-10-28, round 2; ADR
+   `tagging-edges/0006`). On staging since 2026-10-29 (PR nousclawds4/tapestry#6), with its staging evidence complete;
+   not yet on main. Its review's 9 carry-forwards, and round 1's non-blocking 1 and 2, are for the owner to place
+   (`reviews/tagging-edges/6-pass-run-and-stop.md` § "Re-review, round 2"). The owner's decisions at story 5's
+   Planning (2026-10-01), with story 4's (2026-09-30):
    - **Run a pass now,** for the owner or an admin. It is refused plainly while any pass is running, or while a pass
      someone asked for is waiting to start, even one waiting behind scoring for the shared heavy-task lock. The
      backstop's future scheduled run never counts as waiting.
    - **The general run-task route is closed for this pass** to anyone but the owner or an admin, so the limit is the
-     server's. Creating or enabling a Scheduled Tasks entry stays with the 2026-07-21 intake sweep. *Proposed by the
-     Product Owner, not yet decided:* direct local calls, which the house trust rule already treats as trusted
-     (`src/middleware/auth.js`), stay exempt from this gate.
+     server's. Creating or enabling a Scheduled Tasks entry stays with the 2026-07-21 intake sweep. Direct local
+     calls, which the house trust rule already treats as trusted (`src/middleware/auth.js`), stay exempt from this
+     gate *(decided at story 6's Planning, 2026-10-02)*.
    - **Stop a pass** that someone asked for and that is still waiting (a pass held behind scoring counts as
      waiting), or one that is running. A running pass stops
      gracefully at its next safe point, with no force-stop.
@@ -203,7 +215,21 @@ Planning: admins may also see the panel and use every control but confirming hel
    - *C5-10 (docs):* story 5 § Evidence's browser line (`:301-302`) names the commit and run: the re-review's 86 of 86
      on `442c9dec`, twice.
 
-Order: 1 → 2 → 3 → 4 → 5 → 6 (4's page can start once 2's status shape is fixed; 5 and 6 build on 4's panel).
+7. *(planned)* Confirming held removals from the panel, for the owner only, after a prompt. *(Split from item 6 at
+   story 6's Planning, 2026-10-02, the owner.)* From item 6's decisions:
+   - **Confirm from the panel** is the owner's only, after a prompt that story 4's Planning set. Story 2's confirm route
+     stays owner only.
+   - **Confirm when a pass is already waiting or running** says so plainly and starts nothing new.
+   - **Ledger `2026-09-28-confirm-route-joins-finishing-job`** (the few seconds after a pass ends) is folded here for
+     the confirm route. If story 6's fix for Run also closes it there, the row closes with story 6 and story 7 checks
+     it.
+   - **Who confirmed, and when,** is recorded and shown, as story 6 shows starts and stops.
+
+   Still open for its Planning: what admins see in Confirm's place (from story 5's Planning orientation), the prompt's
+   wording, and whether a confirmation that expires unused prompts the owner again.
+
+Order: 1 → 2 → 3 → 4 → 5 → 6 → 7 (4's page can start once 2's status shape is fixed; 5 to 7 build on 4's panel, and 7
+on 6's waiting state).
 
 ## Key facts / guardrails
 
