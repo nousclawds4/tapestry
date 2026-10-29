@@ -3,8 +3,8 @@
 **Id:** 2026-09-20-claude-md-overstates-bind-mount
 **Type:** meta
 **Opened:** 2026-09-20 (review of story `shared-concepts-row-detail` #1, harness friction 1)
-**Status:** OPEN
-**Done:** —
+**Status:** DONE
+**Done:** 2026-10-29 (`docs/sweep-david-ops`: CLAUDE.md § House rules states the precondition — only the `docker-compose.dev.yml` overlay bind-mounts the repo, and then the checkout the stack was started from — with `docker inspect tapestry` → `.Mounts` as the check)
 
 CLAUDE.md § "House rules" ends with: *"locally the repo is bind-mounted to
 `/usr/local/lib/node_modules/brainstorm` (source edits are live) with `node_modules` as a separate
