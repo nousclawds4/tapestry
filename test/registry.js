@@ -343,6 +343,10 @@ const suites = [
   { file: 'tagging-edges-live.test.js', skipNote: 'no local Neo4j in the environment (NEO4J_URI / NEO4J_USER / NEO4J_PASSWORD)' },
   { file: 'strfry-count-strict.test.js' },
   { file: 'tagging-edges-drift-route.test.js' },
+  // tagging-edges #6: running and stopping the pass — the controller, the worker's job gate, the routes (ADR tagging-edges/0006).
+  { file: 'tagging-edges-pass-control.test.js' },
+  { file: 'task-queue-job-gate.test.js' },
+  { file: 'tagging-edges-pass-routes.test.js' },
   { file: 'tagging-pipeline-view.test.js' },
   { file: 'tagging-pipeline-codes.test.js' },
   { file: 'tagging-pipeline-fetch.test.js' },

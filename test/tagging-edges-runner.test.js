@@ -68,10 +68,24 @@
  *   emit(eventType, metadata) — the fake takes the last object argument as the metadata. A PROGRESS event names its
  *                         phase as metadata.phase (the report's phases[].phase names) with its ms.
  *   proc                → process-like { pid, argv, exitCode }. The runner leaves the exit code on proc.exitCode
- *                         (0 done or held, 2 refused, 1 failed; 0 for --lock-busy; the entry passes `process`) and
- *                         never calls process.exit.
+ *                         (0 done or held, 2 refused, 1 failed; 0 for --lock-busy; 0 stopped, story 6; the entry passes
+ *                         `process`) and never calls process.exit.
  *   signals             → process-like: signals.on('SIGTERM' | 'SIGINT', handler).
+ *   job                 → (story 6) the BullMQ job id the pass runs under, a string, or null.
  * A confirmation record's mintedAt / expiresAt are ISO-8601 strings.
+ *
+ * Story 6 (engineering-team/stories/tagging-edges/6-pass-run-and-stop.md AC-3, AC-5; ADR
+ * engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md D10 and § Seams for Test Design → "Runner seams",
+ * "A handler-lifetime pin", "Revised pins"):
+ *   - A stop on request finishes `stopped`, reasonCode 'requested', failure null, exit 0, with no TASK_ERROR and a
+ *     TASK_END that says stopped. SR50, SR68 and SR69 are revised to it (each keeps what it proves about the claim and
+ *     the batches); SR83 covers the five safe points, SR84 exitCodeFor, SR85 the pessimistic rewrites (C15) unchanged.
+ *   - The SIGTERM and SIGINT handlers last from just after the two lock checks to the very end of finish() (SR78–SR80,
+ *     SR86), and are never registered at module top level (SR87). fakeSignals records every registration in `added`.
+ *   - The job port: makeWorld({ job }) injects it (left out, the port is defaultDeps()'s); every record carries
+ *     job { id } or null (SR81). defaultDeps() takes it from BRAINSTORM_TASK_JOB_ID when that matches
+ *     /^[A-Za-z0-9:._@-]{1,200}$/, else null — SR82 runs the real module in a child sandbox with the variable set.
+ *   - Job ids come from story 6's shared helper, test/helpers/taggingEdgesPassFakes.js (P6), so they match its D2 shapes.
  *
  * Hand-rolled in the project's existing test style — no new framework. Works on Node 16 and 22.
  */
@@ -82,6 +96,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawnSync } = require('child_process');
 const F = require('./helpers/taggingEdgesFixtures');
+// Story 6's shared helper: load-safe (Node built-ins only at load time). Used here for job ids and ADR citations.
+const P6 = require('./helpers/taggingEdgesPassFakes');
 
 const REPO = path.resolve(__dirname, '..');
 const RUNNER_REL = 'src/pipeline/tagging-edges/reconcileTaggingEdges.js';
@@ -125,6 +141,13 @@ const RUN_LATER = '20260926T200000Z-bbbb0002';
 const RUN_REFUSED = '20260927T090000Z-cccc0003';
 const RUN_PRIOR = '20260926T080000Z-dddd0004';
 const RUN_STALE = '20260927T110000Z-eeee0005';
+
+// Story 6 (ADR tagging-edges/0006 D2, D10): job ids in the shapes the controller and the scheduler give them.
+const adr6 = (d) => P6.adr(d); // 'ADR tagging-edges/0006 D10'
+const JOB_RUN = P6.lineUpKey(1); // a Run's id, LINEUP_ID-shaped
+const JOB_SEED = P6.scheduledJobId(P6.SEED_ENTRY_ID, Date.UTC(2026, 9, 27, 12, 0, 0)); // the seed backstop's scheduled id
+const JOB_LEGACY = P6.LEGACY_ID; // the legacy fixed id (R7)
+const JOB_ENV_RE = '/^[A-Za-z0-9:._@-]{1,200}$/'; // D10's pattern for BRAINSTORM_TASK_JOB_ID, as the ADR writes it
 
 // ─── test harness ──────────────────────────────────────────────────────────────────────────────────────────────
 const tests = [];
@@ -306,10 +329,12 @@ function schemaView(s) {
 
 function fakeSignals(log) {
   const handlers = [];
+  const added = []; // every registration's signal name, in order (story 6: SR78 shows a lock refusal registers none)
   const api = {
     handlers,
-    on(name, fn) { handlers.push({ name, fn, once: false }); return api; },
-    once(name, fn) { handlers.push({ name, fn, once: true }); return api; },
+    added,
+    on(name, fn) { handlers.push({ name, fn, once: false }); added.push(name); return api; },
+    once(name, fn) { handlers.push({ name, fn, once: true }); added.push(name); return api; },
     off(name, fn) { const i = handlers.findIndex((h) => h.name === name && h.fn === fn); if (i >= 0) handlers.splice(i, 1); return api; },
     listenerCount(name) { return handlers.filter((h) => h.name === name).length; },
     fire(name) {
@@ -372,6 +397,7 @@ function helperResult(env, keyFilePubkey) {
  *   events / scanError  the relay scan
  *   ensureError, failReportWrite(n), failPreimage, onApply({ kind, rows, index, kindIndex, world })
  *   now, randomId
+ *   job                 (story 6, ADR tagging-edges/0006 D10) the job port; left out, the port is defaultDeps()'s
  */
 function makeWorld(o = {}) {
   const w = { log: [], files: o.files || newFiles(o), result: undefined, error: undefined, exitCalled: undefined };
@@ -515,6 +541,7 @@ function makeWorld(o = {}) {
     proc: w.proc,
     signals: w.signals,
   };
+  if (has(o, 'job')) w.deps.job = o.job;
   return w;
 }
 
@@ -568,7 +595,7 @@ function finalLatest(w) {
 const rel = (l) => (isPlainObject(l.relationships) ? l.relationships : {});
 const exitOf = (w) => (w.proc.exitCode === undefined ? 0 : w.proc.exitCode); // an unset exitCode exits 0
 function expectExit(w, code, why) {
-  eq(exitOf(w), code, `exit code for ${why} (deps.proc.exitCode; 0 done or held, 2 refused, 1 failed)`);
+  eq(exitOf(w), code, `exit code for ${why} (deps.proc.exitCode; 0 done or held, 2 refused, 1 failed; 0 stopped, ADR tagging-edges/0006 D10)`);
 }
 function expectZeroWrites(w, why) {
   assert(writesOf(w).length === 0, `${why}: expected zero write calls (applyCreates / applyLocked); got ${describeWrites(w)}`);
@@ -612,8 +639,11 @@ async function withThrowingPlanner(body) {
 function needRunnerFile() {
   if (!fs.existsSync(RUNNER)) throw new Error(`${RUNNER_REL} not implemented yet (no such file)`);
 }
-/** A throwaway state and log directory, and an environment with no identity and no Neo4j settings. */
-function childSandbox() {
+/**
+ * A throwaway state and log directory, and an environment with no identity and no Neo4j settings. `extraEnv` (story 6)
+ * adds variables, BRAINSTORM_TASK_JOB_ID among them; an undefined value leaves the variable out.
+ */
+function childSandbox(extraEnv = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tagging-edges-runner-'));
   const stateDir = path.join(tmp, 'state');
   const logDir = path.join(tmp, 'log');
@@ -623,6 +653,7 @@ function childSandbox() {
     PATH: process.env.PATH, HOME: tmp, TAGGING_EDGES_STATE_DIR: stateDir,
     BRAINSTORM_STRUCTURED_LOGGING: 'false', BRAINSTORM_LOG_DIR: logDir, BRAINSTORM_MODULE_SRC_DIR: path.join(REPO, 'src'),
   };
+  for (const [k, v] of Object.entries(extraEnv)) { if (v === undefined) delete env[k]; else env[k] = v; }
   return { tmp, stateDir, env, cleanup: () => fs.rmSync(tmp, { recursive: true, force: true }) };
 }
 function childProbe() {
@@ -630,13 +661,16 @@ function childProbe() {
   const sb = childSandbox();
   try {
     const script = [
+      "const signalsNow = () => ({ SIGTERM: process.listenerCount('SIGTERM'), SIGINT: process.listenerCount('SIGINT') });",
+      'const signalsBefore = signalsNow();',
       `const r = require(${JSON.stringify(RUNNER)});`,
-      'const out = { exports: Object.keys(r) };',
+      'const out = { exports: Object.keys(r), signalsBefore };',
       "if (typeof r.defaultDeps === 'function') {",
       '  const d = r.defaultDeps();',
       '  out.deps = d ? Object.keys(d) : null;',
       "  out.identityGetters = d && d.identities ? Object.keys(d.identities).filter((k) => typeof d.identities[k] === 'function') : null;",
       '}',
+      'out.signalsAfter = signalsNow();',
       'out.loaded = Object.keys(require.cache);',
       "process.stdout.write('\\n@@PROBE@@' + JSON.stringify(out) + '\\n');",
     ].join('\n');
@@ -647,14 +681,84 @@ function childProbe() {
   } finally { sb.cleanup(); }
 }
 
+/**
+ * Story 6 (SR82): the real runner module in a child process whose environment is the sandbox's plus
+ * BRAINSTORM_TASK_JOB_ID = `jobEnv` (undefined: left out). It reports defaultDeps().job, then calls run() on the real
+ * defaults with only lock (held), proc (a fixed pid and start time, so no /proc read) and identities (a malformed
+ * canonical stamp) faked: the pass gets past the lock, saves its pessimistic record and is refused at the identity
+ * check, the real state module writing report.json into the sandbox's TAGGING_EDGES_STATE_DIR. The job port stays
+ * defaultDeps()'s. → { hasJob, job, latest: { hasJob, job, outcome, reasonCode } | null, files, readError, rejected }
+ */
+function childJobRun(jobEnv) {
+  needRunnerFile();
+  const sb = childSandbox({ BRAINSTORM_TASK_JOB_ID: jobEnv });
+  try {
+    const script = [
+      "const fs = require('fs');",
+      "const path = require('path');",
+      `const r = require(${JSON.stringify(RUNNER)});`,
+      "const own = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);",
+      "const d = typeof r.defaultDeps === 'function' ? r.defaultDeps() : null;",
+      "const out = { hasJob: own(d, 'job'), job: d && d.job !== undefined ? d.job : '@@undefined' };",
+      `const proc = { pid: ${PID}, argv: [process.execPath, ${JSON.stringify(RUNNER)}], exitCode: undefined, startTime: ${JSON.stringify(START_TIME)} };`,
+      "const identities = { canonicalZ: () => 'not-a-stamp', getOwnerAssistantPubkey: () => null };",
+      'const say = (o) => process.stdout.write(`\\n@@JOB@@${JSON.stringify(o)}\\n`);',
+      'Promise.resolve().then(() => r.run({ lock: { busy: false, held: () => true }, proc, identities })).then(() => {',
+      "  const dir = process.env.TAGGING_EDGES_STATE_DIR;",
+      '  let doc = null;',
+      "  try { doc = JSON.parse(fs.readFileSync(path.join(dir, 'report.json'), 'utf8')); } catch (e) { out.readError = e.code || String(e); }",
+      '  const l = doc && doc.latest;',
+      "  out.latest = l ? { hasJob: own(l, 'job'), job: l.job !== undefined ? l.job : '@@undefined', outcome: l.outcome, reasonCode: l.reasonCode } : null;",
+      '  out.files = fs.readdirSync(dir);',
+      '  say(out);',
+      '}, (e) => say(Object.assign(out, { rejected: String((e && e.message) || e) })));',
+    ].join('\n');
+    const r = spawnSync(process.execPath, ['-e', script], { cwd: REPO, env: sb.env, encoding: 'utf8', timeout: 20000 });
+    const line = String(r.stdout || '').split('\n').find((l) => l.startsWith('@@JOB@@'));
+    assert(line, `the child (the real runner module, BRAINSTORM_TASK_JOB_ID ${show(jobEnv)}) printed nothing; exit ${r.status}, signal ${r.signal}, stderr: ${String(r.stderr || '').slice(-600)}`);
+    return JSON.parse(line.slice('@@JOB@@'.length));
+  } finally { sb.cleanup(); }
+}
+
+/** Story 6: which of the pass's signal handlers deps.signals holds right now. */
+const heldBy = (w) => ({ SIGTERM: w.signals.listenerCount('SIGTERM'), SIGINT: w.signals.listenerCount('SIGINT') });
+const holdsBoth = (h) => !!h && h.SIGTERM >= 1 && h.SIGINT >= 1;
+const holdsNone = (h) => !!h && h.SIGTERM === 0 && h.SIGINT === 0;
+
+/**
+ * Story 6 (SR79, SR80, SR86; ADR tagging-edges/0006 § Seams "A handler-lifetime pin"): record which handlers
+ * deps.signals holds at each state.writeReport call (before the write, so a failing write is seen too), at each prune,
+ * at TASK_END and at each driver close. A fake has no default action, so fakeSignals.fire alone cannot show how long
+ * the handlers last. `onWrite(doc, held)` runs before each write.
+ */
+function watchHandlers(w, { onWrite } = {}) {
+  const seen = { writes: [], prune: [], taskEnd: [], close: [] };
+  const st = w.deps.state;
+  const write = st.writeReport;
+  st.writeReport = (doc) => { const h = heldBy(w); seen.writes.push(h); if (onWrite) onWrite(doc, h); return write(doc); };
+  const prune = st.prune;
+  st.prune = () => { seen.prune.push(heldBy(w)); return prune(); };
+  const emit = w.deps.emit;
+  w.deps.emit = (...args) => { if (args[0] === 'TASK_END') seen.taskEnd.push(heldBy(w)); return emit(...args); };
+  const open = w.deps.openGraph;
+  w.deps.openGraph = (cfg) => {
+    const port = open(cfg);
+    const close = port.close;
+    port.close = async () => { seen.close.push(heldBy(w)); return close(); };
+    return port;
+  };
+  return seen;
+}
+const describeHeld = (list) => list.map((h, i) => `call ${i + 1}${i === 0 ? ' (the first)' : ''}${i === list.length - 1 && i > 0 ? ' (the last)' : ''}: ${show(h)}`).join(', ');
+
 /* ══════════════════════════ surface and entry (child, static) ══════════════════════════ */
 
-test('SR1: the runner exports run(deps) and defaultDeps(), and defaultDeps() builds all eleven ports — now, randomId, lock, state, identities, env, openGraph, scan, emit, proc, signals — with the canonicalZ and getOwnerAssistantPubkey getters', () => {
+test('SR1: the runner exports run(deps) and defaultDeps(), and defaultDeps() builds all twelve ports — now, randomId, lock, state, identities, env, openGraph, scan, emit, proc, signals, job — with the canonicalZ and getOwnerAssistantPubkey getters [job: story 6, ADR tagging-edges/0006 D10 "The job id"]', () => {
   const p = childProbe();
   for (const fn of ['run', 'defaultDeps']) assert((p.exports || []).includes(fn), `the runner should export ${fn}; it exports ${show(p.exports)}`);
-  const want = ['now', 'randomId', 'lock', 'state', 'identities', 'env', 'openGraph', 'scan', 'emit', 'proc', 'signals'];
+  const want = ['now', 'randomId', 'lock', 'state', 'identities', 'env', 'openGraph', 'scan', 'emit', 'proc', 'signals', 'job'];
   const missing = want.filter((k) => !(p.deps || []).includes(k));
-  assert(missing.length === 0, `defaultDeps() is missing port(s) ${show(missing)}; it returned ${show(p.deps)}`);
+  assert(missing.length === 0, `defaultDeps() is missing port(s) ${show(missing)}; it returned ${show(p.deps)}${missing.includes('job') ? ` (job: ${adr6('D10')}, the BullMQ job id from BRAINSTORM_TASK_JOB_ID, else null)` : ''}`);
   for (const g of ['canonicalZ', 'getOwnerAssistantPubkey']) {
     assert((p.identityGetters || []).includes(g), `defaultDeps().identities should have a ${g}() getter (injected, since the helper caches); got ${show(p.identityGetters)}`);
   }
@@ -1335,18 +1439,19 @@ test('SR49: a pre-image append that fails (ENOSPC) fails the pass ("write") befo
 
 /* ══════════════════════════ stops and partial writes (AC-7; ADR step 11, D9) ══════════════════════════ */
 
-test('SR50: a SIGTERM or SIGINT during a write batch stops the pass at the next batch boundary — the batch in flight completes, no further write — and the report reads failed, stopped, reasonCode "signal"', async () => {
+test('SR50: a SIGTERM or SIGINT during a write batch stops the pass at the next batch boundary — the batch in flight completes, no further write — and the report reads stopped, reasonCode "requested", failure null, exit 0 [revised at story 6 from failed / "signal" / exit 1: ADR tagging-edges/0006 D10, stopNow() finishes stopped; § Seams "Revised pins"]', async () => {
   await cases(['SIGTERM', 'SIGINT'].map((sig) => ({ name: sig, sig })), async (c) => {
     const evs = F.manyTaggings(600, { prefix: `stop-${c.sig}` });
     const w = await runPass(makeWorld({ rows: [], events: evs, onApply: ({ index, world }) => { if (index === 0) world.signals.fire(c.sig); } }));
     const writes = writesOf(w);
     assert(writes.length === 1, `the pass should stop after the batch in flight; it made ${describeWrites(w)} (handlers registered on deps.signals for ${c.sig}: ${w.signals.listenerCount(c.sig)})`);
     const l = finalLatest(w);
-    expectOutcome(l, 'failed', `stopped by ${c.sig}`);
+    expectOutcome(l, 'stopped', `stopped by ${c.sig} (${adr6('D10')}: a stop on request reads as its own outcome, not failed)`);
     eq(l.stopped, true, 'stopped');
-    eq(l.reasonCode, 'signal', 'reasonCode');
+    eq(l.reasonCode, 'requested', `reasonCode (${adr6('D10')})`);
+    eq(l.failure, null, `failure (${adr6('D10')}: a stop on request is no failure)`);
     eq(rel(l).added, writes[0].n, 'relationships.added (the committed batch)');
-    expectExit(w, 1, 'a stopped pass');
+    expectExit(w, 0, `a pass stopped on request (${adr6('D10')}: exitCodeFor('stopped') is 0)`);
     assert(count(w, 'graph.close') >= 1 && lastIdx(w, 'graph.close') > lastIdx(w, 'graph.write'), `the graph port should be closed after a stop (ADR step 5: "every exit path"); calls: ${lastOps(w)}`);
   });
 });
@@ -1787,7 +1892,7 @@ test('SR67: a confirmed run that fails partway still says it was confirmed — c
   eq(writtenAddresses(w2, 'remove').length, 0, 'removals applied by the next pass');
 });
 
-test('SR68: a SIGTERM that arrives before the claim (during the schema pre-flight) stops the pass without claiming — failed, stopped, reasonCode "signal", no graph read, no scan, zero writes, the confirmation still pending — and the next pass claims and honours it (story Deviations: "A stop asked for before step 7 ends the run without claiming"; review 2026-09-28, item 11)', async () => {
+test('SR68: a SIGTERM that arrives before the claim (during the schema pre-flight) stops the pass without claiming — stopped, reasonCode "requested", failure null, exit 0, no graph read, no scan, zero writes, the confirmation still pending — and the next pass claims and honours it (story Deviations: "A stop asked for before step 7 ends the run without claiming"; review 2026-09-28, item 11) [revised at story 6 from failed / "signal" / exit 1: ADR tagging-edges/0006 D10; story 6 AC-3 "a stop that reaches it before it takes up the owner\'s confirmation leaves that confirmation pending"]', async () => {
   const s = heldScenario({ prefix: 'stop-before-claim' });
   const pending = clone(s.files.pending);
   const w = makeWorld({ files: s.files, rows: s.rows, events: [] });
@@ -1800,15 +1905,16 @@ test('SR68: a SIGTERM that arrives before the claim (during the schema pre-fligh
   };
   await runPass(w);
   const l = finalLatest(w);
-  expectOutcome(l, 'failed', 'stopped before the claim');
+  expectOutcome(l, 'stopped', `stopped before the claim (${adr6('D10')})`);
   eq(l.stopped, true, 'stopped');
-  eq(l.reasonCode, 'signal', 'reasonCode');
+  eq(l.reasonCode, 'requested', `reasonCode (${adr6('D10')})`);
+  eq(l.failure, null, `failure (${adr6('D10')})`);
   eq(count(w, 'state.claimConfirmation'), 0, 'claims by a pass stopped before step 7');
   same(s.files.pending, pending, 'the pending confirmation after a stop before the claim');
   eq(count(w, 'graph.readAll:called'), 0, 'graph reads after the stop');
   eq(count(w, 'scan'), 0, 'relay scans after the stop');
   expectZeroWrites(w, 'a stop before the claim');
-  expectExit(w, 1, 'a stopped pass');
+  expectExit(w, 0, `a pass stopped on request (${adr6('D10')})`);
   assert(count(w, 'graph.close') >= 1, 'the graph port should be closed');
   const w2 = await runPass(makeWorld({ files: s.files, rows: s.rows, events: [] }));
   const l2 = finalLatest(w2);
@@ -1816,15 +1922,16 @@ test('SR68: a SIGTERM that arrives before the claim (during the schema pre-fligh
   sameSet(writtenAddresses(w2, 'remove'), s.list.map((h) => h.address), 'the next pass removes the confirmed held relationships');
 });
 
-test('SR69: a SIGTERM that arrives during the claim stops the pass before the graph read — the claim is spent and the report, failed and stopped, says the run was confirmed (story Deviations; owner decision 7; review 2026-09-28, item 11)', async () => {
+test('SR69: a SIGTERM that arrives during the claim stops the pass before the graph read — the claim is spent and the report, stopped (reasonCode "requested", failure null), says the run was confirmed (story Deviations; owner decision 7; review 2026-09-28, item 11) [revised at story 6 from failed / "signal": ADR tagging-edges/0006 D10, and its note on ADR 0002 decision 7 "a stopped claimant now reads stopped. The claim is spent as before"; story 6 AC-3 "stopping then uses it up"]', async () => {
   const s = heldScenario({ prefix: 'stop-at-claim' });
   const w = makeWorld({ files: s.files, rows: s.rows, events: [] });
   const claim = w.deps.state.claimConfirmation;
   w.deps.state.claimConfirmation = (runId) => { const r = claim(runId); w.signals.fire('SIGTERM'); return r; };
   await runPass(w);
   const l = finalLatest(w);
-  expectOutcome(l, 'failed', 'stopped right after the claim');
-  eq(l.reasonCode, 'signal', 'reasonCode');
+  expectOutcome(l, 'stopped', `stopped right after the claim (${adr6('D10')})`);
+  eq(l.reasonCode, 'requested', `reasonCode (${adr6('D10')})`);
+  eq(l.failure, null, `failure (${adr6('D10')})`);
   eq(l.stopped, true, 'stopped');
   eq(s.files.pending, null, 'the claim is spent');
   eq(l.confirmation && l.confirmation.honoured, true, 'confirmation.honoured');
@@ -2043,6 +2150,309 @@ test('SR77: the runner still exports resolveIdentities, and it is the very funct
   catch (e) { throw new Error(`src/pipeline/tagging-edges/identities.js not implemented yet (require failed: ${firstLine(e)})`); }
   assert(ids && typeof ids.resolveIdentities === 'function', `src/pipeline/tagging-edges/identities.js must export resolveIdentities; it exports ${show(Object.keys(ids || {}))}`);
   assert(ids.resolveIdentities === mod.resolveIdentities, 'the runner\'s resolveIdentities must be identities.js\'s own function, re-exported — not a second copy of the rule');
+});
+
+/* ══════════════════════════ story 6 (ADR tagging-edges/0006 D10): the stopped outcome, the handlers, the job id ══════════════════════════
+ * Story: engineering-team/stories/tagging-edges/6-pass-run-and-stop.md — AC-3 ("a pass that stops at a safe point shows
+ * its own outcome … not failed"; "a stop that reaches it before it takes up the owner's confirmation leaves that
+ * confirmation pending"), AC-5 (who started a pass is joined to its run through the run's job id). ADR:
+ * engineering-team/decisions/tagging-edges/0006-pass-run-and-stop.md D10 ("Handlers", "stopNow()", "exitCodeFor",
+ * "The job id") and § Seams for Test Design → "Runner seams", "A handler-lifetime pin". Red until D10 lands. */
+
+/** A world with a pending confirmation whose schema read sends SIGTERM (the stop is honoured before the claim). */
+function signalDuringSchema(w, sig = 'SIGTERM') {
+  const open = w.deps.openGraph;
+  w.deps.openGraph = (cfg) => {
+    const port = open(cfg);
+    const readSchema = port.readSchema;
+    port.readSchema = async () => { w.signals.fire(sig); return readSchema(); };
+    return port;
+  };
+  return w;
+}
+
+test('SR78 (story 6 AC-3; ADR tagging-edges/0006 D10 "Earlier registration"): the pass registers its SIGTERM and SIGINT handlers just after the two lock checks — a start refused at a lock check registers neither; a pass past them holds both when it makes its run id (step 2); and a SIGTERM that arrives before the pessimistic save, while the prior report is read, is honoured at the first safe point (before the claim): stopped, reasonCode "requested", failure null, exit 0, no claim, the confirmation still pending, no graph read, no scan, zero writes', async () => {
+  await cases([
+    {
+      name: '--lock-busy registers no handler',
+      fn: async () => {
+        const w = await runPass(makeWorld(baseline({ busy: true, lockHeld: false })));
+        const end = emitsOf(w).find((e) => e.type === 'TASK_END');
+        assert(end && end.meta.outcome === 'not-started', `fixture: the start is refused at the lock check (TASK_END ${show(end && end.meta)})`);
+        same({ added: w.signals.added, held: heldBy(w) }, { added: [], held: { SIGTERM: 0, SIGINT: 0 } }, `a start refused at --lock-busy returns before the handlers are registered (${adr6('D10')}: just after the two lock checks)`);
+      },
+    },
+    {
+      name: 'a start outside the lock registers no handler',
+      fn: async () => {
+        const w = await runPass(makeWorld(baseline({ lockHeld: false })));
+        const end = emitsOf(w).find((e) => e.type === 'TASK_END');
+        assert(end && end.meta.reasonCode === 'not-started-under-the-lock', `fixture: the start is refused outside the lock (TASK_END ${show(end && end.meta)})`);
+        same({ added: w.signals.added, held: heldBy(w) }, { added: [], held: { SIGTERM: 0, SIGINT: 0 } }, `a start refused outside the lock returns before the handlers are registered (${adr6('D10')})`);
+      },
+    },
+    {
+      name: 'both handlers are held at step 2',
+      fn: async () => {
+        const w = makeWorld(baseline());
+        let atRunId;
+        const randomId = w.deps.randomId;
+        w.deps.randomId = () => { if (atRunId === undefined) atRunId = heldBy(w); return randomId(); };
+        await runPass(w);
+        assert(atRunId !== undefined, `fixture: the pass made its run id (randomId was called); calls: ${lastOps(w, 20)}`);
+        assert(holdsBoth(atRunId), `when the pass makes its run id (step 2), deps.signals should already hold its SIGTERM and SIGINT handlers (${adr6('D10')}: registered just after the two lock checks, before step 2); it held ${show(atRunId)}`);
+      },
+    },
+    {
+      name: 'a SIGTERM before the pessimistic save is honoured at the first safe point',
+      fn: async () => {
+        const s = heldScenario({ prefix: 'stop-before-save' });
+        const pending = clone(s.files.pending);
+        const w = makeWorld({ files: s.files, rows: s.rows, events: [] });
+        const readReport = w.deps.state.readReport;
+        let fired = false;
+        w.deps.state.readReport = () => { if (!fired) { fired = true; w.signals.fire('SIGTERM'); } return readReport(); };
+        await runPass(w);
+        const iSig = idx(w, 'signal');
+        const iSave = idx(w, 'state.writeReport');
+        assert(iSig >= 0 && iSave > iSig, `fixture: the SIGTERM is sent while the prior report is read, before the pessimistic save (signal at ${iSig}, first save at ${iSave})`);
+        assert(count(w, 'graph.readSchema') >= 1, `fixture: the pass goes on to its first safe point, after the schema pre-flight; calls: ${lastOps(w, 20)}`);
+        const l = finalLatest(w);
+        expectOutcome(l, 'stopped', `a SIGTERM sent before the pessimistic save (${adr6('D10')}: the handlers are already registered, so the stop is honoured at the first safe point)`);
+        same({ reasonCode: l.reasonCode, failure: l.failure, stopped: l.stopped }, { reasonCode: 'requested', failure: null, stopped: true }, `the stopped report (${adr6('D10')})`);
+        eq(count(w, 'state.claimConfirmation'), 0, 'claims by a pass stopped at its first safe point (before the claim)');
+        same(s.files.pending, pending, 'the pending confirmation after a stop before the claim (story 6 AC-3: it stays pending for the next pass)');
+        eq(count(w, 'graph.readAll:called'), 0, 'graph reads after the stop');
+        eq(count(w, 'scan'), 0, 'relay scans after the stop');
+        expectZeroWrites(w, 'a stop honoured before the claim');
+        expectExit(w, 0, 'a pass stopped on request');
+      },
+    },
+  ], (c) => c.fn());
+});
+
+test('SR79 (ADR tagging-edges/0006 D10 "Later removal", § Seams "A handler-lifetime pin"): the pass\'s SIGTERM and SIGINT handlers last from before its pessimistic save to the very end of finish() — an injected state.writeReport finds both on deps.signals on every call, the final one included, and so do the prune, TASK_END and the driver close that come after it; after run() resolves neither is there — for a pass that ends done, held, refused, failed or stopped', async () => {
+  const stopAt0 = ({ index, world }) => { if (index === 0) world.signals.fire('SIGTERM'); };
+  await cases([
+    { name: 'done', world: () => baseline(), outcome: 'done' },
+    { name: 'done-removals-held', world: () => ({ rows: rowsFor(F.manyTaggings(60, { prefix: 'life-held' })), events: [] }), outcome: 'done-removals-held' },
+    { name: 'refused at the identity check', world: () => baseline({ env: { TA_PUBKEY: 'nope' } }), outcome: 'refused' },
+    { name: 'failed at the relay read', world: () => baseline({ scanError: makeScanError('timeout') }), outcome: 'failed' },
+    { name: 'stopped between batches', world: () => ({ rows: [], events: F.manyTaggings(600, { prefix: 'life-stop' }), onApply: stopAt0 }), stoppedRun: true },
+  ], async (c) => {
+    const w = makeWorld(c.world());
+    const seen = watchHandlers(w);
+    await runPass(w);
+    const l = finalLatest(w);
+    if (c.stoppedRun) assert(l.stopped === true && count(w, 'signal') === 1, `fixture: the pass is stopped between batches (stopped ${show(l.stopped)})`);
+    else expectOutcome(l, c.outcome, `fixture: ${c.name}`);
+    assert(seen.writes.length >= 2, `fixture: the pessimistic save and the final report at least; state.writeReport was called ${seen.writes.length} time(s)`);
+    const problems = [];
+    const short = seen.writes.filter((h) => !holdsBoth(h));
+    if (short.length) {
+      problems.push(`every state.writeReport call, the pessimistic save and the final one included, should find both handlers on deps.signals (${adr6('D10')}: registered just after the two lock checks, removed as the very last step of finish()); ${short.length} of ${seen.writes.length} did not — ${describeHeld(seen.writes)}`);
+    }
+    if (!seen.prune.every(holdsBoth)) problems.push(`the prune after the final save should still find both handlers (${adr6('D10')}: removed after the final save, the prune, TASK_END and the driver close); ${describeHeld(seen.prune)}`);
+    if (seen.taskEnd.length !== 1 || !holdsBoth(seen.taskEnd[0])) problems.push(`TASK_END should be emitted once with both handlers still held (${adr6('D10')}); ${seen.taskEnd.length} TASK_END(s), ${describeHeld(seen.taskEnd)}`);
+    if (!seen.close.every(holdsBoth)) problems.push(`the driver close should still find both handlers (${adr6('D10')}: removal comes after it); ${describeHeld(seen.close)}`);
+    const after = heldBy(w);
+    if (!holdsNone(after)) problems.push(`after run() resolves deps.signals should hold neither handler (${adr6('D10')}: removed as the very last step of finish()); it holds ${show(after)}`);
+    assert(problems.length === 0, problems.join('\n          '));
+  });
+});
+
+test('SR80 (ADR tagging-edges/0006 D10 "On the first-save failure return"): when the pessimistic save fails, the handlers — registered before it — are removed before run() returns: the failing state.writeReport call finds both on deps.signals, and after run() resolves neither is there; the pass still ends as SR9 says (no graph contact, TASK_ERROR then TASK_END, exit 1)', async () => {
+  const w = makeWorld(baseline({ failReportWrite: (n) => n === 0 }));
+  const seen = watchHandlers(w);
+  await runPass(w, { mustResolve: false });
+  assert(seen.writes.length >= 1 && w.log.some((e) => e.op === 'state.writeReport' && e.ok === false), `fixture: the pessimistic save was attempted and failed; calls: ${lastOps(w, 20)}`);
+  assert(holdsBoth(seen.writes[0]), `the pessimistic save should find both handlers on deps.signals (${adr6('D10')}: registered just after the two lock checks, before step 2); it found ${show(seen.writes[0])}`);
+  const after = heldBy(w);
+  assert(holdsNone(after), `after a failed pessimistic save the handlers should be removed before run() returns (${adr6('D10')}: no report carries this pid, because the atomic write failed); deps.signals still holds ${show(after)}`);
+  eq(count(w, 'openGraph'), 0, 'openGraph calls after a failed pessimistic write');
+  const types = emitsOf(w).map((e) => e.type);
+  assert(types.indexOf('TASK_ERROR') >= 0 && types.lastIndexOf('TASK_END') === types.length - 1, `expected TASK_ERROR, then TASK_END as the last event; got ${show(types)}`);
+  expectExit(w, 1, 'a failed pessimistic write');
+});
+
+test('SR81 (story 6 AC-5; ADR tagging-edges/0006 D10 "The job id"): the pass writes its job port into every record — deps.job a job id → job { id } on the pessimistic record, every rewrite and the final report, whatever the outcome (a Run\'s LINEUP_ID-shaped id ending done; the seed backstop\'s scheduled id, colons and all, ending stopped; the legacy fixed id ending refused; a Run\'s id ending failed); deps.job null → job: null on every record, the member never left out (only a report from before story 6 has none)', async () => {
+  const stopAt0 = ({ index, world }) => { if (index === 0) world.signals.fire('SIGTERM'); };
+  await cases([
+    { name: 'a Run id, done', job: JOB_RUN, world: () => baseline(), outcome: 'done' },
+    { name: 'the seed scheduled id, stopped between batches', job: JOB_SEED, world: () => ({ rows: [], events: F.manyTaggings(600, { prefix: 'job-stop' }), onApply: stopAt0 }), stoppedRun: true },
+    { name: 'the legacy fixed id, refused', job: JOB_LEGACY, world: () => baseline({ env: { TA_PUBKEY: 'nope' } }), outcome: 'refused' },
+    { name: 'a Run id, failed', job: P6.lineUpKey(2), world: () => baseline({ scanError: makeScanError('timeout') }), outcome: 'failed' },
+    { name: 'null, done', job: null, world: () => baseline(), outcome: 'done' },
+  ], async (c) => {
+    const w = await runPass(makeWorld(Object.assign(c.world(), { job: c.job })));
+    const l = finalLatest(w);
+    if (c.stoppedRun) assert(l.stopped === true, `fixture: the pass is stopped between batches (stopped ${show(l.stopped)})`);
+    else expectOutcome(l, c.outcome, `fixture: ${c.name}`);
+    const docs = reportDocsOf(w);
+    assert(docs.length >= 2, `fixture: the pessimistic record and the final report at least; ${docs.length} written`);
+    const want = c.job === null ? null : { id: c.job };
+    const bad = [];
+    docs.forEach((d, i) => {
+      const r = latestOf(d);
+      const label = i === 0 ? 'the pessimistic record' : i === docs.length - 1 ? 'the final report' : `rewrite ${i}`;
+      if (!isPlainObject(r) || !has(r, 'job')) bad.push(`${label}: no job member`);
+      else if (show(sortKeys(r.job)) !== show(sortKeys(want))) bad.push(`${label}: job ${show(r.job)}`);
+    });
+    assert(bad.length === 0, `deps.job ${show(c.job)}: every record should carry job ${show(want)} (${adr6('D10')}: "the pessimistic record carries job: job ? {id: job} : null from its first save, so every rewrite and the final report carry it"); of ${docs.length} record(s): ${bad.join('; ')}`);
+  });
+});
+
+test('SR82 (story 6 AC-5; ADR tagging-edges/0006 D10 "The job id", "The processor"): the job port defaults to BRAINSTORM_TASK_JOB_ID when it matches /^[A-Za-z0-9:._@-]{1,200}$/, else null — in a child process with the sandbox environment plus that variable, the real runner module\'s defaultDeps().job is the value, and the report.json the real state module writes into the sandbox (run() past the lock, refused at the identity check, only lock, proc and identities faked) carries job { id }, for a Run\'s id, the seed backstop\'s scheduled id, the legacy fixed id and a 200-character id; both are null when the variable is absent, empty, carries a space or a semicolon, or is 201 characters', async () => {
+  const id200 = 'a'.repeat(200);
+  await cases([
+    { name: 'a Run id', env: JOB_RUN, want: JOB_RUN },
+    { name: 'the seed scheduled id', env: JOB_SEED, want: JOB_SEED },
+    { name: 'the legacy fixed id', env: JOB_LEGACY, want: JOB_LEGACY },
+    { name: '200 characters', env: id200, want: id200 },
+    { name: 'absent', env: undefined, want: null },
+    { name: 'empty', env: '', want: null },
+    { name: 'a space', env: `${JOB_RUN} x`, want: null },
+    { name: 'a semicolon', env: `${JOB_RUN};x`, want: null },
+    { name: '201 characters', env: 'a'.repeat(201), want: null },
+  ], async (c) => {
+    const out = childJobRun(c.env);
+    const shown = (v) => (v === '@@undefined' ? 'undefined' : show(v));
+    assert(out.hasJob === true && out.job === c.want,
+      `with BRAINSTORM_TASK_JOB_ID ${c.env === undefined ? 'absent' : show(c.env)}, defaultDeps().job should be ${show(c.want)} (${adr6('D10')}: it defaults to the variable when it matches ${JOB_ENV_RE}, else null); ${out.hasJob ? `it is ${shown(out.job)}` : 'defaultDeps() has no job port'}`);
+    assert(!out.rejected, `run() rejected in the child: ${out.rejected}`);
+    assert(out.latest, `fixture: the child run should write report.json into the sandbox (it gets past the lock and is refused at the identity check); the sandbox holds ${show(out.files)}, read error ${show(out.readError)}`);
+    eq(out.latest.outcome, 'refused', 'fixture: the child run ends refused at the identity check');
+    const want = c.want === null ? null : { id: c.want };
+    assert(out.latest.hasJob === true && show(sortKeys(out.latest.job)) === show(sortKeys(want)),
+      `report.json's latest should carry job ${show(want)} (${adr6('D10')}: from the first save on); it carries ${out.latest.hasJob ? shown(out.latest.job) : 'no job member'}`);
+  });
+});
+
+test('SR83 (story 6 AC-3 "shows its own outcome … not failed"; ADR tagging-edges/0006 D10; § Context, the five safe points): a SIGTERM honoured at any of the five safe points — before the claim, after the claim, after the graph read, after the relay read, before a write batch — ends the pass stopped: stopped true, reasonCode "requested", failure null, running false with endedAt set, no TASK_ERROR, a last TASK_END with outcome "stopped" and reasonCode "requested", exit 0; and nothing after that safe point runs', async () => {
+  await cases([
+    {
+      name: 'before the claim (sent during the schema read)',
+      world: () => { const s = heldScenario({ prefix: 'safe-1' }); const w = signalDuringSchema(makeWorld({ files: s.files, rows: s.rows, events: [] })); w.pending = clone(s.files.pending); w.s = s; return w; },
+      after: (w) => {
+        eq(count(w, 'state.claimConfirmation'), 0, 'claims');
+        same(w.s.files.pending, w.pending, 'the pending confirmation');
+        eq(count(w, 'graph.readAll:called'), 0, 'graph reads');
+      },
+    },
+    {
+      name: 'after the claim (sent during the claim)',
+      world: () => {
+        const s = heldScenario({ prefix: 'safe-2' });
+        const w = makeWorld({ files: s.files, rows: s.rows, events: [] });
+        const claim = w.deps.state.claimConfirmation;
+        w.deps.state.claimConfirmation = (runId) => { const r = claim(runId); w.signals.fire('SIGTERM'); return r; };
+        w.s = s;
+        return w;
+      },
+      after: (w) => { eq(w.s.files.pending, null, 'the claim is spent'); eq(count(w, 'graph.readAll:called'), 0, 'graph reads'); },
+    },
+    {
+      name: 'after the graph read (sent during it)',
+      world: () => {
+        const w = makeWorld(baseline());
+        const open = w.deps.openGraph;
+        w.deps.openGraph = (cfg) => { const port = open(cfg); const readAll = port.readAll; port.readAll = async (o) => { const rows = await readAll(o); w.signals.fire('SIGTERM'); return rows; }; return port; };
+        return w;
+      },
+      after: (w) => { eq(count(w, 'graph.readAll:resolved'), 1, 'fixture: the graph read resolved'); eq(count(w, 'scan'), 0, 'relay scans'); },
+    },
+    {
+      name: 'after the relay read (sent during it)',
+      world: () => {
+        const w = makeWorld(baseline());
+        const scan = w.deps.scan;
+        w.deps.scan = async (f, o) => { const out = await scan(f, o); w.signals.fire('SIGTERM'); return out; };
+        return w;
+      },
+      after: (w) => { eq(count(w, 'scan'), 1, 'fixture: the relay was read'); expectZeroWrites(w, 'a stop after the relay read'); },
+    },
+    {
+      name: 'before a write batch (sent during the first)',
+      world: () => makeWorld({ rows: [], events: F.manyTaggings(600, { prefix: 'safe-5' }), onApply: ({ index, world }) => { if (index === 0) world.signals.fire('SIGTERM'); } }),
+      after: (w) => eq(writesOf(w).length, 1, `write calls (the batch in flight completes, no further one; got ${describeWrites(w)})`),
+    },
+  ], async (c) => {
+    const w = await runPass(c.world());
+    assert(count(w, 'signal') === 1, `fixture: one SIGTERM was sent; calls: ${lastOps(w, 20)}`);
+    const l = finalLatest(w);
+    expectOutcome(l, 'stopped', `a stop honoured ${c.name} (${adr6('D10')}: stopNow() is finish('stopped', …))`);
+    same({ stopped: l.stopped, reasonCode: l.reasonCode, failure: l.failure, running: l.running }, { stopped: true, reasonCode: 'requested', failure: null, running: false }, `the stopped report (${adr6('D10')})`);
+    assert(typeof l.endedAt === 'string' && l.endedAt !== '', `a stopped report says when it ended; endedAt ${show(l.endedAt)}`);
+    const types = emitsOf(w).map((e) => e.type);
+    const end = emitsOf(w).filter((e) => e.type === 'TASK_END').pop();
+    assert(end && types[types.length - 1] === 'TASK_END', `fixture: TASK_END is the last event; events ${show(types)}`);
+    eq(types.filter((t) => t === 'TASK_ERROR').length, 0, `TASK_ERROR events for a pass stopped on request (${adr6('D10')}: "finish emits no TASK_ERROR for it"; events ${show(types)})`);
+    same({ outcome: end.meta.outcome, reasonCode: end.meta.reasonCode }, { outcome: 'stopped', reasonCode: 'requested' }, `TASK_END for a pass stopped on request (${adr6('D10')}: "TASK_END carries outcome: 'stopped'")`);
+    expectExit(w, 0, 'a pass stopped on request');
+    c.after(w);
+  });
+});
+
+test('SR84 (ADR tagging-edges/0006 D10 "exitCodeFor(\'stopped\') is 0"): the exported exitCodeFor gives 0 for a stopped result — nothing failed; the pass did what was asked — beside today\'s 0 for done, done-removals-held and a lock-busy start, 2 for refused and for a start outside the lock, and 1 for failed', () => {
+  const m = load();
+  assert(typeof m.exitCodeFor === 'function', `${RUNNER_REL} should still export exitCodeFor; it exports ${show(Object.keys(m))}`);
+  const rows = [
+    { name: 'stopped', result: { outcome: 'stopped', reasonCode: 'requested', stopped: true, failure: null }, code: 0, story6: true },
+    { name: 'done', result: { outcome: 'done', reasonCode: 'done' }, code: 0 },
+    { name: 'done-removals-held', result: { outcome: 'done-removals-held', reasonCode: 'removals-held' }, code: 0 },
+    { name: 'lock-busy', result: { outcome: 'not-started', reasonCode: 'lock-busy' }, code: 0 },
+    { name: 'outside the lock', result: { outcome: 'not-started', reasonCode: 'not-started-under-the-lock' }, code: 2 },
+    { name: 'refused', result: { outcome: 'refused', reasonCode: 'identity' }, code: 2 },
+    { name: 'failed', result: { outcome: 'failed', reasonCode: 'read' }, code: 1 },
+  ];
+  const bad = rows.map((r) => ({ r, got: m.exitCodeFor(r.result) })).filter(({ r, got }) => got !== r.code)
+    .map(({ r, got }) => `${r.name} → ${show(got)}, expected ${r.code}${r.story6 ? ` (${adr6('D10')}: nothing failed; the pass did what was asked)` : ''}`);
+  assert(bad.length === 0, `exitCodeFor: ${bad.join('; ')}`);
+});
+
+test('SR85 (ADR tagging-edges/0006 D10 "The pessimistic record and its rewrites (C15) are unchanged"; ADR 0002 C15): a pass stopped partway rewrites its record as before — the pessimistic record and every rewrite before the final report still read failed, stopped, reasonCode "stopped", running, with the run\'s runId — and only the final report reads stopped, reasonCode "requested", running false', async () => {
+  const evs = F.manyTaggings(600, { prefix: 'c15-stop' });
+  const w = await runPass(makeWorld({ rows: [], events: evs, onApply: ({ index, world }) => { if (index === 1) world.signals.fire('SIGTERM'); } }));
+  eq(writesOf(w).length, 2, `fixture: write calls (the first, then the one in flight when the SIGTERM came; got ${describeWrites(w)})`);
+  const docs = reportDocsOf(w);
+  assert(docs.length >= 3, `fixture: the pessimistic record, at least one rewrite, and the final report; ${docs.length} written`);
+  const before = docs.slice(0, -1).map(latestOf);
+  const bad = before.filter((x) => !(x && x.runId === EXPECTED_RUN_ID && x.outcome === 'failed' && x.stopped === true && x.reasonCode === 'stopped' && x.running === true));
+  assert(bad.length === 0, `every record before the final report must still read { runId, outcome: 'failed', stopped: true, reasonCode: 'stopped', running: true } (ADR 0002 C15, unchanged by ${adr6('D10')}); ${bad.length} of ${before.length} did not, e.g. ${show(bad[0] && { outcome: bad[0].outcome, stopped: bad[0].stopped, reasonCode: bad[0].reasonCode, running: bad[0].running })}`);
+  const fin = latestOf(docs[docs.length - 1]);
+  same({ runId: fin.runId, outcome: fin.outcome, stopped: fin.stopped, reasonCode: fin.reasonCode, failure: fin.failure, running: fin.running },
+    { runId: EXPECTED_RUN_ID, outcome: 'stopped', stopped: true, reasonCode: 'requested', failure: null, running: false },
+    `the final report of a pass stopped between batches (${adr6('D10')}: only finish() writes the stopped outcome)`);
+});
+
+test('SR86 (ADR tagging-edges/0006 D10 "During finish()"): a SIGTERM that arrives during finish(), while the final report is saved, reaches the pass\'s handler and only sets the flag, which nothing reads any more — the pass still ends done, TASK_END says done, no TASK_ERROR, exit 0, and no record is written after the final report', async () => {
+  let atFinal = null;
+  const w = makeWorld(baseline());
+  watchHandlers(w, {
+    onWrite: (doc, held) => {
+      const l = latestOf(doc);
+      if (atFinal === null && isPlainObject(l) && l.running === false) { atFinal = held; w.signals.fire('SIGTERM'); }
+    },
+  });
+  await runPass(w);
+  assert(atFinal !== null && count(w, 'signal') === 1, 'fixture: the SIGTERM was sent during the final save');
+  assert(holdsBoth(atFinal), `during finish() the pass's handlers should still be on deps.signals, so a late SIGTERM reaches its handler (${adr6('D10')}: removed only as the very last step of finish()); at the final save deps.signals held ${show(atFinal)}`);
+  const l = finalLatest(w);
+  expectOutcome(l, 'done', `a SIGTERM during finish() (${adr6('D10')}: it only sets stopRequested, which nothing reads any more)`);
+  const iSig = idx(w, 'signal');
+  const laterWrites = w.log.slice(iSig + 1).filter((e) => e.op === 'state.writeReport').length;
+  eq(laterWrites, 1, 'report writes from the SIGTERM on (the final save it arrived during, and nothing after)');
+  const types = emitsOf(w).map((e) => e.type);
+  eq(types.filter((t) => t === 'TASK_ERROR').length, 0, `TASK_ERROR events (events ${show(types)})`);
+  eq(emitsOf(w).filter((e) => e.type === 'TASK_END').pop().meta.outcome, 'done', 'TASK_END outcome');
+  expectExit(w, 0, 'a done pass');
+});
+
+test('SR87 (ADR tagging-edges/0006 D10 "Never at module top level"): loading the runner and building defaultDeps() registers no SIGTERM or SIGINT listener on the process — the real-time engine requires this module for makeRunId, so a top-level handler would land inside that engine', () => {
+  const p = childProbe();
+  assert((p.exports || []).includes('makeRunId'), `fixture: the runner loaded and exports makeRunId; it exports ${show(p.exports)}`);
+  assert(isPlainObject(p.signalsBefore) && isPlainObject(p.signalsAfter), `fixture: the probe counted the process's signal listeners; got ${show({ before: p.signalsBefore, after: p.signalsAfter })}`);
+  same(p.signalsAfter, p.signalsBefore, `the process's SIGTERM and SIGINT listeners before and after requiring the runner and calling defaultDeps() (${adr6('D10')}: the handlers are registered inside run(), never at module top level)`);
 });
 
 async function run() {

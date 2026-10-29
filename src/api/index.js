@@ -553,6 +553,16 @@ async function register(app) {
     const taggingEdgesDrift = require('./tagging-edges/drift');
     app.get('/api/tagging-edges/drift-counts', adminApi.requireOwnerOrAdmin, taggingEdgesDrift.handleDriftCounts);
 
+    // ── Running and stopping the gap-filling pass (tagging-edges #6, ADR tagging-edges/0006 D6, D9, D13) ──
+    // Two owner-or-admin actions (the handlers re-check: signed in, owner or admin, same host; no loopback) — Run, which
+    // lines up a pass and is refused while one is waiting or running, and Stop, which stops exactly the passes its
+    // prompt showed — and an owner-or-admin read of who started and stopped each pass. Who is never on a public route;
+    // the public status shows only what is busy (control).
+    const taggingEdgesPass = require('./tagging-edges/pass');
+    app.post('/api/tagging-edges/pass/run', adminApi.requireOwnerOrAdmin, taggingEdgesPass.handlePassRun);
+    app.post('/api/tagging-edges/pass/stop', adminApi.requireOwnerOrAdmin, taggingEdgesPass.handlePassStop);
+    app.get('/api/tagging-edges/pass/record', adminApi.requireOwnerOrAdmin, taggingEdgesPass.handlePassRecord);
+
     // ── BullBoard (task queue operations UI) — owner+admin at /admin/queues ──
     // Story #13 / ADR 0010 (mount). Story #18 / ADR 0016 widened the gate from
     // owner-only to owner+admin via requireOwnerOrAdmin. Admin-management

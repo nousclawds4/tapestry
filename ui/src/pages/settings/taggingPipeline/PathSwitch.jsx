@@ -16,7 +16,7 @@ import { BackstopVerdict } from './ScheduleSection.jsx';
 
 /**
  * The normal prompt's middle (story 5 AC-2 "Normally"): what is kept, and what keeps the graph in step meanwhile.
- * `schedPending` is true while the schedule list's first read has not answered.
+ * `schedPending` is true while the schedule list is being read (its first read, or a Retry; ADR 0006 D20).
  */
 function WhileOff({ sched, schedPending }) {
   return (
@@ -107,8 +107,9 @@ function Outcome({ outcome }) {
 
 /**
  * `view` is pathView of the path status body; `statusRead` is the pass status read (for the warning beside "Turn
- * on"); `sched` is scheduleView of the schedule list, or null, and `schedPending` is true while that list's first
- * read has not answered; `change` is the panel's { target, pending, outcome }; `onSwitch(on)` sends a change.
+ * on"); `sched` is scheduleView of the schedule list, or null, and `schedPending` is true while that list is being
+ * read (its first read, or a Retry); `change` is the panel's { target, pending, outcome }; `onSwitch(on)` sends a
+ * change.
  */
 export default function PathSwitch({ view, body, statusRead, sched, schedPending, change, onSwitch }) {
   const [asking, setAsking] = useState(false);

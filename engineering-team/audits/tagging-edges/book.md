@@ -47,7 +47,9 @@ authorized and taken the same day (numbers in story 1's Background).
       may also see the panel, turn the real-time path on and off, run a pass and stop one; confirming held removals
       stays the owner's. Delivered as story 4, the panel, and story 5, the controls.)* *(Amended 2026-10-01 at story
       5's Planning, the owner: the controls are split by what they act on. Story 5 is the real-time path's switch,
-      and story 6 is the pass's run, stop and confirm.)*
+      and story 6 is the pass's run, stop and confirm.)* *(Amended 2026-10-02 at
+      story 6's Planning, the owner: the pass's controls are split again. Story 6 is running and stopping a pass,
+      and story 7 is confirming held removals.)*
 - [ ] **Nothing else moves.** Follows / mutes / reports ingestion is unchanged; no trust, point-of-view or
       count is stored on the new relationships (principles 1–3); nothing locally authored in Neo4j is destroyed
       (principle 4, BIBLE §30).

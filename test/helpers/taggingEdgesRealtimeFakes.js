@@ -1257,13 +1257,18 @@ function makeWorld(o = {}) {
     w.alivePasses.set(runId, run.process);
     return run;
   };
-  /** The pass ends: endedAt is written after its last write, and it is no longer alive. */
-  w.passEnd = (runId) => {
+  /**
+   * The pass ends: endedAt is written after its last write, and it is no longer alive. The final record's outcome,
+   * reasonCode and stopped default to a pass that finished ('done', 'done', false). A pass stopped on request at a
+   * safe point ends through finish() too: { outcome: 'stopped', reasonCode: 'requested', stopped: true } (ADR
+   * tagging-edges/0006 D10 "stopNow()").
+   */
+  w.passEnd = (runId, { outcome = 'done', reasonCode = 'done', stopped = false } = {}) => {
     const run = findRun(runId);
     if (!run) throw new Error(`passEnd: no run ${runId} in the report`);
     run.endedAt = iso(w.clock.t);
     run.durationMs = Date.parse(run.endedAt) - Date.parse(run.startedAt);
-    run.outcome = 'done'; run.reasonCode = 'done'; run.stopped = false; run.running = false;
+    run.outcome = outcome; run.reasonCode = reasonCode; run.stopped = stopped; run.running = false;
     w.alivePasses.delete(runId);
   };
   /** The pass is killed mid-run: endedAt stays null (ADR 0002: a killed pass keeps endedAt null). */

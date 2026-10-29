@@ -942,6 +942,8 @@ and 11).
     reads (`status`, `realtime/status`, `held`), the schedule list (`/api/scheduled-tasks/list`), and the gated
     `drift-counts`. Story 5 adds the switch's POST, widened to owner or admin, and its gated GET of who changed it.
     The pass's run, stop and confirm are story 6's.)*
+    *(Amended by `tagging-edges/0006`, 2026-10-28: story 6 adds the pass's Run and Stop POSTs and a gated record GET,
+    and story 7 adds Confirm. The path is unchanged.)*
   - The pass's two race residuals shrink from "until the next pass" to about a minute after each pass.
 - **Constrains.**
   - The path depends on the pass's port and pure modules staying the single place for `TAGS` Cypher and decisions.

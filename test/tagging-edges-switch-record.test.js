@@ -69,7 +69,10 @@
  *
  * Review round 1 (engineering-team/reviews/tagging-edges/5-real-time-path-switch.md):
  *   - Blocking 1: SR34's case rows each name their own first status (status1), which the assertion reads. It is never
- *     derived from the expected body, which gate-result-record's C9 refuses in every test file (row 263).
+ *     derived from the expected body. (Corrected at story 6's Test Design, 2026-10-27, C5-2.) gate-result-record's C9
+ *     (row 263) refuses one spelling of such a derivation: a ternary on a success flag, its pattern a `?` and then
+ *     `200 : 500`, in every test file it scans (all but its own and stack-free-npm-test's). It does not see another
+ *     spelling. The rows' literal statuses, not C9, are what keep SR34 from deriving its status in any spelling.
  *   - Requested 12: SR4 gains two pins for readings the implementation already has, an off with no onSince and a
  *     version 1 record with role null, each a change not recorded.
  *
@@ -1359,8 +1362,10 @@ test('SR34: two changes at once are serialised — two POSTs issued without awai
     const [ra, rb] = await Promise.all([pa, pb]);
     checkNoStrays(c.name);
     const p = [];
-    // Each row names its own first status (review round 1, blocking 1): gate-result-record's C9 refuses deriving a
-    // status from a body's success flag in any test file (row 263), so it is never derived from want1 here.
+    // Each row names its own first status (review round 1, blocking 1), so it is never derived from want1 here, in any
+    // spelling. (Corrected at story 6's Test Design, 2026-10-27, C5-2.) gate-result-record's C9 (row 263) refuses only
+    // one spelling, a `?` and then `200 : 500`, in the test files it scans; the row's literal status is what keeps this
+    // from deriving it another way.
     if (ra.statusCode !== c.status1 || exact(ra.body) !== exact(c.want1)) {
       p.push(`the first should answer ${c.status1} ${show(c.want1)}; answered ${showRes(ra)}`);
     }
