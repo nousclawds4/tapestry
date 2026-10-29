@@ -236,13 +236,13 @@ test('D2: BIBLE.md — § Assistant Keys, the glossary b-tag row and §25 say wh
   assert(/curated-dlist-update #2/.test(updated), 'AC-6: BIBLE\'s Last updated records the change (curated-dlist-update #2)');
 });
 
-test('D3: assistant-designation.md — Deployment status says the endpoint writes pointer since story 2 and nothing copies items yet', () => {
+test('D3: assistant-designation.md — Deployment status says the endpoint writes pointer since story 2, and Update publishes copies since story 6 (re-aimed by the 2026-10-29 memory sweep)', () => {
   const s = src(DESIGNATION);
   const i = s.indexOf('## Deployment status');
   assert(i >= 0, 'protocols/drafts/assistant-designation.md keeps its Deployment status section');
   const sec = s.slice(i);
   assert(!sec.includes('the header endpoint still writes the earlier `inherit-items` link'), 'AC-6: the "still writes the earlier inherit-items link" sentence is gone');
-  assert(/since `curated-dlist-update` story 2/.test(sec) && /nothing copies items yet/.test(sec), 'AC-6 / ADR §Implementation 7: "since `curated-dlist-update` story 2 … nothing copies items yet"');
+  assert(/since `curated-dlist-update` story 2/.test(sec) && /since story 6/.test(sec) && !/nothing copies items yet/.test(sec), 'AC-6, re-aimed: "since `curated-dlist-update` story 2 … since story 6" (Update publishes copies; ADR 0006)');
 });
 
 /* ── R: sentinels (pass before and after) ──────────────────── */
