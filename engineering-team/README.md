@@ -70,6 +70,10 @@ For **big-picture protocol/spec changes** — evolving `BIBLE.md` + ADRs rather 
 - **Before a full run against a running stack, check `GET /api/strfry/router-status`.** The live tag suites publish signed kind 39999 fixtures to the local relay, and strfry-router uploads every stored event that matches an enabled `up` or `both` stream; through dcosl they reach the public hosts. The local-only publish guard does not stop this (OPEN.md row `2026-09-27-test-fixture-taggings-on-prod-relays` names the eleven suites). With such a stream enabled, don't start a full run: run the suites the change touches one by one (grep each for `strfry/publish` and `nak` first), leave the full run to CI's stack-free job on the PR, and say so wherever the verdict is recorded.
 - **Copy checks don't see `\'`.** Seven suites (four `curated-dlist-update-*`, two `my-curated-dlists-*`, and `my-assistants-actions`) find UI strings in the source with an apostrophe pattern that accepts `'`, `’`, `&apos;` and `&#39;`. A string written `'can\'t'` does not match it, so write such strings in double quotes, in a template literal, or with `’`.
 
+## Screenshots in a pull request
+
+The repo is public and keeps almost no images, so a PR's screenshots stay off the feature branch. Commit them to an orphan branch `pr-assets/<name>`, built with git plumbing (`git hash-object -w`, `git mktree`, `git commit-tree`) so no working tree is touched, and push it to the repo the PR is on. Embed them as `https://raw.githubusercontent.com/nousclawds4/tapestry/<sha>/<file>`: the repo moved there on 2026-10-23, and a URL naming the old `nous-clawds4` account points at the old repo, now a mirror that need not carry the branch. Delete the branch once the PR has shipped (precedent: ledger row `2026-09-27-delete-pr-assets-dictionary-branch`).
+
 ## How the phases connect
 
 ```
