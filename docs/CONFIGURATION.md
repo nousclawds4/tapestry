@@ -9,16 +9,18 @@ Set in `docker-compose.yml` under `environment`:
 | `OWNER_PUBKEY` | ✅ | — | Hex pubkey of the instance owner. Determines who gets Owner role in the UI. |
 | `NEO4J_PASSWORD` | ✅ | — | Password for Neo4j database. Used by the Express API. |
 | `DOMAIN_NAME` | No | `localhost` | Domain name for the instance. Used in nginx config. |
-| `BRAINSTORM_PUBLISH_LOCAL_ONLY` | No | unset (publish externally) | When exactly `true`, all Nostr publishing stays on the **local relay only** — no external fan-out. See "Publish policy" below. |
+| `BRAINSTORM_PUBLISH_LOCAL_ONLY` | No | unset (publish externally) | When exactly `true`, the app's publish paths write to the **local relay only** — no external fan-out. The strfry-router is not covered: see "Publish policy" below. |
 
 ### Publish policy (external-publish guard)
 
 `BRAINSTORM_PUBLISH_LOCAL_ONLY` is an **opt-in local-only guard** (event-tagging ADR 0002). It governs whether the client's publish path (`ui/src/utils/nostrPublish.js`) fans out to external/public relays in addition to the local strfry.
 
 - **Unset / anything but `true` (default):** publish externally, exactly as production does. Existing deployments need no change.
-- **`true`:** every publish path (pubkey tags, tag pins, profile actions, concept publish, …) writes to the local relay **only**. Nothing reaches a public relay.
+- **`true`:** every publish path (pubkey tags, tag pins, profile actions, concept publish, …) writes to the local relay **only**.
 
-**Recommended for local dev** so your dev key never appears on public relays. Set it in `docker-compose.override.yml` (a gitignored, per-machine file) under the `tapestry` service:
+**The guard does not cover the strfry-router** ([Router Presets](#router-presets)). Any enabled `up` or `both` stream uploads whatever lands in local strfry, whoever wrote it, so events can still reach public relays with the guard on. The live tag suites' fixtures, posted to `/api/strfry/publish`, reach `wss://dcosl.brainstorm.world` this way through any `both` stream for kind 39999, such as the shipped `dcosl` preset once enabled. To keep a stack's events local, also turn off its `up` and `both` streams; `GET /api/strfry/router-status` lists them. (Event-tagging ADR 0002 puts router redistribution out of scope.)
+
+**Recommended for local dev**, together with no `up` or `both` router streams, so your dev key never appears on public relays. Set it in `docker-compose.override.yml` (a gitignored, per-machine file) under the `tapestry` service:
 
 ```yaml
 services:
