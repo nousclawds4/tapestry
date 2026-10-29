@@ -12,7 +12,7 @@ A review file at `engineering-team/reviews/<epic-slug>/<n>-<slug>.md` (same epic
 
 ## Steps
 
-1. **Run the gate yourself:** `npm test` (and `npm run test:playwright` if applicable). Record actual results in the review — the run's `npm run gate:status` line (run id + verdict), per [Running and reading the test gate](../README.md#running-and-reading-the-test-gate).
+1. **Run the gate yourself:** `npm test` (and `npm run test:playwright` if applicable). Record actual results in the review — the run's `npm run gate:status` line (run id + verdict), per [Running and reading the test gate](../README.md#running-and-reading-the-test-gate). Against a running stack, check `GET /api/strfry/router-status` first, as in [workflow 4 step 7](4-implementation.md#steps); when it rules the full run out, run the diff's suites one by one through their `run()` export, rest the full verdict on CI's stack-free run, and say so in the review.
 2. **Walk the diff file by file.** Note anything unclear.
 3. **Spec check.** Every acceptance criterion has a test? Every test passes?
 4. **ADR check.** Files match? Layering matches? No unauthorized new deps?

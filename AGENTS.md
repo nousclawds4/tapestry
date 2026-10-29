@@ -6,15 +6,13 @@ This file is for AI agents working on the Tapestry codebase. Read it before doin
 
 ## 1. Find the local instance's port and TA pubkey first
 
-The control panel API runs on a port set by `CONTROL_PANEL_PORT` in `/etc/brainstorm.conf` (a Tapestry deployment generates this from `config/brainstorm.conf.template` at first container startup). The default in the template is `7778`, but **don't assume it** — different deployments and dev setups override it. Find it before you start:
+The control panel API runs on a port set by `CONTROL_PANEL_PORT` in `/etc/brainstorm.conf` (a Tapestry deployment generates this from `config/brainstorm.conf.template` at first container startup). The template does not set it, so the code default `7778` (`bin/control-panel.js`) applies — but **don't assume it**: different deployments and dev setups override it. Find it before you start:
 
 ```bash
 # Preferred — the running config
 grep -E '^export CONTROL_PANEL_PORT=' /etc/brainstorm.conf 2>/dev/null \
   || grep -E 'CONTROL_PANEL_PORT' bin/control-panel.js   # code default: 7778
 ```
-
-(`config/brainstorm.conf.template` does not set `CONTROL_PANEL_PORT`; the code default lives in `bin/control-panel.js`.)
 
 Set it as an env var for the rest of the session so the examples below work:
 
@@ -28,7 +26,7 @@ You will also need the **Tapestry Assistant (TA) pubkey** for this instance. Eve
 curl -s http://localhost:$TAPESTRY_PORT/api/assistant/pubkey
 ```
 
-The TA is per-deployment — created at first container startup by `setup/create_nostr_identity.sh` and stored as `tapestry-assistant`. Never hardcode the value.
+The TA is per-deployment — created at first container startup by `setup/create_nostr_identity.sh` and stored as `tapestry-assistant`. Never hardcode the value. Each developer's local stack mints its own, so a doc that records something seen on "localhost" (an ADR, a ledger row, a handoff) may describe another machine's stack: before trusting it, or concluding that something vanished here, check that the TA pubkey inside its handles is yours.
 
 ---
 
@@ -80,6 +78,8 @@ Full node content including the `json` tag (word-wrapper format with schema, pro
 
 **Don't hardcode the port or TA pubkey.** Discover both per §1.
 
+**Don't run a test suite as `node test/<suite>.test.js`.** 144 of the 319 suites (2026-10-29) export `run()` with no `require.main` block, so that loads the file and exits 0 having run nothing (OPEN.md row 310); `npm test -- <file>` runs every suite instead. Call `run()`: [README § Running and reading the test gate](./engineering-team/README.md#running-and-reading-the-test-gate).
+
 ---
 
 ## 5. Handle format
@@ -88,7 +88,7 @@ Handles are stable Neo4j node UUIDs in the format `kind:pubkey:slug`:
 - `39998:<TA pubkey>:nostr-relay` — a ConceptHeader (kind 39998)
 - `39999:<TA pubkey>:nostr-relay-schema` — a core node (kind 39999)
 
-The `pubkey` segment is always this instance's TA pubkey (see §1). Once you have it, you can construct handles deterministically from slugs.
+The `pubkey` segment is always this instance's TA pubkey (see §1). Once you have it, you can construct handles deterministically from slugs. In a shell, brace the variable that holds the TA pubkey: `"39998:${TA}:tapestry-assistant"`. zsh reads an unbraced `$TA:` followed by one of `a c e h l q r s t u A P Q` as a modifier on `$TA` and mangles the handle (`…apestry-assistant`), and the API answers 200 with empty neighbors (OPEN.md row 237). Brace git refspecs the same way: `"${SHA}:refs/heads/<branch>"`.
 
 ---
 

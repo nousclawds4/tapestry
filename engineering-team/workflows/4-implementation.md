@@ -15,7 +15,7 @@ Implementer. See `engineering-team/roles/implementer.md`.
 
 ## Steps
 
-1. **Run `npm test`** first. Confirm what's actually failing right now.
+1. **Run `npm test`** first (or, when step 7's router check rules a full run out, the story's suites one by one). Confirm what's actually failing right now.
 2. **Re-read story, ADR, test plan** before touching code.
 3. **Orient via the Concept Graph** if the change touches concepts. Call `/summaries` first.
 4. **Write the smallest code** that makes the tests pass while honoring the ADR.
@@ -28,7 +28,7 @@ Implementer. See `engineering-team/roles/implementer.md`.
    - Concept Graph API at `localhost:$TAPESTRY_PORT` is authoritative (port per AGENTS.md §1).
    - Run `curl -X POST http://localhost:$TAPESTRY_PORT/api/firmware/install` after changing concept definitions (if the stack isn't running, record the pending reinstall in OPEN.md).
    - No new lint/typecheck/build tooling without an ADR.
-7. **Run the gate:** `npm test`, and read its verdict from the run record (`npm run gate:status`; [Running and reading the test gate](../README.md#running-and-reading-the-test-gate)). Must be clean. If not, fix it before claiming done.
+7. **Run the gate:** `npm test`, and read its verdict from the run record (`npm run gate:status`; [Running and reading the test gate](../README.md#running-and-reading-the-test-gate)). Must be clean. If not, fix it before claiming done. Against a running stack, check `GET /api/strfry/router-status` first: with an enabled `up` or `both` stream, the live suites' fixtures reach public relays (OPEN.md row `2026-09-27-test-fixture-taggings-on-prod-relays`). Then run the touched suites one by one instead, let CI's stack-free job run the full gate on the PR, and record that in the story's Deviations.
 8. **If forced outside the ADR,** stop and escalate. The ADR needs amending before you continue.
 9. **Hand off:** `/review-changes`.
 
