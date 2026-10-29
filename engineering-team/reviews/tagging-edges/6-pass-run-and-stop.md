@@ -473,3 +473,232 @@ Requested changes 1–16 are record and accuracy fixes, asked in the same round.
 - **the Architect:** blocking 1's D2 note and Consequences fix, and the T12 note in 7.
 
 The ratified staging evidence must exist before staging is promoted to main.
+
+## Re-review, round 2 (2026-10-28)
+
+**Diff:** `git diff 2a361338..d981a01d`. `2a361338` is round 1's review. The fix round's commits are:
+- the tests, `2cbf6124`;
+- the ADR notes, `17dd5017`;
+- the implementation, with two ledger edits, `54497217`;
+- seven new ledger rows and one sighting, `1d4170c3`;
+- the evidence, with a second sighting, `d981a01d`.
+
+**How it was reviewed.**
+- **The lanes.** Five read-only lanes:
+  - two re-derived every round-1 ask from code, commands and records, as reviewer rule 10 asks, round 1's own
+    suggested wording included (one took code and tests, the other docs and records);
+  - two hunted for new problems in the fix round (one in code, one in records);
+  - one ran every gate on its own.
+- **The verifiers.** Every finding went to a verifier who tried to refute it.
+  - Of 16 findings, 15 held and 1 was refuted. After deduplication they are 2 requested changes and 9
+    carry-forwards.
+  - **The refuted one.** The gates lane said the browser recipe deletes the last `results.json` and writes no new
+    one. The documented recipe has no `--reporter=line`; the lane added it. What the verifier found instead is
+    harness friction 1.
+- **Where the lanes split on an ask.** The docs-and-records lane rated requested changes 4 and 7 "partly". Its
+  verifier rated both fixed: each asked change is there, and each residual is a new follow-up (carry-forwards 1 and
+  2). The records hunt's verifier agreed that 4 is "partly", for the same phrase. I count both as fixed, because both
+  verifiers rate the residual a follow-up.
+- **Nothing was cut.** Every lane's result and its verdicts reached the writer whole. Round 1's harness friction 1 did
+  not recur.
+
+### Quality gates (run by reviewer, not trusted)
+
+- [x] **`npm test`, run by the Reviewer on a clean tree:** `20261028T234341Z-39839-5c2b [story6-review2] started
+  2026-10-28T23:43:41.499Z on d981a01d — FAIL, exit 1, 6679 passed, 36 failed, 168 skipped, 315/315 suites; failed:
+  nip51-list-export-from-pins, router-stream-limit-on-connect, relationship-primitives-probe, capture-a-goal-and-see-it,
+  structures-the-brain-can-trust, break-a-goal-into-pieces, attach-the-world, sessions-read-the-brain,
+  teach-it-what-matters, the-brain-survives, return-the-four-on-every-read-surface,
+  show-the-four-on-the-goal-screens-that-already-exist, not-yet-shared-filter, concept-count-canonical,
+  summaries-element-count`. The record reads dirty false, `strayErrors: []`.
+  - **It measured this round's code.** The control panel (pid 1779190) was spawned at 23:11:49Z (`supervisord.log`),
+    22 s after `54497217`, the last commit that touches `src/` or `bin/`.
+  - **It matches the fix round's run** `20261028T231211Z-47881-872a` (`1d4170c3`, dirty 1), suite by suite: the same
+    verdicts, counts and failing names. Only `router-stream-limit-on-connect`'s raw messages differ, in their temporary
+    folder names.
+  - **Against round 1's run `dcd1`** (`5e0e0fdd`), only two suites change: `tagging-edges-pass-control` 71 → 73 (CT69,
+    CT70) and `tagging-edges-wiring` 84 → 86 (SWR85, SWR86).
+  - **The 15 failing suites are round 1's,** all outside this story:
+    - the 404-to-401 default-deny (ledger `2026-10-28-live-tests-expect-404-not-401`);
+    - macOS `sed` (ledger `2026-10-09-router-patch-sed-macos`);
+    - the 12 standing live-stack suites.
+
+    `nip51-list-export-from-pins` is recorded with `failures: []`. The log names the public-relay test, as in round 1.
+- [x] **Story suites, run singly** through `run()` on Node 22.23.3 at `d981a01d`: 12 suites, 738 passed, 0 failed.
+  - **The counts.** pass-control 73, pass-routes 40, job-gate 27, runner 87, wiring 86, state-routes 62, view 110,
+    fetch 31, panel-source 38, realtime-engine 83, codes 54, switch-record 47. They match the gate records and story
+    § Evidence (`:453-462`).
+  - **Around them.** The fakes' self-check gives 19 passed, 0 failed. Five task-queue suites that the processor change
+    could reach pass too: bullmq 18, neo4j-resource-class 15, kill-timeout 9, scheduled-tasks-with-arguments 37,
+    timeout-propagation 11.
+  - **The fix round's tests have teeth.** HEAD's tests on `2a361338`'s `src` (a `git archive` tree) give pass-control
+    71/2 (CT69, CT70) and wiring 84/2 (SWR85, SWR86), as test plan `:470-471` says. One-site mutations that put back
+    each old line were each caught (details in the asks table).
+- [x] **`npm run test:playwright`:** `tests/brainstorm/tagging-pipeline-panel.spec.js`, once this round: 121 tests,
+  120 passed, 1 failed, 0 flaky.
+  - **The build.** Built inside the container from `d981a01d`. The bundle is `index-CHcumCZ-.js`, the same as round 1's
+    build and the one the local stack serves. `git diff --stat 5e0e0fdd HEAD -- ui tests` is empty, and the shared
+    fixtures helper changed in comments only.
+  - **The one failure is B39** (`:3319`, assert at `:3353`), red before this story. It fails on the `sync` sub-tab's
+    extra `GET /api/strfry/negentropy-presets` (ledger `2026-10-28-relay-subtab-baseline-stale`).
+- [x] **`scripts/harness-lint.sh`:** exit 0.
+
+### Review 1's asks
+
+| Item | Now |
+|---|---|
+| Blocking 1, the code | Fixed. `waitForRun` (`control/index.js:560`), `signal` (`:574`) and the stop entry (`:621`) compare the report's `job.id` with the item's own `jobId`. The `run:` rule stays. `jobIdOf` is gone from `src`; its only callers were those three. Round 1's probe now answers `asked-to-stop` with one kill for `reconcileTaggingEdges@x`. |
+| Blocking 1, the case | Fixed. CT69 covers a running pass, a starting pass, and a running pass with no entry. On `2a361338`'s controller it fails all 3 cases: `too-late` with no signal, a stop entry with `jobId` `reconcileTaggingEdges`, and 409 `pass-not-reachable`. Putting `jobIdOf(a.key)` back at any one of the three sites makes it fail. CT45, retitled, still passes. |
+| Blocking 1, the ADR | Fixed. D2's note (ADR 0006 `:390-398`), R9 (d) (`:1438-1457`) and the corrected Consequences (`:1557-1561`) match the code. R9 (d)'s 400, 409 and both-waiting answers match `stopStep` and `validateStop` (`pass.js:99-100`). |
+| Blocking 2 | Fixed. `BIBLE.md:321` and `OPERATIONS.md:751` match `reconcileTaggingEdges.js:43`, `:68` and `:156`. The processor's new skip (an id with NUL, or over 200 code units) also falls outside D10's pattern, so the wording covers it. A read-only status GET shows the story-6 runs with `job`, and the 2026-09-28 runs with no `job` member. |
+| Requested 1 | Fixed. Story `:645-647`, with a dated note. `TaggingPipelinePanel.jsx:201` requires `busy.known` at every committed tree. |
+| Requested 2 | Fixed. Story `:633-636` matches `PASS_ACTION_TONE` (`taggingPipelineView.js:714-715`). |
+| Requested 3 | Fixed. Story `:592-597` matches `controlOf` (`src/api/tagging-edges/index.js:201-208`). |
+| Requested 4 | Fixed. D5's note (ADR 0006 `:504-507`) records that the in-memory marks are read at classification, after the queue reads. CT11 still pins the I/O order. One phrase in the note is imprecise (carry-forward 1). |
+| Requested 5 | Fixed. `toIso` (`control/index.js:56`) returns null for an invalid Date, and every remaining `iso()` call takes a clock value. On `2a361338`, CT70 fails with "Invalid time value" (the snapshot rejects; Run, confirm and Stop answer 500; `beforeAcquire` rejects). It passes at HEAD. Mutations that put back the old `toIso`, or `iso()` at the schedule start, the give-up time or `recordStart`, are each caught. The fix makes two corners reachable: requested change 1 below and carry-forward 3. |
+| Requested 6 | Fixed. `processor.js:139-140` leaves the variable out for an id that holds NUL. SWR85 fails on `2a361338` and passes at HEAD. Node 22, which the images run, throws on a NUL env value inside the spawn's Promise executor, so the job fails; the host's Node 16 does not throw. |
+| Requested 7 | Fixed. ADR 0004 T12's note (`:838-842`) and ADR 0005's (`:733-734`) name a fault in the driver itself, and point at `taggingPipelineView.js:220`, the `no-status` entry. PC55's title is reworded (`test/tagging-pipeline-codes.test.js:931`), body unchanged. Test plan `:85` says C5-6 was taken. ADR 0006 does not list the two notes (carry-forward 2). |
+| Requested 8 | Fixed. Test plan `:77`. A static require walk of `control/*.js`, `pass.js` and `jobGates.js` (28 files) reaches no graph or Neo4j module. |
+| Requested 9 | Fixed. Test plan `:285` says "ledger row". |
+| Requested 10 | Fixed. Every run id, tree, start time, total and dirty flag in § Evidence "The gate" matches `tmp/gate-runs`. The restarts at 14:41:54Z and 23:11:49Z come from `supervisord.log`. The seven non-story differences are as named, each "got 401" where the test wants 404. The browser runs cited exist (one at Implementation, two in round 1's gate lane). |
+| Requested 11 | Fixed. The row names the hidden sub-tabs, the nil risk and `expect.soft`. B39 is at `:3319`, the order at `:3286`, the plain checks at `:3352-3354`. |
+| Requested 12 | Fixed. The row is DONE (story 6, D8), and says story 7 re-checks it. `confirmStep` (`control/index.js:521-538`) joins only a busy item with no stop asked, and otherwise lines up a new key. |
+| Requested 13 | Fixed. Story `:509-512`. CT37's title and CT41 pin one SIGTERM. |
+| Requested 14 | Fixed. Story `:526-533`. The container log's lines that carry the owner's key come from those sources only. |
+| Requested 15 | Fixed. `OPERATIONS.md:731`. |
+| Requested 16 | Fixed. Story `:453` and `:462`. |
+| Non-blocking 1–2 | Not asked and not taken, as round 1 allowed. No ledger row names them yet. |
+| Outside 1 | Filed as ledger `2026-10-28-live-tests-expect-404-not-401`. Every cited line holds, and no row on `origin/staging` duplicates it. |
+| Fix round: the 200-code-unit bound | Holds. `processor.js:140`; SWR86. Mutations to `>= 200`, `> 201`, a code-point count or a NUL-only guard each fail it. In the container (Linux 6.8), one env string of 131072 bytes gives `E2BIG` and one of 131071 runs. BullMQ 5.76.10 has no id-length check. The pass (`reconcileTaggingEdges.js:48`) is the variable's only reader, and its pattern stops at 200. |
+| Fix round: the finishing-window check | Holds. `control/index.js:387` compares with `String(job.id)`. Outside R9 (d) that equals the id stored under the key (`gate.js:33`, `:47`), so pass-control is 73/0 either way. It is unpinned, as test plan `:129` says. |
+| Fix round: BIBLE §11, Last updated, helper comments | Hold. `BIBLE.md:672`'s "or null when it cannot be dated" matches the served times. Both Last-updated lines read 2026-10-28. The two helper diffs are comment-only. |
+| Fix round: the local stack | Holds. `report.json`, `record.json` and `events.jsonl` agree with every time, id and outcome in § Evidence for run `20261028T232535Z-17e8e4b6`. |
+| Fix round: the other ADR and story notes | Hold, except two gaps in what they say about undatable times (requested changes 1 and 2). |
+| Harness friction 1–10 | Filed (§ Harness friction below names the rows). |
+
+### Requested in this round (non-blocking: record fixes before ship)
+
+1. **An undatable job's start is recorded at pickup time, and no record says so**
+   (`src/pipeline/tagging-edges/control/index.js:300`, reached from `gate.js:30-31`). This is an unrecorded deviation
+   from ADR 0006 D3. (Found by two lanes; both verifiers rated it requested.)
+   - **The problem.**
+     - D3 (ADR 0006 `:444-449`) records a scheduled job's start at the id's millis, and another job's at
+       `job.timestamp`.
+     - As built, `recordStart` writes `toIso(atMs) || iso(d.now())`. When the time is one a Date cannot hold, that is
+       the pickup time.
+     - Before the fix round this corner threw. Now an owner's or admin's BullBoard add (R3) reaches it.
+     - The Stop makes the opposite choice for the same job: it leaves the schedule start out (`:625`). So the panel
+       reads "Started by the schedule at <pickup time>" when the gate wrote the start (`taggingPipelineView.js:839-843`),
+       and "Started by the schedule" with no time when the Stop wrote the entry (`:943`).
+     - D12's fix-round note (ADR `:803-808`) and the story's Deviations bullet (`:712-718`) name only the Stop's choice.
+     - CT70 pins only "a valid ISO time" (test header `:112`). A mutation that falls back to `iso(0)` passes 73/0.
+   - **Reproduced.** Probes at HEAD with an injected clock (scratch `rev6r2/verify-asks-code/scripts/f1.js`,
+     `rev6r2/hunt-code/probes/pickup-start.js`). Both `repeat:sched:99999999999999999` and a job with timestamp 1e17
+     answer `go`, and record `at` as the pickup clock. Each is served `since: null`. On `2a361338` both throw.
+   - **Asked change.**
+     - **The Architect.** One clause at D3, or in D12's note: at pickup, a start whose time a Date cannot hold is
+       recorded at the pickup time. Or decide to leave the time out, as the Stop does, and route that as a code change.
+     - **The Implementer.** The same clause in the Deviations bullet.
+     - **The Tester, optionally.** Have CT70 pin which time is written.
+2. **Story `:716-718`: the confirm route never answered 500 for this.**
+   - **The problem.**
+     - The bullet says an undatable time, before the fix, could "make Run, Stop and the confirm route answer 500".
+     - Run and Stop pass the controller's status through (`pass.js:131`, `:179`), so that half holds.
+     - The confirm route does not. `handleConfirmHeldRemovals` (`src/api/tagging-edges/index.js:346-364`) catches the
+       controller's 500 or rejection and answers 200 `{success: true, confirmed: true, enqueued: false}`. The
+       confirmation is written and stays pending, and no pass is lined up.
+   - **Where it came from.** Round 1's requested change 5 said the same, and the fix round adopted it word for word
+     (reviewer rule 10). This round corrects it. No other record repeats it.
+   - **Reproduced.** HEAD's pass-control suite on `2a361338`'s controller shows the controller's confirm start
+     answering 500. Scratch `rev6r2/asks-records/confirm-probe.js` (in-memory deps) shows the route turning a 500 or
+     a rejection into the 200 above.
+   - **Asked change (the Implementer).** Say that Run and Stop answered 500, and that the confirm route recorded the
+     confirmation but lined up no pass (`enqueued: false`). No code change.
+
+### Carry-forwards (non-blocking; for the owner to place)
+
+1. **D5's note says step 2 "only loads the record, on first use"** (ADR 0006 `:504`; the same phrase in
+   `control/index.js:338`).
+   - `loadRecord` (`:216-219`) also re-reads while the last read was unreadable or damaged.
+   - The note's point about read order holds.
+   - Say "on first use, and again while its last read was unreadable or damaged". (The Architect; the comment, the
+     Implementer.)
+2. **ADR 0006 does not list its two fix-round notes on ADRs 0004 and 0005.** § ADR 0004 (`:1225-1242`) and § ADR 0005
+   (`:1243-1259`) leave out the T12 note (0004 `:838-842`) and the 0005 note (`:733-734`), though both say "Amended by
+   `tagging-edges/0006`". Add one line under each. (The Architect.)
+3. **A give-up time a Date cannot hold now reads "at not recorded"** (`control/index.js:426`; `PassControls.jsx:121-124`
+   with `parts.jsx:23-26`).
+   - Only a hand-edited record can carry one.
+   - A later start never clears it, because `startedMs >= 1e17` is never true. Prune may keep the entry past the next
+     write (`:227-243`).
+   - It is better than round 1's throw. Optionally leave out "at …" when the time is null, or treat such a time as no
+     give-up. (The Implementer, a later story.)
+4. **When the guard drops the job id, an inherited `BRAINSTORM_TASK_JOB_ID` reaches the child**
+   (`processor.js:140`, `:147`).
+   - Round 1's code always overwrote it. So "the pass records `job: null`" (story `:719-722`, D10's note) holds only
+     when the worker's own environment has none.
+   - It cannot happen today. The entrypoint execs node (`docker/entrypoint.sh:266-269`), and nothing sets the variable.
+   - The tests cannot see it, because the wiring helper deletes the variable (`test/tagging-edges-wiring.test.js:2744-2745`).
+   - Optionally set it to `undefined` when it is dropped, and add an inherited-value case to SWR85. Or qualify the
+     sentence. (The Implementer.)
+5. **SWR86's red reason describes a tree that was never committed** (`test/tagging-edges-wiring.test.js:70`). At
+   `2cbf6124` the processor set the variable for every id. Test plan `:527-531` records the working-tree state, so only
+   the header misleads. (The Tester.)
+6. **Test plan `:129` opens with "D-a2:",** a label defined nowhere in the repo. Drop it, or point at the Deviations
+   bullet "The snapshot too". (The Tester.)
+7. **Test plan `:149`, the D12 row, does not map CT70,** though CT70's title cites D12 and D12 gained the matching note.
+   The D9 row leaves it out too. (The Tester.)
+8. **`BIBLE.md:668` and `:1510` say "no request joins a pass"** beside the confirm row's `joined: true` (`:675`).
+   "Join" means two things in one section. This predates the fix round. Optionally say "no start shares a job with
+   another". (The Implementer.)
+9. **The live-tier sighting says "three newly fail"** (`ledger/2026-09-20-live-tier-fails-on-stale-stack.md:201`).
+   `teach-it-what-matters` already failed H7 at the baseline; only H6 is new. Story `:470-471` and round 1 say so.
+   (Whoever next touches the row.)
+
+### Harness friction
+
+Round 1's ten are filed as the fix round's rows and sightings:
+- 1: `2026-10-28-workflow-truncates-lane-results`;
+- 2 and 10: `2026-10-28-browser-lane-recipe-and-run-record`;
+- 3 and 9: `2026-10-28-macos-shell-traps-in-recipes`;
+- 4 and 8: `2026-10-28-suite-results-omit-names-and-skips`;
+- 5: a sighting on `2026-09-20-live-tier-fails-on-stale-stack`;
+- 6: `2026-10-28-review-routed-follow-ups-unread` and `2026-10-28-panel-prompts-return-no-focus`;
+- 7: a sighting on `2026-10-11-reviewer-dispatch-tools-and-commit`.
+
+Their ids match their filenames, their types are valid, and none duplicates a row on `origin/staging`. New this round:
+
+1. **The new browser-lane row gets one cause wrong and misses one write**
+   (ledger `2026-10-28-browser-lane-recipe-and-run-record`). The gates lane's verifier found this while refuting that
+   lane's finding; I re-read the Playwright source.
+   - **Part 2 misdiagnoses `.last-run.json`** (`:23-25`). Playwright 1.56.1 writes it into the run's output folder
+     (`node_modules/playwright/lib/runner/lastRun.js:42`). A run with `--output <scratch>` puts it in scratch, while the
+     config's json reporter still writes the repo's `test-results/results.json`. That explains the ten-hour gap. The
+     wording came from round 1's harness friction 10.
+   - **Part 1 misses a second write into the repo.** The documented run passes no `--output`, so each run empties the
+     checkout's `test-results/` ("clear output", `node_modules/playwright/lib/runner/tasks.js:196-206`) and rewrites it
+     and `playwright-report/`. This round's browser run cleared the gitignored `test-results/` that way. No record cites
+     the removed files, and copies are in scratch.
+   - **What should change.** Add a sighting to the row. Give the recipe's scratch form `--output <scratch>`.
+
+## Verdict (round 2)
+
+**PASS**
+
+Both blocking items and all 16 requested changes from round 1 are fixed. Each was re-derived from code, commands and
+the run records, round 1's own suggested wording included. The fix round's own additions hold. Every story suite
+passes. The full gate on `d981a01d` differs from round 1's run only by the four new tests. The browser spec fails only
+B39, which was red before this story. No finding this round is blocking.
+
+The two requested changes are record fixes with no code change. They do not hold the verdict, but they should land
+before the merge to staging:
+- **Requested 1:** the Architect (one clause at D3 or in D12's note) and the Implementer (the Deviations bullet).
+  Optionally the Tester (have CT70 pin the time).
+- **Requested 2:** the Implementer (story `:716-718`).
+
+Whoever lands them re-derives the two changed sentences (reviewer rule 10). The 9 carry-forwards, and round 1's
+non-blocking 1–2, are for the owner to place.
+
+With this commit, the story's `**Status:**` (`:3`) becomes Done. The book is not complete: story 7 (Confirm) remains,
+so no close is offered. The ratified staging evidence (story § Evidence, "Left for staging", `:534-535`) must exist
+before staging is promoted to main.

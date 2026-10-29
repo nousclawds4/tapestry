@@ -1,6 +1,6 @@
 # Story 6: Running and stopping the pass, on the panel
 
-**Status:** Approved
+**Status:** Done
 **Created:** 2026-10-02
 **Type:** Feature
 
