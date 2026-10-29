@@ -1,11 +1,12 @@
 # Handoff — Tagging edges, stories 2–7 (Tapestry)
 
-**Status:** 🔴 OPEN: stories 1–5 are in production, and stories 6 (running and stopping the pass) and 7 (confirming held removals) are next. Story 5, the real-time path's switch (ADR `tagging-edges/0005`), reached production on 2026-10-02 (PRs #805 and #809). Story 4, the tagging pipeline panel (ADR `tagging-edges/0004`), shipped on 2026-10-01 (PRs #791 and #792). Story 3, the real-time path (ADR `tagging-edges/0003` with Amendment A1), shipped on 2026-09-30 (PRs #785 and #786), and the owner turned it on on both hosts that day. Story 2, the gap-filling pass, shipped on 2026-09-28 (PRs #780 and #781). Story 1, the `TAGS` edge contract, on 2026-09-27 (PRs #764 and #765). § 0 lists what is left.
+**Status:** 🔴 OPEN: stories 1–5 are in production. Story 6 (running and stopping the pass) is on staging with its staging evidence complete (2026-10-29, PR nousclawds4/tapestry#6), not yet on main, and story 7 (confirming held removals) is next. Story 5, the real-time path's switch (ADR `tagging-edges/0005`), reached production on 2026-10-02 (PRs #805 and #809). Story 4, the tagging pipeline panel (ADR `tagging-edges/0004`), shipped on 2026-10-01 (PRs #791 and #792). Story 3, the real-time path (ADR `tagging-edges/0003` with Amendment A1), shipped on 2026-09-30 (PRs #785 and #786), and the owner turned it on on both hosts that day. Story 2, the gap-filling pass, shipped on 2026-09-28 (PRs #780 and #781). Story 1, the `TAGS` edge contract, on 2026-09-27 (PRs #764 and #765). § 0 lists what is left.
 
 > **Repo metadata. Not part of the handoff text.**
 > - **Source.** The kickoff session of 2026-09-25 to 27 mapped the existing FOLLOWS / MUTES / REPORTS ETL read-only: seven area readers, an adversarial fact-check of 115 load-bearing claims (98 confirmed, 15 corrected, 2 unverifiable), and a completeness critique. It then took a read-only census of production, staging and tags.brainstorm.world, and shipped story 1. This file keeps that map, which otherwise lived only in the session.
 > - **Line numbers** were read at `origin/staging` `72469bde`; a docs-lane review checked every claim at `bb5db99a` (`engineering-team/reviews/tagging-edges/handoff-doc-2026-09-27.md`). Prefer the function names if lines have drifted.
 > - **When the book closes** (stories 2–7 done), flip the Status to ✅ ADDRESSED. `/whats-open` lists this file while it reads 🔴.
+> - **PR numbers.** A bare `#N` here is the old repo's, `nous-clawds4/tapestry`. Numbers restarted at #1 on `nousclawds4/tapestry` (created 2026-10-23), so its PRs are named in full (`nousclawds4/tapestry#N`), as OPERATIONS.md notes.
 
 ---
 
@@ -63,14 +64,15 @@ ADR `tagging-edges/0005`): the real-time path's switch for the owner or an admin
 of who changed it. Merged to staging at 04:00:58Z on 2026-10-02 (PR #805; deploy run `36962683151`, done 04:02:33Z).
 Merged to main at 15:31:54Z that day, through another session's promotion of all of staging (PR #809); its deploy, run
 `37027633805`, finished at 15:53:22Z. That was before the owner's half of its staging evidence (23:14Z) and before the
-evidence was recorded (PR #813, on staging, not yet on main). Production
+evidence was recorded (PR #813, since promoted to main). Production
 was then checked read-only, and was healthy. Ledger `2026-10-02-promotion-outruns-pre-main-evidence` records the gap.
 
-**Stories 6 and 7, next.** At story 5's Planning (2026-10-01) the owner split the controls on story 4's panel by what
-they act on. At story 6's Planning (2026-10-02) the owner split the pass's controls again:
-- **Story 6** (`engineering-team/stories/tagging-edges/6-pass-run-and-stop.md`) is running and stopping the pass,
-  for the owner or an admin: Run, Stop, the waiting and stopping states every viewer sees, who started or stopped each
-  pass, and the run-task route closed for this pass to anyone else.
+**Story 6 on staging, story 7 next.** At story 5's Planning (2026-10-01) the owner split the controls on story 4's
+panel by what they act on. At story 6's Planning (2026-10-02) the owner split the pass's controls again:
+- **Story 6** (`engineering-team/stories/tagging-edges/6-pass-run-and-stop.md`, review PASS 2026-10-28 after two
+  rounds; on staging since 2026-10-29, PR nousclawds4/tapestry#6, with its staging evidence complete; not yet on main)
+  is running and stopping the pass, for the owner or an admin: Run, Stop, the waiting and stopping states every viewer
+  sees, who started or stopped each pass, and the run-task route closed for this pass to anyone else.
 - **Story 7** (the epic's item 7, planned) is confirming held removals from the panel, for the owner only, after a
   prompt.
 
@@ -96,12 +98,12 @@ plan and test comments, ADR, one prompt and, optionally, one reason's copy, agai
 | What | Where |
 |---|---|
 | The book and its acceptance frame | [`engineering-team/audits/tagging-edges/book.md`](../engineering-team/audits/tagging-edges/book.md) |
-| The epic: stories 2–7, guardrails, each story's review carry-forwards (open: story 5's, under item 6) | [`engineering-team/epics/tagging-edges.md`](../engineering-team/epics/tagging-edges.md) |
+| The epic: stories 2–7, guardrails, each story's review carry-forwards (open: story 6's, for the owner to place) | [`engineering-team/epics/tagging-edges.md`](../engineering-team/epics/tagging-edges.md) |
 | The contract every writer must use (binding) | [ADR `tagging-edges/0001`](../engineering-team/decisions/tagging-edges/0001-tagging-edge-contract.md): "Binding for later stories", and clarifications 1–13 |
 | The edge as documented | BIBLE §6 "Social Graph Relationships (NostrUser → NostrUser)" |
 | The code | `src/lib/tagging-edges/` (`taggingToEdge`, `standingEdge`, `revokeApplies`, `revokeTargets`) and `test/tagging-edge-contract.test.js` |
 | Story 1's review items (carried into story 2, which shipped 2026-09-28) | [`engineering-team/reviews/tagging-edges/1-tagging-edge-contract.md`](../engineering-team/reviews/tagging-edges/1-tagging-edge-contract.md) § "Re-review": R2-NB1–3 (acceptance criteria) and doc nits R2-4–10 (story 2 docs tasks), as carried in the epic's item 2 |
-| Open review items for story 6 | [`engineering-team/reviews/tagging-edges/5-real-time-path-switch.md`](../engineering-team/reviews/tagging-edges/5-real-time-path-switch.md) § "Re-review, round 2": carry-forwards 1–10 (C5-1 to C5-10), as placed in the epic's item 6. Story 4's R2-1–R2-14 went to story 5, which shipped them. |
+| Open review items from story 6 | [`engineering-team/reviews/tagging-edges/6-pass-run-and-stop.md`](../engineering-team/reviews/tagging-edges/6-pass-run-and-stop.md) § "Re-review, round 2": carry-forwards 1–9, and round 1's non-blocking 1 and 2, for the owner to place. Story 5's C5-1 to C5-10 went to story 6, which shipped them to staging. Story 4's R2-1–R2-14 went to story 5, which shipped them. |
 | The census numbers | story 1's Background ([`stories/tagging-edges/1-tagging-edge-contract.md`](../engineering-team/stories/tagging-edges/1-tagging-edge-contract.md)) |
 
 ## 2. The existing ETL, as it actually works
