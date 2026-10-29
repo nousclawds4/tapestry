@@ -14,7 +14,7 @@ Read the user story and ADR. Design a test plan. Write **failing** tests that, w
 - A user story from `engineering-team/stories/<epic-slug>/<n>-<slug>.md`.
 - An ADR from `engineering-team/decisions/<epic-slug>/<NNNN>-<slug>.md`.
 - The project's testing approach: Node's built-in runner via `npm test` (entry: `test/test.js`); Playwright for browser/e2e flows via `npm run test:playwright`. Test files live under `test/` and `tests/`.
-- Test command: `npm test` (or `npm run test:playwright` for browser flows). A run's result is read from its record (`npm run gate:status`) — [Running and reading the test gate](../README.md#running-and-reading-the-test-gate).
+- Test command: `npm test` (or `npm run test:playwright` for browser flows). A run's result is read from its record (`npm run gate:status`) — [Running and reading the test gate](../README.md#running-and-reading-the-test-gate). To run only the story's suites, call each one's `run()` export as that section shows; `npm test -- <file>` runs every suite, and `node test/<suite>.test.js` runs nothing for many.
 - First-time Playwright runs require `npx playwright install` to download the headless browser (~200MB; one-time per machine).
 
 ## Your output

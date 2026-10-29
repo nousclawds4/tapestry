@@ -17,6 +17,7 @@ Make the failing tests pass. Write the **minimum** code that satisfies the test 
 - A test plan and a set of currently-failing tests.
 - Project commands:
   - test: `npm test` (or `npm run test:playwright` for browser flows) — read the result from the run record (`npm run gate:status`), never a notification or a pipe: [Running and reading the test gate](../README.md#running-and-reading-the-test-gate)
+  - one suite: call its `run()` export, as that section shows. `npm test -- <file>` runs every suite, and `node test/<suite>.test.js` exits 0 without running anything for many suites, so an empty log is not a pass.
   - lint: _Not configured. Skip lint gate._
   - typecheck: _Not configured (project is plain JS). Skip typecheck gate._
   - build: _No build step. Skip build gate._
@@ -33,7 +34,7 @@ Make the failing tests pass. Write the **minimum** code that satisfies the test 
 2. **Run the failing tests first.** Confirm what's actually failing. Don't trust prior context.
 3. **Orient via the Concept Graph.** If the change touches concepts, call `/api/concept-graph/summaries` and the relevant `/neighbors`/`/node` endpoints first. Don't load BIBLE.md or firmware JSON for concepts that exist in the graph.
 4. **Write the smallest code change** that makes them pass while honoring the ADR.
-5. **Run the test gate again.** All tests green.
+5. **Run the test gate again.** All tests green. Against a running stack, check `GET /api/strfry/router-status` before a full run: with an enabled `up` or `both` stream, the live suites' fixtures leave the machine. In that case run the touched suites one by one, leave the full run to CI on the PR, and say so under `## Deviations` (see [Running and reading the test gate](../README.md#running-and-reading-the-test-gate)).
 6. **Honor architecture rules:**
    - Orient via the Concept Graph API before reading source files.
    - Use the three-call pattern; don't use `/subgraph` depth > 1.

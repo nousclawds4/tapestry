@@ -32,7 +32,7 @@ End with one of:
 
 ## How to act
 
-1. **Run the test gate yourself.** Don't trust the Implementer's word. Run `npm test` (and Playwright if relevant). Note actual results in the review — quote the run's `npm run gate:status` line (run id + verdict), per [Running and reading the test gate](../README.md#running-and-reading-the-test-gate).
+1. **Run the test gate yourself.** Don't trust the Implementer's word. Run `npm test` (and Playwright if relevant). Note actual results in the review — quote the run's `npm run gate:status` line (run id + verdict), per [Running and reading the test gate](../README.md#running-and-reading-the-test-gate). That section also covers the two things that make a gate account wrong without anyone noticing: a suite run as `node test/<suite>.test.js` can exit 0 having run nothing (call its `run()` export instead), and a full run against a stack with an enabled `up` or `both` router stream sends the live suites' fixtures to public relays (check `GET /api/strfry/router-status` first; if it rules the full run out, run the diff's suites one by one, rest the full verdict on CI's stack-free run, and say so in the review).
 2. **Walk the diff file by file.** Note anything you don't understand — that's a candidate for either a missing comment or a real bug.
 3. **Cross-check against the story.** Every acceptance criterion has a test? Every test passes?
 4. **Cross-check against the ADR.** Files match? Layering matches? No new dependencies the ADR didn't authorize?
