@@ -4,7 +4,7 @@
 >
 > **Purpose:** A single canonical definition of "smoke-tested clean" so the four `/cycle-*` slash commands don't each carry their own variant. When a new gotcha is discovered, update this file and every cycle inherits.
 
-**Last updated:** 2026-09-19
+**Last updated:** 2026-10-29
 
 ---
 
@@ -100,11 +100,38 @@ After verifying the change worked, hit one or two endpoints adjacent to the chan
 
 This catches the easy-to-miss "we broke a neighboring thing" regression class.
 
+### Signed-in and owner-only checks
+
+When the change sits behind sign-in or an owner gate, check it without a browser signer. Two recipes; neither changes anything on the instance beyond a session.
+
+**A guest session, headless.** Use the repo's `nostr-tools` and one cookie jar for every call; `login-user` regenerates the session, so let the jar take its new cookie.
+
+1. Make a throwaway key: `sk = generateSecretKey()`, `pk = getPublicKey(sk)`.
+2. `POST $H/api/auth/verify-user` with `{"pubkey": pk}` → `{authorized, challenge}`.
+3. Sign a kind 22242 with `tags: [["challenge", challenge]]`, empty content and a `created_at` within ten minutes of the server's clock (`finalizeEvent(…, sk)`). The legacy kind 27235 is accepted too; no other kind is.
+4. `POST $H/api/auth/login-user` with `{"event": signed}` → `{"success": true, "isOwner": false, …}`. The session is now an authenticated guest.
+5. Call the route under test with the jar. An owner's-side action answers **403** `"Only the owner or an admin can do this."` from the auth middleware, before the handler's own check runs. Call a public sibling too and expect 200.
+6. `POST $H/api/auth/logout`.
+
+Any valid key signs in this way, as a guest. A check that needs a customer or an admin needs a real one. Customers get an Assistant key when they become customers (the owner's Add New Customer, or sign-up); admins don't, and provision one with `POST /api/assistant/provision-key`. Read either back from `GET /api/assistant/status?customerPubkey=<pk>` → `assistantPubkey`. `POST /api/auth/sign-up-new-customer` has been on the owner's side since 2026-10-10 (security-auth-exposure #8; `engineering-team/audits/admin-action-owner-check/inventory.md`, judgment call 2), so a guest can no longer make itself a customer. Some writes check `Origin` (`POST /api/dlist-curation/update` does), so send the host's own.
+
+**Must-reject, inside the container.** Logic that only the owner's side reaches can't be smoke-tested as a guest. On the droplet (SSH in per OPERATIONS.md), a request over the container's loopback carries no proxy header, so the middleware treats it as direct-local: it clears the gate and reaches the handler. Send only payloads the handler must refuse, so nothing changes, and checksum the file the route writes before and after to prove it:
+
+```bash
+docker exec tapestry sha1sum /var/lib/brainstorm/router-state.json
+docker exec tapestry curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' -d '{"streams":"x"}' \
+  http://127.0.0.1:7778/api/strfry/router-config        # expect 400: streams must be an array
+docker exec tapestry sha1sum /var/lib/brainstorm/router-state.json   # must match the first
+```
+
+The example is the router config, whose state file is `router-state.json`; for another route, send a payload that route must refuse and checksum what it writes. `7778` is the in-container `CONTROL_PANEL_PORT`; the container is `tapestry` on every instance. macOS has no `timeout(1)`, so bound the SSH session with `-o ConnectTimeout=<s>`.
+
 ---
 
 ## Limits / what the smoke test doesn't cover
 
-- **Authenticated-only endpoints** (Settings page contents, owner-only API writes) — tested only when the user has signed in via NIP-07. The MCP browser tool can't trigger NIP-07 sign-in interactively.
+- **Authenticated pages and real owner writes** (Settings page contents, an owner-only write that succeeds) — seen only when someone signs in via NIP-07; the browser tools can't sign. A route's gate, and a handler's refusals, are covered headlessly by [Signed-in and owner-only checks](#signed-in-and-owner-only-checks); the Tester role has ways to render a signed-in page without a signer ([roles/tester.md](../engineering-team/roles/tester.md#checking-a-signed-in-page-without-a-nip-07-signer)).
 - **Throughput / load / soak** — these are correctness smoke tests, not performance.
 - **Data-correctness across batch-recomputed properties** — e.g., `verifiedFollowerCount` on `NostrUser` nodes carries the previous threshold's values until the next batch run. Smoke tests confirm code paths, not data freshness.
 - **Cross-deploy session persistence** (the SESSION_SECRET / Redis story) — verified by sign-in-then-deploy-then-check-still-signed-in, which requires user action; smoke tests note the current auth state but don't synthesize this loop themselves.
