@@ -27,5 +27,10 @@ either.
 `GET /api/scheduled-tasks/history?entryId=…` and the entry's `timer.nextRunAt`. Then correct §13.2 either way. The same
 paragraph's note that `reconcileRecent`'s watermark spans the gap stays true in both cases.
 
+**A possible sighting on production (read 2026-10-30).** After about eight days with no tagging pass, one pass started
+at 2026-10-23T20:52:57Z, off its daily 14:24Z time. It was refused because Neo4j was not answering. Daily runs resumed
+at the usual time on 10-24. That fits "at most one catch-up run when the process returns". Whether the process started
+at that moment was not checked (OPEN.md row `2026-10-30-prod-pass-gap-unnoticed`).
+
 **Pointer:** OPERATIONS §13.2; `node_modules/bullmq/dist/cjs/commands/addJobScheduler-11.lua`;
 `src/manage/taskQueue/queue/scheduler.js` `reconcileSchedules`.
