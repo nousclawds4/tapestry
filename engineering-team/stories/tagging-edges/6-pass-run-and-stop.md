@@ -651,7 +651,46 @@ row 61).
     backend's console log, as on the local stack.
   - **The schedule.** Its `lastRunAt` follows each pass that runs, so it now reads 16:37:33.363Z, the owner's third.
     Its next run (daily at 14:26:18.654Z) did not move.
-- **Production** gets read-only checks only, after a promotion.
+- **Production** gets read-only checks only, after a promotion. *(Done 2026-10-29: § Production.)*
+
+### Production (2026-10-29, times UTC)
+
+- **The promotion.** PR nousclawds4/tapestry#11 promoted staging `6e457730` to main.
+  - **Why a `promote/*` branch.** A direct staging → main merge conflicts in 8 record files, so the merge was made on
+    `promote/tagging-edges-6`, which the main-source guard allows. Its merge commit `8534b050`, the PR's head, gives
+    the resolution file by file. OPEN.md row `2026-10-29-cycle-prod-skips-trial-merge` records that `/cycle-prod`
+    would not have seen the conflict.
+  - **What production got.** The merged tree differs from staging only by main's own additions to 4 docs and
+    dev-tool files (+198/−0), three of which staging also has, so production got the code staging runs.
+  - **Checks and the merge.**
+    - On that head, `stack-free` passed at 23:26:13Z and `main-source-guard` at 23:20:49Z.
+    - The safe-to-merge check read safe at 23:26:43Z: nothing was active, and the next start was `refreshSearchIndex`
+      at 00:00Z.
+    - The merge followed at 23:26:55Z as `62b1ad7a`.
+  - **Who merged.** This session, as `virgil-clawds4`, with `gh pr merge` on GitHub. `docs/harness/H2_0-baseline.md`
+    (on main only) says only the Tapestry Lead merges to main, over ngit, and that GitHub is off limits to agents. In
+    chat, the owner chose an option confirming "that GitHub PRs into main are now allowed and that this counts as the
+    OK for this production deploy". OPEN.md row `2026-10-29-h2-0-baseline-predates-github-flow` records the gap.
+- **The deploy.** Run `40973212957` was the first `deploy-tapestry.yml` run on nousclawds4/tapestry. It ran 23:27:01Z
+  to 23:34:29Z, a cold build.
+  - Its log shows "From https://github.com/nousclawds4/tapestry" and "Updating b764663d..62b1ad7a". So the production
+    droplet pulls the new repo. Its checkout had still been at the old repo's `main` of 2026-10-14, though its
+    `origin/main` already read `3e9a31ee`, the new repo's `main` of 2026-10-21, which the old repo lacks (the fetch
+    logged `3e9a31ee..62b1ad7a`).
+  - The `tapestry` container was recreated at 23:34:14Z.
+- **The smoke test** (`docs/SMOKE_TEST.md`) was clean apart from `get-user-data`'s 504 on the heavy test pubkey
+  (OPEN.md row 61). Neo4j was answering by 23:35:09Z.
+- **Read-only checks of this story,** all signed out, from 23:35:26Z.
+  - The served bundle changed from `index-BPseA8Eb.js` (built 2026-10-23) to `index-CHcumCZ-.js`, staging's. The new
+    bundle carries the pass's run, stop and record routes, and the refused Run's sentence.
+  - The public status gained `control` `{queue: 'ok', busy: [], gaveUp: null}`, and it carries no `who`.
+  - Its `latest` is still the scheduled pass that began at 14:24:38Z, before the deploy, so it has no `job` member
+    until the next pass.
+  - The record read answered 401.
+  - The real-time path still reads `live`, and the held list answers 200.
+- **What the checks changed on production.** Nothing beyond the deploy itself. No Run or Stop was sent, and nobody
+  signed in.
+- **Not checked on production:** a Run or Stop by the owner or an admin, and the who it shows. Those rest on § Staging.
 
 ## Deviations
 

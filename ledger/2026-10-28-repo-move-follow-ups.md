@@ -35,5 +35,15 @@ every `gh` command. These items remain:
 
    The CLIs stay under `nous-clawds4` (BIBLE §3).
 
+**Seen again on 2026-10-29** (tagging-edges story 6's promotion, PR nousclawds4/tapestry#11):
+- **Item 1 in practice.** While the PR's Test ran, its merge state read `UNSTABLE`, not `BLOCKED`. Nothing stopped
+  an early merge. It waited for `CLEAN` only because the session did (OPEN.md row
+  `2026-10-29-cycle-prod-skips-trial-merge`).
+- **The droplets' origin, now shown for two of four.**
+  - The first production deploy run on the new repo (run `40973212957`) logged
+    "From https://github.com/nousclawds4/tapestry" and "Updating b764663d..62b1ad7a".
+  - Staging's first (run `40434357530`, 2026-10-27) logged the same repo.
+  - Tags and magic-carpet have not deployed from it yet, so theirs is still unverified.
+
 **Pointer:** `.claude/skills/cycle-staging/SKILL.md` ("The old repo"); OPERATIONS §9.1;
 `engineering-team/reviews/harness-self-improvement/skills-repo-nousclawds4-2026-10-28.md`.
