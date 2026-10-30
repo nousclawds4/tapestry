@@ -1,6 +1,6 @@
 # Handoff — Tagging edges, stories 2–7 (Tapestry)
 
-**Status:** 🔴 OPEN: stories 1–5 are in production. Story 6 (running and stopping the pass) is on staging with its staging evidence complete (2026-10-29, PR nousclawds4/tapestry#6), not yet on main, and story 7 (confirming held removals) is next. Story 5, the real-time path's switch (ADR `tagging-edges/0005`), reached production on 2026-10-02 (PRs #805 and #809). Story 4, the tagging pipeline panel (ADR `tagging-edges/0004`), shipped on 2026-10-01 (PRs #791 and #792). Story 3, the real-time path (ADR `tagging-edges/0003` with Amendment A1), shipped on 2026-09-30 (PRs #785 and #786), and the owner turned it on on both hosts that day. Story 2, the gap-filling pass, shipped on 2026-09-28 (PRs #780 and #781). Story 1, the `TAGS` edge contract, on 2026-09-27 (PRs #764 and #765). § 0 lists what is left.
+**Status:** 🔴 OPEN: stories 1–6 are in production, and story 7 (confirming held removals) is next. Story 6, running and stopping the pass (ADR `tagging-edges/0006`), reached production on 2026-10-29 (PRs nousclawds4/tapestry#6 and nousclawds4/tapestry#11), with its staging evidence complete. Story 5, the real-time path's switch (ADR `tagging-edges/0005`), reached production on 2026-10-02 (PRs #805 and #809). Story 4, the tagging pipeline panel (ADR `tagging-edges/0004`), shipped on 2026-10-01 (PRs #791 and #792). Story 3, the real-time path (ADR `tagging-edges/0003` with Amendment A1), shipped on 2026-09-30 (PRs #785 and #786), and the owner turned it on on both hosts that day. Story 2, the gap-filling pass, shipped on 2026-09-28 (PRs #780 and #781). Story 1, the `TAGS` edge contract, on 2026-09-27 (PRs #764 and #765). § 0 lists what is left.
 
 > **Repo metadata. Not part of the handoff text.**
 > - **Source.** The kickoff session of 2026-09-25 to 27 mapped the existing FOLLOWS / MUTES / REPORTS ETL read-only: seven area readers, an adversarial fact-check of 115 load-bearing claims (98 confirmed, 15 corrected, 2 unverifiable), and a completeness critique. It then took a read-only census of production, staging and tags.brainstorm.world, and shipped story 1. This file keeps that map, which otherwise lived only in the session.
@@ -67,16 +67,17 @@ Merged to main at 15:31:54Z that day, through another session's promotion of all
 evidence was recorded (PR #813, since promoted to main). Production
 was then checked read-only, and was healthy. Ledger `2026-10-02-promotion-outruns-pre-main-evidence` records the gap.
 
-**Story 6 on staging, story 7 next.** At story 5's Planning (2026-10-01) the owner split the controls on story 4's
+**Story 6 on production, story 7 next.** At story 5's Planning (2026-10-01) the owner split the controls on story 4's
 panel by what they act on. At story 6's Planning (2026-10-02) the owner split the pass's controls again:
 - **Story 6** (`engineering-team/stories/tagging-edges/6-pass-run-and-stop.md`, review PASS 2026-10-28 after two
-  rounds; on staging since 2026-10-29, PR nousclawds4/tapestry#6, with its staging evidence complete; not yet on main)
-  is running and stopping the pass, for the owner or an admin: Run, Stop, the waiting and stopping states every viewer
-  sees, who started or stopped each pass, and the run-task route closed for this pass to anyone else.
+  rounds; on production since 2026-10-29, PRs nousclawds4/tapestry#6 and nousclawds4/tapestry#11, with its staging
+  evidence complete) is running and stopping the pass, for the owner or an admin: Run, Stop, the waiting and stopping
+  states every viewer sees, who started or stopped each pass, and the run-task route closed for this pass to anyone
+  else.
 - **Story 7** (the epic's item 7, planned) is confirming held removals from the panel, for the owner only, after a
   prompt.
 
-Until story 6 the Task Explorer runs a pass, and until story 7 OPERATIONS §12.8's console snippet confirms held
+Since story 6 the panel runs and stops a pass, and until story 7 OPERATIONS §12.8's console snippet confirms held
 removals. The path is switched on the panel (§12.9).
 
 Story 5 also carried story 4's review carry-forwards R2-1 to R2-14 (`reviews/tagging-edges/4-tagging-pipeline-panel.md`
@@ -103,7 +104,7 @@ plan and test comments, ADR, one prompt and, optionally, one reason's copy, agai
 | The edge as documented | BIBLE §6 "Social Graph Relationships (NostrUser → NostrUser)" |
 | The code | `src/lib/tagging-edges/` (`taggingToEdge`, `standingEdge`, `revokeApplies`, `revokeTargets`) and `test/tagging-edge-contract.test.js` |
 | Story 1's review items (carried into story 2, which shipped 2026-09-28) | [`engineering-team/reviews/tagging-edges/1-tagging-edge-contract.md`](../engineering-team/reviews/tagging-edges/1-tagging-edge-contract.md) § "Re-review": R2-NB1–3 (acceptance criteria) and doc nits R2-4–10 (story 2 docs tasks), as carried in the epic's item 2 |
-| Open review items from story 6 | [`engineering-team/reviews/tagging-edges/6-pass-run-and-stop.md`](../engineering-team/reviews/tagging-edges/6-pass-run-and-stop.md) § "Re-review, round 2": carry-forwards 1–9, and round 1's non-blocking 1 and 2, for the owner to place. Story 5's C5-1 to C5-10 went to story 6, which shipped them to staging. Story 4's R2-1–R2-14 went to story 5, which shipped them. |
+| Open review items from story 6 | [`engineering-team/reviews/tagging-edges/6-pass-run-and-stop.md`](../engineering-team/reviews/tagging-edges/6-pass-run-and-stop.md) § "Re-review, round 2": carry-forwards 1–9, and round 1's non-blocking 1 and 2, for the owner to place. Story 5's C5-1 to C5-10 went to story 6, which shipped them. Story 4's R2-1–R2-14 went to story 5, which shipped them. |
 | The census numbers | story 1's Background ([`stories/tagging-edges/1-tagging-edge-contract.md`](../engineering-team/stories/tagging-edges/1-tagging-edge-contract.md)) |
 
 ## 2. The existing ETL, as it actually works
@@ -156,9 +157,9 @@ strfry (C++ patch) → Redis list strfry:events → stream-consumer (supervisor)
   - Its Start/Stop/Restart buttons have no confirm.
   - The control POST is **not owner-gated**: any signed-in session passes. It falls in the class scoped by the open 2026-07-21 intake entry "gate authenticated-non-owner access to admin mutations", whose inventory does not name this route yet.
 - **Settings › Relays › Tagging pipeline** (tagging-edges story 4, ADR `tagging-edges/0004`), the sub-tab directly after ⚡ Streaming ETL: `TaggingPipelinePanel` in `ui/src/pages/settings/taggingPipeline/`, with its logic in `ui/src/utils/taggingPipelineView.js` and `ui/src/utils/taggingPipelineFetch.js`.
-  - It shows the tagging pass, the real-time path and the drift between relay and graph, and changes nothing but the real-time path's switch (story 5); story 6 adds Run and Stop, and story 7 Confirm.
-  - Its reads are the public status, held, realtime-status and scheduled-tasks list routes, plus `GET /api/tagging-edges/drift-counts`, the one read gated to a signed-in owner or admin.
-- **Reconcile tasks have no dedicated control UI.** The Tagging pipeline panel above shows the tagging pass but runs nothing until story 6. The React control panel can only schedule them, as entries in the neighbouring **📅 Scheduled Tasks** sub-tab (`ScheduledTasksPanel`, `scheduledTasks/AddOrEditEntryModal.jsx`, `src/api/scheduled-tasks/`). The legacy Task Explorer (`/legacy/task-explorer.html`) can run registry tasks on demand through `POST /api/run-task` (not `reconcileAuthor`, whose `--pubkey` it cannot pass), and the legacy home page still carries Batch Transfer and Reconciliation buttons wired to the routes in § 2.2. Job-level inspection is BullBoard at `/admin/queues`.
+  - It shows the tagging pass, the real-time path and the drift between relay and graph. It changes the real-time path's switch (story 5) and runs and stops the pass (story 6); story 7 adds Confirm.
+  - Its reads are the public status, held, realtime-status and scheduled-tasks list routes, plus three gated to a signed-in owner or admin: `GET /api/tagging-edges/drift-counts`, story 5's switch record `GET /api/tagging-edges/realtime/switch`, and story 6's pass record `GET /api/tagging-edges/pass/record`.
+- **Other reconcile tasks have no dedicated control UI.** The Tagging pipeline panel above shows the tagging pass, and since story 6 it also runs and stops it. The React control panel can only schedule the other reconcile tasks, as entries in the neighbouring **📅 Scheduled Tasks** sub-tab (`ScheduledTasksPanel`, `scheduledTasks/AddOrEditEntryModal.jsx`, `src/api/scheduled-tasks/`). The legacy Task Explorer (`/legacy/task-explorer.html`) can run registry tasks on demand through `POST /api/run-task` (not `reconcileAuthor`, whose `--pubkey` it cannot pass), and the legacy home page still carries Batch Transfer and Reconciliation buttons wired to the routes in § 2.2. Job-level inspection is BullBoard at `/admin/queues`.
 - **House idiom for an operator panel:**
   - a `settings-section` / `settings-group` card with a coloured status dot and `btn-small` actions;
   - green/red flash banners;
