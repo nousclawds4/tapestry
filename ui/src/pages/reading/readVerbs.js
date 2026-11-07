@@ -242,11 +242,16 @@ export async function scopes() {
       if (r.n) out.push({ key: 'project:' + r.h, label: pj[r.h], kind: 'project', count: r.n });
     }
   }
+  // every top's subtree in one query (a query per top, one after another, was most of the page's wait)
+  const subs = Object.fromEntries(t.tops.map((top) => [top, t.subtree(top)]));
+  const pairs = Object.entries(subs).flatMap(([top, sub]) => sub.map((c) => ({ t: top, c })));
+  const got = {};
+  if (pairs.length) {
+    for (const r of await R('UNWIND $p AS x MATCH (:NostrEvent {uuid:x.c})-[:IS_THE_CONCEPT_FOR]->(:Superset)'
+      + '-[:IS_A_SUPERSET_OF*0..8]->()-[:HAS_ELEMENT]->(e) RETURN x.t AS t, count(DISTINCT e) AS n', { p: pairs })) got[r.t] = r.n;
+  }
   for (const top of t.tops) {
-    const sub = t.subtree(top);
-    const r = await R('UNWIND $u AS c MATCH (:NostrEvent {uuid:c})-[:IS_THE_CONCEPT_FOR]->(:Superset)-[:IS_A_SUPERSET_OF*0..8]->()'
-      + '-[:HAS_ELEMENT]->(e) RETURN count(DISTINCT e) AS n', { u: sub });
-    const count = ((r[0] && r[0].n) || 0) + sub.length - 1;
+    const count = (got[top] || 0) + subs[top].length - 1;
     if (count) out.push({ key: 'concept:' + top, label: t.names[top], kind: 'concept', count });
   }
   out.sort((a, b) => (a.kind !== 'project') - (b.kind !== 'project') || b.count - a.count);
@@ -483,7 +488,8 @@ export async function scope({ key, limit = 400 }, ta) {
   if (!key) throw new Error('scope needs a key');
   limit = Number(limit);
   const [ids, total] = await scopeMembers(key, limit);
-  const label = ((await scopes()).scopes.find((s) => s.key === key) || {}).label || key;
+  const h = key.slice(key.indexOf(':') + 1);   // the label without counting every scope again
+  const label = (key.startsWith('project:') ? (await projects())[h] : (await tree()).names[h]) || key;
   const doc = await build(Object.fromEntries(ids.map((u) => [u, key])), ta);
   doc.parts = [{ key, label }];
   doc.scope = { key, label, shown: ids.length, total, capped: total > limit };
