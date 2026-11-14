@@ -3020,6 +3020,9 @@ built. That story froze what the workflows run today and changed nothing else.
   doesn't read a local action's own `action.yml`, or a job's `container:` or `services:` image named by a tag. Nothing
   in the repo has either today.
 - **Pins age.** Nothing moves a pin when an action ships a fix. OPERATIONS.md §18.1 says how to move one by hand.
+- **Two pins are on releases that target Node 20.** The runner forces `docker/build-push-action` v6.19.2 and
+  `docker/login-action` v3.7.0 onto Node 24, and says so in an annotation on the publish run of 2026-11-14. The same
+  was true of the tags they replaced. Whether a newer release of each targets Node 24 is to check.
 
 **Likely shape.**
 

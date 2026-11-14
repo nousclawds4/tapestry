@@ -76,7 +76,7 @@ None. This is CI configuration; no concept in the concept graph is affected.
 - New keys for the servers.
 - Who has write access to the repo, and their tokens.
 - The old mirror's Actions and secrets, and the public pointers that still name it (items 2 and 3 of
-  [the repo-move ledger row](../../../ledger/2026-10-28-repo-move-follow-ups.md)).
+  [the repo-move ledger row](../../../../ledger/2026-10-28-repo-move-follow-ups.md)).
 - Automatic pin updates, such as Dependabot. That is a separate decision.
 - Requiring the test gate on `staging`.
 - Splitting the image-publishing job so that only its last step holds a server's credentials.

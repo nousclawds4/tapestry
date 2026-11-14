@@ -1,9 +1,9 @@
 # Book of Work: The GitHub workflows pin what they run, limit their token, and name a deploy environment
 
 **Slug:** workflow-hardening
-**Status:** Open
+**Status:** Closed
 **Opened:** 2026-11-13
-**Closed:** —
+**Closed:** 2026-11-14
 **Gating:** **Human-gated.** Standard strictness, Bug lane. Architecture was skipped at intake as obvious, on the
 owner's choice (2026-11-13). No Direction mode.
 
@@ -16,35 +16,39 @@ is *judged* against them.
 
 ### Acceptance frame
 
-- [ ] Every action a workflow calls is pinned to a full commit.
-- [ ] Every workflow declares what its token may do, and none can write to the repository's contents.
-- [ ] Every job that reads a deploy secret names a GitHub environment: `tapestry`, `staging`, `tags`, `magic-carpet`
-      or `ninja`.
-- [ ] A test in `npm test` fails when a workflow breaks any of the three rules above.
-- [ ] OPERATIONS.md says how to set up a deploy target's environment and how to move a pin.
-- [ ] Deploys and the test gate behave as before. The settings work in GitHub (limiting each environment to its
-      branch, moving the secrets in) stays with the owner and is not part of this book.
+- [x] Every action a workflow calls is pinned to a full commit. *(Story 1, AC-1. Twelve calls to six actions; each
+      pin read three times against its tag.)*
+- [x] Every workflow declares what its token may do, and none can write to the repository's contents. *(Story 1,
+      AC-2.)*
+- [x] Every job that reads a deploy secret names a GitHub environment: `tapestry`, `staging`, `tags`, `magic-carpet`
+      or `ninja`. *(Story 1, AC-3. In the files on `staging`; GitHub created `staging` and `ninja` at the merge.)*
+- [x] A test in `npm test` fails when a workflow breaks any of the three rules above. *(Story 1, AC-4:
+      `test/workflow-hardening.test.js`, 27 tests.)*
+- [x] OPERATIONS.md says how to set up a deploy target's environment and how to move a pin. *(Story 1, AC-5: §18,
+      §6.2.)*
+- [x] Deploys and the test gate behave as before. The settings work in GitHub (limiting each environment to its
+      branch, moving the secrets in) stays with the owner and is not part of this book. *(Story 1, AC-6. The pull
+      request's `Test` run read 7,090 passed, 0 failed; the staging deploy and the brains' roll for the merge both
+      succeeded; staging passed its smoke test.)*
+
+Shipped to `staging` as TapestryProtocol/tapestry#54 (merge `55573a32`, 2026-11-14), on the owner's OK. Not promoted to
+`main`.
 
 ## What stays open
 
-Known at opening, and outside this book:
+In the build audit's carry-forward register (`audit.md` §6): the owner's settings work, the promotion to `main`, the
+two sandbox branches, the two workflows that only `feature-magic-carpet` holds, and the follow-ups queued in
+`engineering-team/stories/_intake.md` (entry of 2026-11-13).
 
-- The owner's settings work: creating and limiting the environments, moving each target's secrets in, and removing
-  the repository-level copies.
-- Items 2 and 3 of [the repo-move ledger row](../../../ledger/2026-10-28-repo-move-follow-ups.md).
-- `feature-magic-carpet` holds two workflows that `staging` doesn't, `configure-prod.yml` and `deploy-brainstorm.yml`.
-  Both name deploy secrets, call their action by a tag, and declare no permissions or environment. They are that
-  branch's to bring in line when this change reaches it, and the test will fail there until they are (review round 1,
-  non-blocking 4).
-- The follow-ups queued in `engineering-team/stories/_intake.md`, entry of 2026-11-13.
+Outside this book: items 2 and 3 of [the repo-move ledger row](../../../ledger/2026-10-28-repo-move-follow-ups.md).
 
 ## Epics in this book
 - `workflow-hardening` — story 1.
 
 ## Provenance
 - **Mode:** Acceptance-frame
-- **Confidence at close:** *(filled by `/close-book`)*
+- **Confidence at close:** high for the six bullets, each shown on `staging` by a run. The frame stops at `staging`.
 
-## Close artifacts *(filled by `/close-book`)*
+## Close artifacts
 - Build audit: `engineering-team/audits/workflow-hardening/audit.md`
 - Product feedback: `engineering-team/audits/workflow-hardening/prd-seed.md`

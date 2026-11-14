@@ -3,7 +3,7 @@
 **Reviewer:** Claude (acting as Reviewer)
 **Date:** 2026-11-13
 **Diff:** `git diff origin/staging...HEAD` (base `6c57ec1f`, HEAD `0af83004`: story `1dc1ca44`, failing tests `8b6931bb`, a ledger row `495e0458`, implementation `0af83004`)
-**Story:** [1-harden-the-github-workflows.md](../../stories/workflow-hardening/1-harden-the-github-workflows.md) · **ADR:** none (Architecture skipped at intake) · **Test plan:** [1-…test-plan.md](../../stories/workflow-hardening/1-harden-the-github-workflows.test-plan.md)
+**Story:** [1-harden-the-github-workflows.md](../../../stories/done/workflow-hardening/1-harden-the-github-workflows.md) · **ADR:** none (Architecture skipped at intake) · **Test plan:** [1-…test-plan.md](../../../stories/done/workflow-hardening/1-harden-the-github-workflows.test-plan.md)
 
 **In short.** The workflow changes are right. All 12 action calls are pinned to the commit their tag points to today, and that commit is the release each comment names. Every workflow declares its token's permissions, the five deploy jobs name the right environments, and nothing else in any workflow changed. I found no reason the workflows would stop running. Two things block, and neither is in a workflow file:
 

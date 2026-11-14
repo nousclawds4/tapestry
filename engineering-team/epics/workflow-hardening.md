@@ -1,7 +1,7 @@
 # Epic: workflow-hardening
 
 **Created:** 2026-11-13
-**Status:** Active
+**Status:** Done (epic retired 2026-11-14 at the workflow-hardening book close: story 1 Done, on `staging` via TapestryProtocol/tapestry#54; `main` and the sandbox branches take it at their next promotion or sync)
 **Book:** `engineering-team/audits/workflow-hardening/book.md` (acceptance frame; human-gated; Standard, Bug lane,
 Architecture skipped at intake)
 **Provenance:** Owner request 2026-11-13 (in-session), out of a check of this repo against the stolen-token campaign

@@ -90,7 +90,7 @@ Not covered, with the reason:
 
 ## Test infrastructure
 - Test framework: Node built-in runner (`node test/test.js`), through `test/registry.js`. A run's result is read per
-  [Running and reading the test gate](../../README.md#running-and-reading-the-test-gate).
+  [Running and reading the test gate](../../../README.md#running-and-reading-the-test-gate).
 - Parser: `js-yaml`, already a dependency (`bin/control-panel.js`, `test/operations.test.js`). No new dependency.
 - Concept Graph API: not used. The suite needs no stack.
 - Firmware state: none.
